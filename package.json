@@ -63,6 +63,9 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      "build/icon.ico"
     ]
   }
 }

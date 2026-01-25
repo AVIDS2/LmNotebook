@@ -1,9 +1,52 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
+
+function getTrayIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'build', 'icon.ico')
+  }
+  return join(app.getAppPath(), 'build', 'icon.ico')
+}
+
+function createTray(window: BrowserWindow): void {
+  const iconPath = getTrayIconPath()
+  tray = new Tray(iconPath)
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示',
+      click: () => {
+        window.show()
+        window.focus()
+      }
+    },
+    {
+      label: '退出',
+      click: () => {
+        quitting = true
+        app.quit()
+      }
+    }
+  ])
+
+  tray.setToolTip('Origin Notes')
+  tray.setContextMenu(contextMenu)
+
+  tray.on('click', () => {
+    if (window.isVisible()) {
+      window.hide()
+    } else {
+      window.show()
+      window.focus()
+    }
+  })
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -25,6 +68,13 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  mainWindow.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault()
+      mainWindow?.hide()
+    }
   })
 
   // 处理外部链接
@@ -95,11 +145,22 @@ ipcMain.handle('import-file', async (_event, options: { filters: { name: string;
 app.whenReady().then(() => {
   createWindow()
 
+  if (mainWindow) {
+    createTray(mainWindow)
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
+    } else if (mainWindow) {
+      mainWindow.show()
+      mainWindow.focus()
     }
   })
+})
+
+app.on('before-quit', () => {
+  quitting = true
 })
 
 app.on('window-all-closed', () => {
