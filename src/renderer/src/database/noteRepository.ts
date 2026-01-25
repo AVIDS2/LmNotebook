@@ -152,6 +152,16 @@ export const noteRepository = {
       .delete()
   },
 
+  // 统计非空笔记总数（排除已删除）
+  async countNonEmpty(): Promise<number> {
+    return await db.notes
+      .filter(note => {
+        if (note.isDeleted) return false
+        return note.title.trim().length > 0 || note.plainText.trim().length > 0
+      })
+      .count()
+  },
+
   // 搜索笔记
   async search(keyword: string): Promise<Note[]> {
     if (!keyword.trim()) {

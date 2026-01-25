@@ -90,7 +90,9 @@ function formatDate(timestamp: number): string {
   border-radius: $radius-lg;
   margin-bottom: $spacing-sm;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, border-color $transition-fast, color $transition-fast, box-shadow $transition-fast;
+  content-visibility: auto;
+  contain: layout paint style;
 
   &:hover {
     background: $color-bg-hover;

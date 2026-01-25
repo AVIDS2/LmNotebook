@@ -321,8 +321,7 @@ async function handleTitleBlur(): Promise<void> {
     titleSaveTimer = null
   }
   if (noteStore.currentNote && localTitle.value !== noteStore.currentNote.title) {
-    await noteRepository.update(noteStore.currentNote.id, { title: localTitle.value })
-    await noteStore.loadNotes()
+    await noteStore.updateNote(noteStore.currentNote.id, { title: localTitle.value })
   }
 }
 
@@ -330,10 +329,9 @@ async function handleTitleBlur(): Promise<void> {
 async function handleCategoryChange(event: Event): Promise<void> {
   const select = event.target as HTMLSelectElement
   if (noteStore.currentNote) {
-    await noteRepository.update(noteStore.currentNote.id, {
+    await noteStore.updateNote(noteStore.currentNote.id, {
       categoryId: select.value || null
     })
-    await noteStore.loadNotes()
   }
 }
 
@@ -389,7 +387,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   background: $color-bg-card;
   overflow: hidden;
-  will-change: contents;
 }
 
 .note-editor__empty {
@@ -437,7 +434,7 @@ onBeforeUnmount(() => {
   color: $color-text-secondary;
   font-size: $font-size-sm;
   cursor: pointer;
-  transition: all 0.1s ease;
+  transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
 
   &:hover {
     background: $color-bg-hover;

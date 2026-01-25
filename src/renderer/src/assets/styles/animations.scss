@@ -74,7 +74,7 @@
 
 .slide-fade-enter-active,
 .slide-fade-leave-active {
-  transition: all 0.25s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .slide-fade-enter-from {
@@ -89,7 +89,7 @@
 
 .list-enter-active,
 .list-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .list-enter-from,

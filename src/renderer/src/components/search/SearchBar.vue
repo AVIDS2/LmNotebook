@@ -39,7 +39,7 @@ function handleSearch(): void {
 
   debounceTimer = setTimeout(() => {
     noteStore.search(searchValue.value)
-  }, 200)
+  }, 300)
 }
 
 function handleClear(): void {
@@ -92,7 +92,7 @@ watch(() => noteStore.currentView, () => {
   background: $color-bg-hover;
   color: $color-text-muted;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast;
 
   &:hover {
     background: $color-bg-active;

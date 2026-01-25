@@ -297,7 +297,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   background: transparent;
   color: $color-text-muted;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
   z-index: 10;
 
   &:hover {
@@ -324,7 +324,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   border-radius: $radius-md;
   font-size: $font-size-sm;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     background: $color-bg-hover;
@@ -349,7 +349,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   font-size: $font-size-sm;
   color: $color-text-secondary;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     background: $color-bg-hover;
@@ -415,7 +415,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   background: transparent;
   color: $color-text-muted;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     background: $color-bg-hover;
@@ -454,7 +454,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   color: $color-text-secondary;
   font-size: $font-size-xs;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     background: $color-bg-hover;
@@ -482,7 +482,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   background: transparent;
   color: $color-text-secondary;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     background: $color-bg-hover;
@@ -546,7 +546,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast, box-shadow $transition-fast;
 
   &:hover {
     transform: scale(1.1);

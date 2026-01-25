@@ -63,13 +63,11 @@ export const useNoteStore = defineStore('notes', () => {
 
   // 更新全部笔记总数（排除空笔记）
   async function updateTotalCount(): Promise<void> {
-    const allNotes = await noteRepository.getAllSorted()
-    // 只计算非空笔记
-    totalNotesCount.value = allNotes.filter(note => !isNoteEmpty(note)).length
+    totalNotesCount.value = await noteRepository.countNonEmpty()
   }
 
   // 加载笔记列表
-  async function loadNotes(): Promise<void> {
+  async function loadNotes(options: { updateTotalCount?: boolean } = {}): Promise<void> {
     isLoading.value = true
     try {
       if (searchKeyword.value) {
@@ -83,10 +81,97 @@ export const useNoteStore = defineStore('notes', () => {
       } else if (currentView.value === 'trash') {
         notes.value = await noteRepository.getDeleted()
       }
-      // 更新全部笔记总数
-      await updateTotalCount()
+      if (options.updateTotalCount !== false) {
+        await updateTotalCount()
+      }
     } finally {
       isLoading.value = false
+    }
+  }
+
+  function sortNotesForCurrentView(list: Note[]): void {
+    if (searchKeyword.value.trim()) {
+      list.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) {
+          return a.isPinned ? -1 : 1
+        }
+        return b.updatedAt - a.updatedAt
+      })
+      return
+    }
+
+    if (currentView.value === 'trash') {
+      list.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+      return
+    }
+
+    if (currentView.value === 'pinned') {
+      list.sort((a, b) => b.updatedAt - a.updatedAt)
+      return
+    }
+
+    list.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) {
+        return a.isPinned ? -1 : 1
+      }
+      return b.updatedAt - a.updatedAt
+    })
+  }
+
+  function matchesSearch(note: Note, keyword: string): boolean {
+    const lowerKeyword = keyword.toLowerCase()
+    return (
+      note.title.toLowerCase().includes(lowerKeyword) ||
+      note.plainText.toLowerCase().includes(lowerKeyword)
+    )
+  }
+
+  function applyNoteUpdate(updated: Note): void {
+    const keyword = searchKeyword.value.trim()
+    const isSearchActive = keyword.length > 0
+    const shouldMatchSearch = !isSearchActive || matchesSearch(updated, keyword)
+
+    let shouldInclude = true
+    if (isSearchActive) {
+      shouldInclude = !updated.isDeleted && shouldMatchSearch
+    } else if (currentView.value === 'trash') {
+      shouldInclude = updated.isDeleted
+    } else if (currentView.value === 'pinned') {
+      shouldInclude = !updated.isDeleted && updated.isPinned
+    } else if (currentView.value === 'category') {
+      shouldInclude = !updated.isDeleted && updated.categoryId === currentCategoryId.value
+    } else {
+      shouldInclude = !updated.isDeleted
+    }
+
+    const previous = currentNote.value?.id === updated.id
+      ? currentNote.value
+      : notes.value.find(note => note.id === updated.id)
+
+    if (currentNote.value?.id === updated.id) {
+      currentNote.value = updated
+    }
+
+    const index = notes.value.findIndex(note => note.id === updated.id)
+    if (shouldInclude) {
+      if (index === -1) {
+        notes.value.push(updated)
+      } else {
+        notes.value[index] = updated
+      }
+      sortNotesForCurrentView(notes.value)
+    } else if (index !== -1) {
+      notes.value.splice(index, 1)
+    }
+
+    if (previous) {
+      const wasCounted = !previous.isDeleted && !isNoteEmpty(previous)
+      const isCounted = !updated.isDeleted && !isNoteEmpty(updated)
+      if (!wasCounted && isCounted) {
+        totalNotesCount.value += 1
+      } else if (wasCounted && !isCounted) {
+        totalNotesCount.value = Math.max(0, totalNotesCount.value - 1)
+      }
     }
   }
 
@@ -122,7 +207,7 @@ export const useNoteStore = defineStore('notes', () => {
   // 搜索
   async function search(keyword: string): Promise<void> {
     searchKeyword.value = keyword
-    await loadNotes()
+    await loadNotes({ updateTotalCount: false })
   }
 
   // 选择笔记（切换时检查空笔记）
@@ -130,7 +215,7 @@ export const useNoteStore = defineStore('notes', () => {
     // 如果切换到不同的笔记，检查当前笔记是否为空
     if (currentNote.value && currentNote.value.id !== note.id) {
       await cleanupEmptyCurrentNote()
-      await loadNotes()
+      await loadNotes({ updateTotalCount: false })
     }
 
     currentNote.value = note
@@ -142,7 +227,8 @@ export const useNoteStore = defineStore('notes', () => {
     await cleanupEmptyCurrentNote()
 
     const note = await noteRepository.create(input)
-    await loadNotes()
+    await loadNotes({ updateTotalCount: false })
+    await updateTotalCount()
     currentNote.value = note
     return note
   }
@@ -163,25 +249,22 @@ export const useNoteStore = defineStore('notes', () => {
     await noteRepository.update(id, input)
 
     // 更新当前笔记
-    if (currentNote.value?.id === id) {
-      const updated = await noteRepository.getById(id)
-      if (updated) {
+    const updated = await noteRepository.getById(id)
+    if (updated) {
+      applyNoteUpdate(updated)
+      if (currentNote.value?.id === id) {
         currentNote.value = updated
       }
     }
-
-    await loadNotes()
   }
 
   // 切换置顶
   async function togglePin(id: string): Promise<void> {
     await noteRepository.togglePin(id)
-    await loadNotes()
-
-    // 更新当前笔记
-    if (currentNote.value?.id === id) {
-      const updated = await noteRepository.getById(id)
-      if (updated) {
+    const updated = await noteRepository.getById(id)
+    if (updated) {
+      applyNoteUpdate(updated)
+      if (currentNote.value?.id === id) {
         currentNote.value = updated
       }
     }
@@ -190,7 +273,12 @@ export const useNoteStore = defineStore('notes', () => {
   // 删除笔记（移到回收站）
   async function deleteNote(id: string): Promise<void> {
     await noteRepository.softDelete(id)
-    await loadNotes()
+    const updated = await noteRepository.getById(id)
+    if (updated) {
+      applyNoteUpdate(updated)
+    } else {
+      notes.value = notes.value.filter(note => note.id !== id)
+    }
 
     if (currentNote.value?.id === id) {
       currentNote.value = notes.value[0] || null
@@ -200,13 +288,24 @@ export const useNoteStore = defineStore('notes', () => {
   // 恢复笔记
   async function restoreNote(id: string): Promise<void> {
     await noteRepository.restore(id)
-    await loadNotes()
+    const updated = await noteRepository.getById(id)
+    if (updated) {
+      applyNoteUpdate(updated)
+    }
   }
 
   // 永久删除
   async function permanentDeleteNote(id: string): Promise<void> {
+    const existing = await noteRepository.getById(id)
     await noteRepository.permanentDelete(id)
-    await loadNotes()
+    notes.value = notes.value.filter(note => note.id !== id)
+
+    if (existing) {
+      const wasCounted = !existing.isDeleted && !isNoteEmpty(existing)
+      if (wasCounted) {
+        totalNotesCount.value = Math.max(0, totalNotesCount.value - 1)
+      }
+    }
 
     if (currentNote.value?.id === id) {
       currentNote.value = notes.value[0] || null
