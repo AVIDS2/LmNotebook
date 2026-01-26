@@ -15,7 +15,7 @@
 
 ## 预览
 
-![Origin Notes Screenshot](./image.png)
+![Origin Notes Screenshot](./image1.png)
 
 ## 快速开始
 
