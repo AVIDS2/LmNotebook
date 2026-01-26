@@ -15,7 +15,7 @@
 
 ## 预览
 
-> 可在此放置应用截图：`/assets/screenshot.png`
+![Origin Notes Screenshot](./image.png)
 
 ## 快速开始
 
