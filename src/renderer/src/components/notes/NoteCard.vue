@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Note } from '@/types/note'
+import type { Note } from '@/services/database'
 import { useCategoryStore } from '@/stores/categoryStore'
 
 const props = defineProps<{

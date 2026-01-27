@@ -15,5 +15,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('import-file', options),
 
   // 平台信息
-  platform: process.platform
+  platform: process.platform,
+
+  // ==================== SQLite 数据库 API ====================
+  db: {
+    // 笔记操作
+    getAllNotes: () => ipcRenderer.invoke('db-get-all-notes'),
+    getDeletedNotes: () => ipcRenderer.invoke('db-get-deleted-notes'),
+    getNotesByCategory: (categoryId: string) => ipcRenderer.invoke('db-get-notes-by-category', categoryId),
+    getNoteById: (id: string) => ipcRenderer.invoke('db-get-note-by-id', id),
+    createNote: (note: { id: string; title?: string; content?: string; categoryId?: string | null }) =>
+      ipcRenderer.invoke('db-create-note', note),
+    updateNote: (id: string, updates: Record<string, unknown>) =>
+      ipcRenderer.invoke('db-update-note', id, updates),
+    deleteNote: (id: string) => ipcRenderer.invoke('db-delete-note', id),
+    restoreNote: (id: string) => ipcRenderer.invoke('db-restore-note', id),
+    permanentDeleteNote: (id: string) => ipcRenderer.invoke('db-permanent-delete-note', id),
+    cleanupOldDeleted: (daysAgo?: number) => ipcRenderer.invoke('db-cleanup-old-deleted', daysAgo),
+    searchNotes: (query: string) => ipcRenderer.invoke('db-search-notes', query),
+
+    // 分类操作
+    getAllCategories: () => ipcRenderer.invoke('db-get-all-categories'),
+    getCategoryById: (id: string) => ipcRenderer.invoke('db-get-category-by-id', id),
+    createCategory: (category: { id: string; name: string; color: string; order: number }) =>
+      ipcRenderer.invoke('db-create-category', category),
+    updateCategory: (id: string, updates: Record<string, unknown>) =>
+      ipcRenderer.invoke('db-update-category', id, updates),
+    deleteCategory: (id: string) => ipcRenderer.invoke('db-delete-category', id),
+
+    // 导入导出
+    exportAllData: () => ipcRenderer.invoke('db-export-all-data'),
+    importData: (data: { notes: unknown[]; categories: unknown[] }) =>
+      ipcRenderer.invoke('db-import-data', data),
+
+    // 获取数据库路径
+    getPath: () => ipcRenderer.invoke('db-get-path')
+  }
 })

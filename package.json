@@ -14,29 +14,44 @@
     "build:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
-    "vue": "^3.4.21",
-    "pinia": "^2.1.7",
-    "@tiptap/vue-3": "^2.4.0",
-    "@tiptap/starter-kit": "^2.4.0",
-    "@tiptap/extension-placeholder": "^2.4.0",
-    "@tiptap/extension-task-list": "^2.4.0",
-    "@tiptap/extension-task-item": "^2.4.0",
     "@tiptap/extension-image": "^2.4.0",
+    "@tiptap/extension-placeholder": "^2.4.0",
+    "@tiptap/extension-table": "^2.27.2",
+    "@tiptap/extension-table-cell": "^2.27.2",
+    "@tiptap/extension-table-header": "^2.27.2",
+    "@tiptap/extension-table-row": "^2.27.2",
+    "@tiptap/extension-task-item": "^2.4.0",
+    "@tiptap/extension-task-list": "^2.4.0",
     "@tiptap/extension-underline": "^2.4.0",
+    "@tiptap/starter-kit": "^2.4.0",
+    "@tiptap/vue-3": "^2.4.0",
+    "@types/dompurify": "^3.0.5",
+    "@types/marked": "^5.0.2",
+    "better-sqlite3": "^12.6.2",
     "dexie": "^4.0.4",
-    "uuid": "^9.0.1"
+    "dompurify": "^3.3.1",
+    "katex": "^0.16.28",
+    "marked": "^17.0.1",
+    "pinia": "^2.1.7",
+    "smart-buffer": "^4.2.0",
+    "tiptap-markdown": "^0.8.10",
+    "uuid": "^9.0.1",
+    "vue": "^3.4.21"
   },
   "devDependencies": {
-    "electron": "^30.0.1",
-    "electron-vite": "^2.2.0",
-    "electron-builder": "^24.13.3",
     "@electron-toolkit/utils": "^3.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/katex": "^0.16.8",
+    "@types/uuid": "^9.0.8",
     "@vitejs/plugin-vue": "^5.0.4",
-    "vite": "^5.2.8",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "electron-rebuild": "^3.2.9",
+    "electron-vite": "^2.2.0",
     "sass": "^1.72.0",
     "typescript": "^5.4.3",
-    "vue-tsc": "^2.0.7",
-    "@types/uuid": "^9.0.8"
+    "vite": "^5.2.8",
+    "vue-tsc": "^2.0.7"
   },
   "build": {
     "appId": "com.origin.notes",
@@ -48,7 +63,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"

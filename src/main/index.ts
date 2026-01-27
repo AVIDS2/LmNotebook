@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray } from 'electron
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import * as database from './database'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -140,6 +141,88 @@ ipcMain.handle('import-file', async (_event, options: { filters: { name: string;
   }
 
   return { success: false }
+})
+
+// ==================== SQLite 数据库 IPC ====================
+
+// 笔记操作
+ipcMain.handle('db-get-all-notes', () => {
+  return database.getAllNotes()
+})
+
+ipcMain.handle('db-get-deleted-notes', () => {
+  return database.getDeletedNotes()
+})
+
+ipcMain.handle('db-get-notes-by-category', (_event, categoryId: string) => {
+  return database.getNotesByCategory(categoryId)
+})
+
+ipcMain.handle('db-get-note-by-id', (_event, id: string) => {
+  return database.getNoteById(id)
+})
+
+ipcMain.handle('db-create-note', (_event, note: Partial<database.Note> & { id: string }) => {
+  return database.createNote(note)
+})
+
+ipcMain.handle('db-update-note', (_event, id: string, updates: Partial<database.Note>) => {
+  return database.updateNote(id, updates)
+})
+
+ipcMain.handle('db-delete-note', (_event, id: string) => {
+  database.deleteNote(id)
+})
+
+ipcMain.handle('db-restore-note', (_event, id: string) => {
+  database.restoreNote(id)
+})
+
+ipcMain.handle('db-permanent-delete-note', (_event, id: string) => {
+  database.permanentDeleteNote(id)
+})
+
+ipcMain.handle('db-cleanup-old-deleted', (_event, daysAgo?: number) => {
+  database.cleanupOldDeleted(daysAgo)
+})
+
+ipcMain.handle('db-search-notes', (_event, query: string) => {
+  return database.searchNotes(query)
+})
+
+// 分类操作
+ipcMain.handle('db-get-all-categories', () => {
+  return database.getAllCategories()
+})
+
+ipcMain.handle('db-get-category-by-id', (_event, id: string) => {
+  return database.getCategoryById(id)
+})
+
+ipcMain.handle('db-create-category', (_event, category: database.Category) => {
+  return database.createCategory(category)
+})
+
+ipcMain.handle('db-update-category', (_event, id: string, updates: Partial<database.Category>) => {
+  return database.updateCategory(id, updates)
+})
+
+ipcMain.handle('db-delete-category', (_event, id: string) => {
+  database.deleteCategory(id)
+})
+
+// 导入导出
+ipcMain.handle('db-export-all-data', () => {
+  return database.exportAllData()
+})
+
+ipcMain.handle('db-import-data', (_event, data: { notes: database.Note[]; categories: database.Category[] }) => {
+  database.importData(data)
+})
+
+// 获取数据库路径
+ipcMain.handle('db-get-path', () => {
+  return database.dbPath
 })
 
 app.whenReady().then(() => {

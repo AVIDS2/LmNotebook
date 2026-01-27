@@ -1,22 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { db } from '@/database'
-import type { Category } from '@/types/note'
 import { v4 as uuidv4 } from 'uuid'
+import * as db from '@/services/database'
+import type { Category } from '@/services/database'
 
 export const useCategoryStore = defineStore('categories', () => {
   const categories = ref<Category[]>([])
 
   // 加载所有分类
   async function loadCategories(): Promise<void> {
-    const list = await db.categories.orderBy('order').toArray()
-    categories.value = list
+    categories.value = await db.getAllCategories()
   }
 
   // 添加分类
   async function addCategory(name: string, color: string): Promise<Category> {
     const maxOrder = categories.value.length > 0
-      ? Math.max(...categories.value.map(c => c.order))
+      ? Math.max(...categories.value.map((c: Category) => c.order))
       : -1
 
     const category: Category = {
@@ -26,35 +25,33 @@ export const useCategoryStore = defineStore('categories', () => {
       order: maxOrder + 1
     }
 
-    await db.categories.add(category)
+    await db.createCategory(category)
     await loadCategories()
     return category
   }
 
   // 更新分类
   async function updateCategory(id: string, data: Partial<Category>): Promise<void> {
-    await db.categories.update(id, data)
+    await db.updateCategory(id, data)
     await loadCategories()
   }
 
   // 删除分类
   async function deleteCategory(id: string): Promise<void> {
-    await db.categories.delete(id)
-    // 将该分类的笔记设为无分类
-    await db.notes.where('categoryId').equals(id).modify({ categoryId: null })
+    await db.deleteCategory(id)
     await loadCategories()
   }
 
   // 获取分类
   function getCategoryById(id: string | null): Category | undefined {
     if (!id) return undefined
-    return categories.value.find(c => c.id === id)
+    return categories.value.find((c: Category) => c.id === id)
   }
 
   // 重新排序分类（拖拽）
   async function reorderCategories(draggedId: string, targetId: string): Promise<void> {
-    const draggedIndex = categories.value.findIndex(c => c.id === draggedId)
-    const targetIndex = categories.value.findIndex(c => c.id === targetId)
+    const draggedIndex = categories.value.findIndex((c: Category) => c.id === draggedId)
+    const targetIndex = categories.value.findIndex((c: Category) => c.id === targetId)
 
     if (draggedIndex === -1 || targetIndex === -1) return
 
@@ -66,14 +63,8 @@ export const useCategoryStore = defineStore('categories', () => {
     categories.value.splice(insertIndex, 0, draggedCategory)
 
     // 更新所有分类的 order 值
-    const updates = categories.value.map((category, index) => ({
-      id: category.id,
-      order: index
-    }))
-
-    // 批量更新数据库
-    for (const update of updates) {
-      await db.categories.update(update.id, { order: update.order })
+    for (let i = 0; i < categories.value.length; i++) {
+      await db.updateCategory(categories.value[i].id, { order: i })
     }
 
     await loadCategories()

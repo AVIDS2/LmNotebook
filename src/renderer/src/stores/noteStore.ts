@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Note, CreateNoteInput, UpdateNoteInput } from '@/types/note'
-import { noteRepository } from '@/database/noteRepository'
+import { noteRepository, type Note, type CreateNoteInput, type UpdateNoteInput } from '@/database/noteRepository'
 
 export type ViewType = 'all' | 'pinned' | 'category' | 'trash'
 
@@ -133,15 +132,15 @@ export const useNoteStore = defineStore('notes', () => {
 
     let shouldInclude = true
     if (isSearchActive) {
-      shouldInclude = !updated.isDeleted && shouldMatchSearch
+      shouldInclude = !Boolean(updated.isDeleted) && shouldMatchSearch
     } else if (currentView.value === 'trash') {
-      shouldInclude = updated.isDeleted
+      shouldInclude = Boolean(updated.isDeleted)
     } else if (currentView.value === 'pinned') {
-      shouldInclude = !updated.isDeleted && updated.isPinned
+      shouldInclude = !Boolean(updated.isDeleted) && Boolean(updated.isPinned)
     } else if (currentView.value === 'category') {
-      shouldInclude = !updated.isDeleted && updated.categoryId === currentCategoryId.value
+      shouldInclude = !Boolean(updated.isDeleted) && updated.categoryId === currentCategoryId.value
     } else {
-      shouldInclude = !updated.isDeleted
+      shouldInclude = !Boolean(updated.isDeleted)
     }
 
     const previous = currentNote.value?.id === updated.id
@@ -165,8 +164,8 @@ export const useNoteStore = defineStore('notes', () => {
     }
 
     if (previous) {
-      const wasCounted = !previous.isDeleted && !isNoteEmpty(previous)
-      const isCounted = !updated.isDeleted && !isNoteEmpty(updated)
+      const wasCounted = !Boolean(previous.isDeleted) && !isNoteEmpty(previous)
+      const isCounted = !Boolean(updated.isDeleted) && !isNoteEmpty(updated)
       if (!wasCounted && isCounted) {
         totalNotesCount.value += 1
       } else if (wasCounted && !isCounted) {
@@ -195,7 +194,7 @@ export const useNoteStore = defineStore('notes', () => {
 
   // 清理空笔记
   async function cleanupEmptyCurrentNote(): Promise<void> {
-    if (currentNote.value && !currentNote.value.isDeleted) {
+    if (currentNote.value && !Boolean(currentNote.value.isDeleted)) {
       // 重新获取最新状态
       const latest = await noteRepository.getById(currentNote.value.id)
       if (latest && isNoteEmpty(latest)) {
@@ -301,7 +300,7 @@ export const useNoteStore = defineStore('notes', () => {
     notes.value = notes.value.filter(note => note.id !== id)
 
     if (existing) {
-      const wasCounted = !existing.isDeleted && !isNoteEmpty(existing)
+      const wasCounted = !Boolean(existing.isDeleted) && !isNoteEmpty(existing)
       if (wasCounted) {
         totalNotesCount.value = Math.max(0, totalNotesCount.value - 1)
       }

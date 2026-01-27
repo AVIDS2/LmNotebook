@@ -40,7 +40,6 @@ import NoteEditor from '@/components/notes/NoteEditor.vue'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
-import { initializeDatabase } from '@/database'
 import { noteRepository } from '@/database/noteRepository'
 
 const noteStore = useNoteStore()
@@ -62,12 +61,28 @@ function handleClose(): void {
 
 // 初始化
 onMounted(async () => {
-  await initializeDatabase()
-  await categoryStore.loadCategories()
-  await noteStore.initialize()
+  // 确保 electronAPI 已经加载 (处理竞态)
+  let retryCount = 0
+  while (!window.electronAPI?.db && retryCount < 50) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+    retryCount++
+  }
 
-  // 清理过期的已删除笔记
-  await noteRepository.cleanupOldDeleted()
+  if (!window.electronAPI?.db) {
+    console.error('数据库服务连接超时，请检查主进程状态')
+    return
+  }
+
+  // 加载基础数据
+  try {
+    await categoryStore.loadCategories()
+    await noteStore.initialize()
+  } catch (err) {
+    console.error('数据加载失败:', err)
+  }
+
+  // 后台清理过期笔记
+  noteRepository.cleanupOldDeleted().catch(console.error)
 })
 </script>
 

@@ -1,5 +1,5 @@
-import type { Note, Category } from '@/types/note'
-import { db } from '@/database'
+import type { Note, Category } from '@/services/database'
+import * as db from '@/services/database'
 
 // 备份数据结构
 interface BackupData {
@@ -46,14 +46,13 @@ function htmlToMarkdown(html: string): string {
 export const exportService = {
   // 导出全部笔记为 JSON 备份
   async exportBackup(): Promise<boolean> {
-    const notes = await db.notes.toArray()
-    const categories = await db.categories.toArray()
+    const data = await db.exportAllData()
 
     const backup: BackupData = {
       version: '1.0.0',
       exportedAt: Date.now(),
-      notes,
-      categories
+      notes: data.notes,
+      categories: data.categories
     }
 
     const content = JSON.stringify(backup, null, 2)
@@ -86,29 +85,15 @@ export const exportService = {
         return { success: false, message: '无效的备份文件格式' }
       }
 
-      // 导入分类
-      if (backup.categories && Array.isArray(backup.categories)) {
-        for (const category of backup.categories) {
-          const existing = await db.categories.get(category.id)
-          if (!existing) {
-            await db.categories.add(category)
-          }
-        }
-      }
-
-      // 导入笔记
-      let importedCount = 0
-      for (const note of backup.notes) {
-        const existing = await db.notes.get(note.id)
-        if (!existing) {
-          await db.notes.add(note)
-          importedCount++
-        }
-      }
+      // 导入数据
+      await db.importData({
+        notes: backup.notes,
+        categories: backup.categories || []
+      })
 
       return {
         success: true,
-        message: `成功导入 ${importedCount} 条笔记`
+        message: `成功导入 ${backup.notes.length} 条笔记`
       }
     } catch {
       return { success: false, message: '解析备份文件失败' }
@@ -136,9 +121,7 @@ export const exportService = {
 
   // 导出所有笔记为 Markdown（单文件）
   async exportAllAsMarkdown(): Promise<boolean> {
-    const notes = await db.notes
-      .filter(note => !note.isDeleted)
-      .toArray()
+    const notes = await db.getAllNotes()
 
     // 置顶在前，更新时间倒序
     notes.sort((a, b) => {
