@@ -29,14 +29,18 @@
       <NoteList />
       <NoteEditor />
     </main>
+
+    <!-- AI Agent 聊天气泡 -->
+    <AgentBubble />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, provide } from 'vue'
 import TheSidebar from '@/components/sidebar/TheSidebar.vue'
 import NoteList from '@/components/notes/NoteList.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
+import AgentBubble from '@/components/agent/AgentBubble.vue'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -45,6 +49,15 @@ import { noteRepository } from '@/database/noteRepository'
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
+
+// Shared editor action bridge
+const setEditorContentRef = { value: (_html: string) => {} }
+provide('setEditorContent', (html: string) => {
+  setEditorContentRef.value(html)
+})
+provide('registerEditorAction', (fn: (html: string) => void) => {
+  setEditorContentRef.value = fn
+})
 
 // 窗口控制
 function handleMinimize(): void {

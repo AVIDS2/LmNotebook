@@ -158,7 +158,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount, onMounted, computed, nextTick, reactive } from 'vue'
+import { ref, watch, onBeforeUnmount, onMounted, computed, nextTick, reactive, inject } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import History from '@tiptap/extension-history'
@@ -183,6 +183,17 @@ import { exportService } from '@/services/exportService'
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
+
+// Register AI format brush action
+const registerEditorAction = inject<(fn: (html: string) => void) => void>('registerEditorAction')
+if (registerEditorAction) {
+  registerEditorAction((html: string) => {
+    if (editor.value) {
+      console.log('🔮 AI Applying new content to editor...')
+      editor.value.commands.setContent(html, true)
+    }
+  })
+}
 
 // 本地标题状态（用于减少渲染）
 const localTitle = ref('')

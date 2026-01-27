@@ -30,6 +30,7 @@
     "better-sqlite3": "^12.6.2",
     "dexie": "^4.0.4",
     "dompurify": "^3.3.1",
+    "highlight.js": "^11.11.1",
     "katex": "^0.16.28",
     "marked": "^17.0.1",
     "pinia": "^2.1.7",
