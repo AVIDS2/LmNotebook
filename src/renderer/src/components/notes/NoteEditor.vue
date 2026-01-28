@@ -174,12 +174,19 @@ import TableHeader from '@tiptap/extension-table-header'
 import Image from '@tiptap/extension-image'
 import { Mathematics } from '@/extensions/Mathematics'
 import 'katex/dist/katex.min.css'
+import katex from 'katex'
 import { marked } from 'marked'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github.css'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
 import DOMPurify from 'dompurify'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { noteRepository } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
+
+const lowlight = createLowlight(common)
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
@@ -244,8 +251,12 @@ const editor = useEditor({
       heading: {
         levels: [1, 2, 3]
       },
-      // 禁用 StarterKit 自带的 History，我们单独配置
+      // Disable default CodeBlock since we'll use lowlight version
+      codeBlock: false,
       history: false
+    }),
+    CodeBlockLowlight.configure({
+      lowlight,
     }),
     // 单独添加 History 扩展，方便控制
     History.configure({
@@ -496,7 +507,8 @@ const textTools = computed(() => [
     action: () => {
       const latex = prompt('输入 LaTeX 公式:', 'E=mc^2')
       if (latex !== null) {
-        editor.value?.chain().focus().insertMath(latex).run()
+        const isBlock = confirm('是否作为独立行(Block)显示？')
+        editor.value?.chain().focus().insertMath(latex, isBlock).run()
       }
     }
   }
@@ -666,8 +678,8 @@ async function handleRenderMarkdown(): Promise<void> {
     
     if (!selectedText.trim()) return
     
-    // 检测选中文本是否包含 Markdown 语法
-    const hasMarkdownSyntax = /#{1,6}\s|\*\*|\*\s|^\d+\.\s|\|.*\|/m.test(selectedText)
+    // 检测选中文本是否包含 Markdown 语法 (包括数学公式 $)
+    const hasMarkdownSyntax = /#{1,6}\s|\*\*|\*\s|^\d+\.\s|\|.*\||\$|`/m.test(selectedText)
     if (!hasMarkdownSyntax) {
       alert('选中的文本未检测到 Markdown 语法。')
       return
@@ -704,43 +716,42 @@ async function handleRenderMarkdown(): Promise<void> {
   }
   
   // 当前是源码态 -> 切换到渲染态
-  // 获取纯文本内容 (Markdown 源码)
   const markdownSource = editor.value.getText({ blockSeparator: '\n' })
-  
   if (!markdownSource.trim()) return
 
-  // 检测是否包含 Markdown 语法特征（放宽检测）
-  const hasMarkdownSyntax = /#{1,6}\s|\*\*|\*\s|^\d+\.\s|\|.*\||^>\s|^-\s|`/m.test(markdownSource)
-  if (!hasMarkdownSyntax) {
-    // 检查是否已经是渲染后的富文本格式
-    const currentHtml = editor.value.getHTML()
-    const richTextTags = /<(strong|em|h[1-6]|table|ul|ol|blockquote|pre|code|li)[^>]*>/i
-    
-    if (richTextTags.test(currentHtml)) {
-      alert('当前内容已经是渲染后的格式，无法切换回 Markdown 源码。\n\n提示：\n• 如果您需要编辑，请直接在当前富文本上编辑\n• 如果您需要 Markdown 源码，请从源文件重新复制粘贴')
-      return
-    }
-    
-    alert('未检测到 Markdown 语法。\n\n提示：请确保内容包含 Markdown 格式（如 # 标题、**加粗**、* 列表 等）。')
-    return
-  }
-
-  // 保存原始 Markdown 纯文本（不是 HTML）
+  // 保存原始 Markdown 纯文本
   originalMarkdownText = markdownSource
 
-  // 使用 marked 将 Markdown 源码解析为 HTML
-  const rawHtml = await marked.parse(markdownSource, {
-    gfm: true,
-    breaks: true
+  // 1. Pre-process math patterns: Shield them with custom tags that our extension understands
+  let processedText = markdownSource.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+    // Escape quotes in formula for HTML attribute
+    const escapedFormula = formula.replace(/"/g, '&quot;')
+    return `<div data-math="true" data-latex="${escapedFormula}" data-display="true"></div>`
+  })
+  processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    const escapedFormula = formula.replace(/"/g, '&quot;')
+    return `<span data-math="true" data-latex="${escapedFormula}"></span>`
   })
 
+  // 2. Configure marked for highlighting
+  const renderer = new marked.Renderer()
+  renderer.code = function({ text, lang }) {
+    const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
+    const highlighted = hljs.highlight(text, { language }).value
+    return `<pre class="hljs-container"><code class="hljs language-${language}">${highlighted}</code></pre>`
+  }
+
+  // 3. Render Markdown
+  // Important: We need to allow our custom tags through
+  let html = (await marked.parse(processedText, { renderer, async: false, breaks: true, gfm: true })) as string
+
   // 使用 DOMPurify 清洗 HTML 并注入编辑器
-  const cleanHtml = DOMPurify.sanitize(rawHtml)
+  // 注意：我们需要允许 data-attributes
+  const cleanHtml = DOMPurify.sanitize(html, {
+    ADD_ATTR: ['data-math', 'data-latex', 'data-display', 'contenteditable']
+  })
   
-  // 设置内容并确保编辑器保持可编辑状态
-  editor.value.chain().setContent(cleanHtml, false).focus().run()
-  
-  // 确保编辑器可编辑
+  editor.value.chain().setContent(cleanHtml, true).focus().run()
   editor.value.setEditable(true)
   isRenderedMode = true
 }
@@ -765,7 +776,17 @@ watch(
       originalMarkdownText = ''
 
       // 切换笔记时设置内容
-      const newContent = noteStore.currentNote.content || ''
+      let newContent = noteStore.currentNote.content || ''
+      
+      // 自动识别并转换数学公式
+      newContent = newContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+        const escaped = formula.replace(/"/g, '&quot;')
+        return `<div data-math="true" data-latex="${escaped}" data-display="true"></div>`
+      })
+      newContent = newContent.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+        const escaped = formula.replace(/"/g, '&quot;')
+        return `<span data-math="true" data-latex="${escaped}"></span>`
+      })
       
       // 只在切换笔记时重置历史
       if (newId !== oldId) {
@@ -1067,13 +1088,44 @@ onBeforeUnmount(() => {
       }
     }
 
+    pre {
+      background: #f6f8fa;
+      border-radius: $radius-md;
+      padding: $spacing-md;
+      margin: $spacing-md 0;
+      overflow-x: auto;
+      border: 1px solid $color-border;
+      
+      code {
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+        font-size: 0.9em;
+        color: inherit;
+      }
+    }
+
     code {
       background: $color-bg-secondary;
       padding: 2px 6px;
       border-radius: $radius-sm;
-      font-family: 'Consolas', 'Monaco', monospace;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
       font-size: 0.9em;
       color: $color-text-primary;
+    }
+
+    .math-block {
+      margin: $spacing-lg 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    .math-inline {
+      padding: 0 2px;
+    }
+
+    .hljs-container {
+      position: relative;
     }
 
     blockquote {
