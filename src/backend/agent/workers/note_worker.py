@@ -54,11 +54,14 @@ def create_note_worker(llm) -> Callable:
                 category_id=intent.get("category_id")
             )
             
+            # Chat after action
+            human_msg = await _chat_after_action(llm, "create", context=f"Created note: {title}")
+            
             response = json.dumps({
                 "tool_call": "note_created",
                 "note_id": note["id"],
                 "title": title,
-                "message": f"✅ 已成功创建笔记「{title}」！"
+                "message": human_msg
             })
             
         elif intent["action"] == "update":
@@ -74,26 +77,32 @@ def create_note_worker(llm) -> Callable:
             if intent.get("title"):
                 update_data["title"] = intent["title"]
             
-            # If there's a description/instruction, use LLM to modify the content
+            # If there's a description/instruction, use LLM to modify OR generate the content
             edit_desc = intent.get("description")
-            if edit_desc and note_context:
+            if edit_desc:
                 from langchain_core.messages import SystemMessage
-                edit_prompt = f"""<system>
-你是一个精确的文本编辑助手。根据用户的指令，修改当前的笔记内容。
-保持原有的 Markdown 格式。只返回修改后的全部新内容，不要有说明文字。
+                
+                # HEURISTIC REMOVED: Now relying on LLM's "force_rewrite" flag
+                if intent.get("force_rewrite", False):
+                    print(f"🔄 Force Overwrite triggered by LLM intent.")
+                    note_context = "" # FORCE EMPTY CONTEXT
+            
+                if note_context and len(note_context) > 10:
+                    sys_prompt = "你是一个精确的文本编辑助手。你的任务是根据用户的修改要求对笔记进行**局部更新**。\n关键规则：\n1. **保持稳定性**：除非用户明确要求删除或重写整个笔记，否则必须保留当前内容中与指令无关的所有部分。\n2. **精确修改**：只针对指令提及的段落、标题或句子进行操作。\n3. **拒绝覆盖**：严禁在未获明确授权的情况下擅自把内容简化成只有一小部分内容。"
+                    user_content = f"### 原始笔记内容 (必须作为基础保存)：\n{note_context}\n\n### 修改指令 (仅执行此处操作)：\n{edit_desc}"
+                else:
+                    sys_prompt = "你是一个笔记内容生成助手。用户希望重写或填充这篇笔记的内容。请根据要求生成完整的、结构清晰的 Markdown 笔记内容。"
+                    user_content = f"写作要求：\n{edit_desc}\n\n请直接生成内容，不要有开场白。"
 
-当前内容：
-{note_context}
-
-修改要求：
-{edit_desc}
-</system>
-新的完整内容："""
-                edit_response = await llm.ainvoke([HumanMessage(content=edit_prompt)])
+                edit_response = await llm.ainvoke([
+                    SystemMessage(content=sys_prompt),
+                    HumanMessage(content=user_content)
+                ])
                 new_content = edit_response.content.strip()
-                # Clean up potential code blocks returned by LLM
+                
+                # Clean up potential code blocks
+                import re
                 if new_content.startswith("```"):
-                     import re
                      new_content = re.sub(r'^```[a-z]*\n', '', new_content)
                      new_content = re.sub(r'\n```$', '', new_content)
                 
@@ -106,18 +115,24 @@ def create_note_worker(llm) -> Callable:
             
             # Send note_updated tool_call to refresh UI
             # If content was updated, we can also use format_apply logic to update editor immediately
-            response_msg = "✅ 笔记已更新！"
+            # Chat after action
+            update_desc = f"Updated note {note_id}. "
+            if "title" in update_data: update_desc += f"Changed title to {update_data['title']}. "
+            if "content" in update_data: update_desc += "Rewrote content based on instructions. "
+            
+            human_msg = await _chat_after_action(llm, "update", context=update_desc)
+
             if "content" in update_data:
                 response = json.dumps({
                     "tool_call": "format_apply", # Reuse format_apply to update editor UI directly
                     "formatted_html": update_data["content"],
-                    "message": "✅ 内容已按要求修改并应用！"
+                    "message": human_msg
                 })
             else:
                 response = json.dumps({
                     "tool_call": "note_updated",
                     "note_id": note_id,
-                    "message": response_msg
+                    "message": human_msg
                 })
                 
         elif intent["action"] == "delete":
@@ -126,10 +141,13 @@ def create_note_worker(llm) -> Callable:
                 response = "请告诉我你想删除哪篇笔记。如果是当前打开的笔记，直接说‘删除这篇’即可。"
             else:
                 await note_service.delete_note(note_id)
+                # Chat after action
+                human_msg = await _chat_after_action(llm, "delete", context=f"Deleted note: {note_id}")
+                
                 response = json.dumps({
                     "tool_call": "note_deleted",
                     "note_id": note_id,
-                    "message": "🗑️ 笔记已成功移至回收站。"
+                    "message": human_msg
                 })
 
         elif intent["action"] == "summarize":
@@ -141,7 +159,7 @@ def create_note_worker(llm) -> Callable:
                     "message": f"📋 **内容摘要**：\n\n{summary}"
                 })
             else:
-                response = "请先打开一篇笔记，我才能帮你总结。"
+                response = "🤔 我需要知道你想总结哪篇笔记。请先打开一篇笔记，或者告诉我笔记的标题。"
         else:
             response = "请告诉我你想对笔记做什么操作：创建、修改、删除或总结？"
         
@@ -157,9 +175,9 @@ async def _parse_note_intent(llm, input_text: str, messages: List[Any] = None) -
     """Parse user intent for note operations with context."""
     history_ctx = ""
     if messages:
-        # Last 2 messages for quick context
-        ctx = messages[-2:]
-        history_ctx = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'AI'}: {m.content[:200]}" for m in ctx])
+        # Last 3 messages for richer context
+        ctx = messages[-3:]
+        history_ctx = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'AI'}: {m.content[:2000]}" for m in ctx])
 
     prompt = f"""<system>
 分析用户的笔记操作意图。参考之前的对话上下文。
@@ -171,9 +189,14 @@ async def _parse_note_intent(llm, input_text: str, messages: List[Any] = None) -
 {{"action": "summarize"}}
 
 规则：
-1. 如果用户描述了具体的编辑行为，路由到 update。
-2. 如果是创建笔记但没给名字，请基于上下文推断一个合适的标题。
-3. 仅输出 JSON。
+1. **update**: 涉及内容的任何修改（包括**删除某句话**、**局部重写**、补充、纠错）。
+   - 如果用户意图是**完全重写**、**更换主题**、**清空重来**或**由于主题不符需要推倒重写**（如“把这篇笔记改成X”），请设置 `"force_rewrite": true`。
+   - 如果只是**局部微调**（如“修改第五章”、“把这段内容改一下”、“删除第一行”），**绝对禁止**设置 `force_rewrite` 为 true。
+2. **重要规则**：如果用户要求“把笔记改写成X”或更换主题，**必须**在 JSON 中同时设置 `"title": "X"`，确保标题和新内容一致。
+3. **delete**: 只有用户明确说“删除**这篇笔记**”、“删除**文件**”、“把这个笔记**移到回收站**”时，才是 delete。
+4. **summarize**: 仅限“总结”、“摘要”。
+5. **禁止输出正文**: JSON 中**不要**包含 `content` 字段。仅填写 `description` 让后续 Writer 生成。
+6. 仅输出 JSON。
 </system>
 
 <context>
@@ -228,3 +251,28 @@ async def _summarize_content(llm, content: str) -> str:
     ]
     result = await llm.ainvoke(messages)
     return result.content
+
+
+async def _chat_after_action(llm, action: str, context: str) -> str:
+    """Generate a quick, natural human-like response after an action."""
+    from langchain_core.messages import SystemMessage, HumanMessage
+    
+    prompt = f"""<system>
+你是一个专业的笔记助手 Agent。你刚刚成功执行了一个操作（{action}）。
+请生成一句自然、稍微带点个性的回复给用户。
+不要只说“已完成”，要结合刚才的操作细节（Context）说点有用的。
+比如：如果重写了笔记，可以说“搞定！这篇文章现在结构更清晰了，重点补充了XXX。”
+语气：专业、热情、像个真人伙伴。
+限制：50字以内。
+</system>
+
+Context:
+{context}
+
+Response:"""
+    
+    try:
+        res = await llm.ainvoke([HumanMessage(content=prompt)])
+        return res.content.strip().replace('"', '')
+    except:
+        return "操作已完成。"

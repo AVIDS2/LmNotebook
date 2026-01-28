@@ -77,9 +77,9 @@ async def stream_agent(request: ChatRequest):
         try:
             supervisor = AgentSupervisor()
             print(f"🔄 Starting stream for: {request.message[:50]}...")
-            async for chunk in supervisor.stream(
+            async for chunk in supervisor.invoke_stream(
                 message=request.message,
-                history=request.history_dicts, # Use helper if available, or convert below
+                history=request.history_dicts, 
                 note_context=request.note_context,
                 selected_text=request.selected_text,
                 active_note_id=request.active_note_id
@@ -88,8 +88,8 @@ async def stream_agent(request: ChatRequest):
                 elapsed = time.time() - start_time
                 print(f"📤 Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
                 
-                # Check if chunk is already a JSON string (status message)
-                if isinstance(chunk, str) and chunk.startswith('{"type":'):
+                # Check if chunk is a JSON control message (status or tool_call)
+                if isinstance(chunk, str) and (chunk.startswith('{"type":') or chunk.startswith('{"tool_call":')):
                     yield f"data: {chunk}\n\n"
                 else:
                     # Normal text chunk

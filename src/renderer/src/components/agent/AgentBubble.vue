@@ -1,10 +1,16 @@
 <template>
-  <div class="agent-container">
-    <!-- Floating Bubble Button with Origin Logo -->
+  <!-- Main Container with dynamic position -->
+  <div 
+    class="agent-container" 
+    :style="containerStyle"
+    @mousedown="startDrag"
+    :class="{ 'is-dragging': isDragging, 'is-docked': isDocked && !isOpen }"
+  >
+    <!-- Floating Bubble Button -->
     <div
-      class="agent-bubble"
+      class="agent-bubble glass-panel"
       :class="{ 'agent-bubble--active': isOpen }"
-      @click="toggleChat"
+      @click.stop="handleClick"
     >
       <div class="agent-bubble__icon">
         <!-- Origin asterisk logo -->
@@ -21,7 +27,15 @@
 
     <!-- Chat Window -->
     <Transition name="chat-window">
-      <div v-if="isOpen" class="agent-chat" :class="{ 'maximized': isMaximized }">
+      <div 
+        v-if="isOpen" 
+        class="agent-chat glass-panel" 
+        :class="{ 
+          'maximized': isMaximized,
+          'align-left': position.x < windowWidth / 2 
+        }"
+        @mousedown.stop
+      >
         <!-- Header -->
         <div class="agent-chat__header">
           <div class="agent-chat__title">
@@ -29,6 +43,12 @@
             <span>Origin Agent</span>
           </div>
           <div class="agent-chat__actions">
+            <button class="header-btn" @click="clearChat" title="开始新对话">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
             <button class="header-btn" @click="isMaximized = !isMaximized" :title="isMaximized ? '还原' : '最大化'">
               <svg v-if="!isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -41,7 +61,6 @@
             <div class="agent-chat__status">
               <span v-if="isConnected" class="status-dot status-dot--online"></span>
               <span v-else class="status-dot status-dot--offline"></span>
-              {{ isConnected ? '在线' : '离线' }}
             </div>
           </div>
         </div>
@@ -69,30 +88,30 @@
           <div
             v-for="(msg, index) in messages.filter(m => m.content.trim())"
             :key="index"
-            class="message"
+            class="message-wrapper"
             :class="[`message--${msg.role}`]">
-            <div class="message__avatar">
-              {{ msg.role === 'user' ? '◉' : '✦' }}
-            </div>
-            <div class="message__content">
-              <div class="message__text" 
-                   v-html="renderMarkdown(msg.content)"
-                   @contextmenu="handleContextMenu($event, msg.content)"></div>
-              <div class="message__time">{{ formatTime(msg.timestamp) }}</div>
+            <div class="message">
+              <div class="message__avatar">
+                {{ msg.role === 'user' ? '◉' : '✦' }}
+              </div>
+              <div class="message__content">
+                <div class="message__text" 
+                     v-html="renderMarkdown(msg.content)"
+                     @contextmenu="handleContextMenu($event, msg.content)"></div>
+              </div>
             </div>
           </div>
 
-          <div v-if="isTyping" class="message message--assistant">
-            <div class="message__avatar">✦</div>
-            <div class="message__content">
-              <div class="typing-indicator">
-                <div v-if="currentStatus" class="message__status-float">
-                  {{ currentStatus }}
-                </div>
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
+          <div v-if="currentStatus" class="status-update">
+            <span class="status-update__text">{{ currentStatus }}</span>
+            <span class="status-update__dots">...</span>
+          </div>
+
+          <div v-if="isTyping && !currentStatus" class="typing-minimal">
+            <div class="typing-indicator">
+              <span></span>
+              <span></span>
+              <span></span>
             </div>
           </div>
         </div>
@@ -102,20 +121,32 @@
           <textarea
             v-model="inputText"
             @keydown.enter.exact.prevent="sendMessage()"
+            @input="adjustHeight"
             placeholder="输入消息... (Enter 发送)"
             rows="1"
             ref="inputRef"
           ></textarea>
-          <button
-            class="send-button"
-            :disabled="!inputText.trim() || isTyping"
-            @click="sendMessage()"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="22" y1="2" x2="11" y2="13"/>
-              <polygon points="22,2 15,22 11,13 2,9"/>
-            </svg>
-          </button>
+          <div class="input-actions">
+            <button
+              v-if="!isTyping"
+              class="send-button"
+              :disabled="!inputText.trim()"
+              @click="sendMessage()"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22,2 15,22 11,13 2,9"/>
+              </svg>
+            </button>
+            <button
+              v-else
+              class="stop-button"
+              @click="stopGeneration"
+              title="停止生成"
+            >
+              <div class="stop-icon"></div>
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -123,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, watch, inject } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch, inject, computed } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
@@ -138,6 +169,13 @@ interface ChatMessage {
   timestamp: Date
 }
 
+// Stores
+const noteStore = useNoteStore()
+const setEditorContent = inject<(html: string) => void>('setEditorContent')
+
+// Config
+const BACKEND_URL = 'http://127.0.0.1:8765'
+
 // State
 const isOpen = ref(false)
 const isConnected = ref(false)
@@ -150,24 +188,106 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const isMaximized = ref(false)
 const streamingMessage = ref<ChatMessage | null>(null)
 const currentStatus = ref('')
+const abortController = ref<AbortController | null>(null)
 
-// Stores
-const noteStore = useNoteStore()
+// --- Draggable Logic ---
+const position = ref({ x: window.innerWidth - 40, y: window.innerHeight - 100 })
+const isDragging = ref(false)
+const isDocked = ref(true)
+const dragOffset = ref({ x: 0, y: 0 })
+const windowWidth = ref(window.innerWidth)
 
-// Inject editor action
-const setEditorContent = inject<(html: string) => void>('setEditorContent')
+const containerStyle = computed(() => ({
+  left: `${position.value.x}px`,
+  top: `${position.value.y}px`,
+  transition: isDragging.value ? 'none' : 'all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)'
+}))
 
-// Backend URL
-const BACKEND_URL = 'http://127.0.0.1:8765'
+function startDrag(e: MouseEvent) {
+  if (isMaximized.value) return
+  isDragging.value = true
+  isDocked.value = false
+  dragOffset.value = {
+    x: e.clientX - position.value.x,
+    y: e.clientY - position.value.y
+  }
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+}
 
-// Suggestions
+function onDrag(e: MouseEvent) {
+  if (!isDragging.value) return
+  position.value = {
+    x: e.clientX - dragOffset.value.x,
+    y: e.clientY - dragOffset.value.y
+  }
+}
+
+function stopDrag() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+  snapToEdge()
+}
+
+function snapToEdge() {
+  const BUBBLE_SIZE = 50
+  const screenW = window.innerWidth
+  const screenH = window.innerHeight
+  
+  // Keep vertical within bounds
+  if (position.value.y < 0) position.value.y = 10
+  if (position.value.y > screenH - BUBBLE_SIZE) position.value.y = screenH - BUBBLE_SIZE - 10
+  
+  // Snap horizontal to nearest edge
+  if (position.value.x > screenW / 2) {
+    // Right Edge - Dock half way
+    position.value.x = screenW - (BUBBLE_SIZE / 2)
+  } else {
+    // Left Edge - Dock half way
+    position.value.x = -(BUBBLE_SIZE / 2)
+  }
+  isDocked.value = true
+}
+
+// Click handler (distinguish drag from click)
+function handleClick() {
+  if (!isDragging.value) {
+    // If docked, pop out a bit
+    if (isDocked.value && !isOpen.value) {
+      const BUBBLE_SIZE = 50
+      if (position.value.x < 0) position.value.x = 20
+      else position.value.x = window.innerWidth - BUBBLE_SIZE - 20
+      isDocked.value = false
+    }
+    toggleChat()
+    
+    // If closing, dock back? Maybe let user dock manually or auto dock after delay.
+    // For now, let's auto-dock if closed
+    if (!isOpen.value) {
+       setTimeout(() => {
+         if (!isOpen.value && !isDragging.value) snapToEdge()
+       }, 500)
+    }
+  }
+}
+
+// Initial Position setup
+onMounted(() => {
+  window.addEventListener('resize', () => { windowWidth.value = window.innerWidth })
+  setTimeout(snapToEdge, 100) // Initial dock
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', () => { windowWidth.value = window.innerWidth })
+})
+// ----------------------
+
 const suggestions = [
   '帮我搜索最近的笔记',
   '整理一下当前笔记的格式',
   '总结一下这篇笔记的内容'
 ]
 
-// Toggle chat window
 function toggleChat() {
   isOpen.value = !isOpen.value
   hasUnread.value = false
@@ -180,26 +300,30 @@ function toggleChat() {
   }
 }
 
-// Check backend connection
+function clearChat() {
+  messages.value = []
+  isTyping.value = false
+  currentStatus.value = ''
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+  }
+  inputRef.value?.focus()
+}
+
 async function checkConnection() {
   try {
     const response = await fetch(`${BACKEND_URL}/health`)
-    if (response.ok) {
-      isConnected.value = true
-    } else {
-      isConnected.value = false
-    }
+    isConnected.value = response.ok
   } catch {
     isConnected.value = false
   }
 }
 
-// Send message with SSE streaming
 async function sendMessage(text?: string) {
   const messageText = text || inputText.value.trim()
   if (!messageText || isTyping.value) return
   
-  // Add user message
   messages.value.push({
     role: 'user',
     content: messageText,
@@ -207,10 +331,12 @@ async function sendMessage(text?: string) {
   })
   
   inputText.value = ''
+  nextTick(() => adjustHeight())
   isTyping.value = true
   scrollToBottom()
   
-  // Create assistant message placeholder for streaming
+  abortController.value = new AbortController()
+  
   const assistantMessage: ChatMessage = {
     role: 'assistant',
     content: '',
@@ -225,6 +351,7 @@ async function sendMessage(text?: string) {
     const response = await fetch(`${BACKEND_URL}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: abortController.value.signal,
       body: JSON.stringify({
         message: messageText,
         history: messages.value.slice(0, -2).slice(-10).map(m => ({
@@ -236,16 +363,13 @@ async function sendMessage(text?: string) {
       })
     })
     
-    if (!response.ok) {
-      throw new Error('请求失败')
-    }
+    if (!response.ok) throw new Error('请求失败')
     
     const reader = response.body?.getReader()
     if (!reader) throw new Error('无法读取响应流')
     const decoder = new TextDecoder()
     let buffer = ''
     
-    // Get the index of the assistant message for reactive updates
     const messageIndex = messages.value.length - 1
     
     while (true) {
@@ -254,246 +378,250 @@ async function sendMessage(text?: string) {
       
       buffer += decoder.decode(value, { stream: true })
       
-      // Split SSE events by \n\n
       const events = buffer.split('\n\n')
       buffer = events.pop() || ''
       
-      for (const event of events) {
-        const dataMatch = event.match(/^data:\s*(.+)$/m)
-        if (dataMatch && dataMatch[1] !== '[DONE]') {
-          try {
-            // Parse JSON-encoded chunk
-            const chunk = JSON.parse(dataMatch[1])
-            
-            // Check for status message (shows current operation)
-            if (chunk.type === 'status') {
-              currentStatus.value = chunk.text
-              continue
-            }
-            
-            // Clear status when real content arrives
-            if (currentStatus.value) {
-              currentStatus.value = ''
-            }
-            
-            if (chunk.text) {
-              // Update via array index to trigger Vue reactivity
-              messages.value[messageIndex].content += chunk.text
-              // Force reactivity by triggering array update
-              messages.value = [...messages.value]
-              scrollToBottom()
-            } else if (chunk.error) {
-              messages.value[messageIndex].content = `❌ 错误: ${chunk.error}`
-              messages.value = [...messages.value]
-            }
-          } catch {
-            // Fallback for non-JSON data
-            messages.value[messageIndex].content += dataMatch[1]
+      for (const line of events) {
+        if (!line.trim()) continue
+        const dataMatch = line.match(/^data:\s*(.*)$/)
+        if (!dataMatch) continue
+        
+        const rawData = dataMatch[1]
+        if (rawData === '[DONE]') continue
+        
+        try {
+          const chunk = JSON.parse(rawData)
+          
+          if (chunk.type === 'status') {
+            currentStatus.value = chunk.text
+            continue
+          }
+          if (currentStatus.value) currentStatus.value = ''
+          
+          if (chunk.text) {
+            messages.value[messageIndex].content += chunk.text
             messages.value = [...messages.value]
             scrollToBottom()
+          } else if (chunk.tool_call) {
+            // HANDLE REAL-TIME TOOL CALL
+            await handleToolCallEvent(chunk, messages.value[messageIndex])
+          } else if (chunk.error) {
+            messages.value[messageIndex].content = `❌ 错误: ${chunk.error}`
+            messages.value = [...messages.value]
           }
+        } catch {
+          messages.value[messageIndex].content += rawData
+          messages.value = [...messages.value]
+          scrollToBottom()
         }
       }
     }
     
-    // Get final message content for tool call check
-    const assistantMessage = messages.value[messageIndex]
+    const finalMsg = messages.value[messageIndex]
     
-    // Final check for tool calls in the full message
-    if (assistantMessage.content.trim().startsWith('{') && assistantMessage.content.trim().endsWith('}')) {
+    // Improved Tool-Call Detection: Check for JSON embedded anywhere in the message
+    // or if the message is purely a JSON tool call.
+    const trimmedContent = finalMsg.content.trim()
+    let toolData = null
+    
+    // Case 1: Pure JSON
+    if (trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) {
+      try { toolData = JSON.parse(trimmedContent) } catch (e) {}
+    } 
+    // Case 2: Embedded JSON (happens in multi-task scenarios)
+    else {
+      const jsonMatch = trimmedContent.match(/\{"tool_call":.*\}/s)
+      if (jsonMatch) {
+        try { 
+          toolData = JSON.parse(jsonMatch[0])
+          // Remove the raw JSON from the displayed text
+          finalMsg.content = finalMsg.content.replace(jsonMatch[0], '').trim()
+        } catch (e) {}
+      }
+    }
+
+    if (toolData) {
       try {
-        const data = JSON.parse(assistantMessage.content.trim())
-        
-        // Handle Note Created
+        const data = toolData
         if (data.tool_call === 'note_created') {
           await noteStore.loadNotes()
           if (data.note_id) {
             const newNote = await noteRepository.getById(data.note_id)
             if (newNote) noteStore.currentNote = newNote
           }
-          assistantMessage.content = data.message || `✅ 已成功创建笔记！`
-          messages.value = [...messages.value]
-        }
-        
-        // Handle Note Updated
-        else if (data.tool_call === 'note_updated') {
+          finalMsg.content = data.message || `✅ 已成功创建笔记！`
+        } else if (data.tool_call === 'note_updated') {
           await noteStore.loadNotes()
-          assistantMessage.content = data.message || '✅ 笔记已更新！'
-          messages.value = [...messages.value]
-        }
-
-        // Handle Note Deleted
-        else if (data.tool_call === 'note_deleted') {
+          finalMsg.content = data.message || '✅ 笔记已更新！'
+        } else if (data.tool_call === 'note_deleted') {
           await noteStore.loadNotes()
-          // If deleted the current note, the store will likely select another one
-          assistantMessage.content = data.message || '🗑️ 笔记已移至回收站。'
-          messages.value = [...messages.value]
+          finalMsg.content = data.message || '🗑️ 笔记已移至回收站。'
+        } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
+          const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: true, gfm: true })
+          setEditorContent(renderedHtml)
+          finalMsg.content = finalMsg.content || data.message || '✨ 笔记同步完成。'
+        } else if (data.tool_call === 'note_summarized') {
+          finalMsg.content = data.message || data.content
         }
-        
-        // Handle Format Brush
-        else if (data.tool_call === 'format_apply' && data.formatted_html && setEditorContent) {
-          setEditorContent(data.formatted_html)
-          assistantMessage.content = '✨ 已完成内容排版与优化，并已直接应用到当前笔记。'
-          messages.value = [...messages.value]
-        }
-        
-        // Handle Summarization
-        else if (data.tool_call === 'note_summarized') {
-          assistantMessage.content = data.message || data.content
-          messages.value = [...messages.value]
-        }
+        messages.value = [...messages.value]
       } catch (e) {
-        // Not a JSON tool call, leave it as text
+        console.error('Tool execution error:', e)
       }
     }
     
-    if (!isOpen.value) {
-      hasUnread.value = true
+    if (!isOpen.value) hasUnread.value = true
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      if (streamingMessage.value) streamingMessage.value.content += ' \n\n*(已由用户停止生成)*'
+    } else {
+      if (streamingMessage.value) streamingMessage.value.content = '❌ 抱歉，连接服务器出错。'
     }
-  } catch (error) {
-    assistantMessage.content = '抱歉，无法连接到 AI 后端。请确保后端服务正在运行。'
   } finally {
     isTyping.value = false
     streamingMessage.value = null
     currentStatus.value = ''
+    abortController.value = null
     scrollToBottom()
   }
 }
 
-// Get current note context from the editor
-function getCurrentNoteContext(): string | null {
+async function handleToolCallEvent(data: any, msg: any) {
   try {
-    // Attempt to get content from TipTap / ProseMirror
-    const editor = document.querySelector('.tiptap.ProseMirror') as any
-    if (editor && editor._tiptap) {
-      // If we can access internal tiptap instance
-      return editor._tiptap.getHTML()
+    if (data.tool_call === 'note_created') {
+      await noteStore.loadNotes()
+      if (data.note_id) {
+        const newNote = await noteRepository.getById(data.note_id)
+        if (newNote) noteStore.currentNote = newNote
+      }
+      msg.content = data.message || `✅ 已成功创建笔记！`
+    } else if (data.tool_call === 'note_updated') {
+      await noteStore.loadNotes()
+      msg.content = data.message || '✅ 笔记已更新！'
+    } else if (data.tool_call === 'note_deleted') {
+      await noteStore.loadNotes()
+      msg.content = data.message || '🗑️ 笔记已从知识库中移除。'
+    } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
+      const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: true, gfm: true })
+      setEditorContent(renderedHtml)
+      // Silent sync, no change to msg.content
+    } else if (data.tool_call === 'note_summarized') {
+      msg.content = data.message || data.content
     }
-    // Fallback to text content
-    const editorContent = document.querySelector('.ProseMirror')?.innerHTML
-    return editorContent || null
-  } catch {
-    return null
+    messages.value = [...messages.value]
+  } catch (e) {
+    console.error('Real-time tool execution error:', e)
   }
 }
 
-// Scroll to bottom of messages
+function stopGeneration() {
+  if (abortController.value) abortController.value.abort()
+}
+
+function getCurrentNoteContext(): string | null {
+  try {
+    const editor = document.querySelector('.tiptap.ProseMirror') as any
+    if (editor && editor._tiptap) return editor._tiptap.getHTML()
+    const editorContent = document.querySelector('.ProseMirror')?.innerHTML
+    return editorContent || null
+  } catch { return null }
+}
+
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-    }
+    if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
   })
 }
 
-// Render markdown to HTML
 function renderMarkdown(text: string): string {
   if (!text) return ''
   try {
-    // 1. Pre-process math patterns
-    let processedText = text.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
-      try {
-        return `MATH_BLOCK_START${formula}MATH_BLOCK_END`
-      } catch (e) { return match }
-    })
-    
-    processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
-      try {
-        return `MATH_INLINE_START${formula}MATH_INLINE_END`
-      } catch (e) { return match }
-    })
+    const mathBlocks: string[] = []
+    const mathInlines: string[] = []
 
-    // 2. Configure marked
+    // 1. Double escape certain math chars and protect blocks
+    let tmp = text
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_, f) => {
+        mathBlocks.push(f)
+        return `__MATH_BLOCK_${mathBlocks.length - 1}__`
+      })
+      .replace(/\$([^\$\n]+?)\$/g, (_, f) => {
+        mathInlines.push(f)
+        return `__MATH_INLINE_${mathInlines.length - 1}__`
+      })
+
+    // 2. Render Markdown
     const renderer = new marked.Renderer()
     renderer.code = function({ text, lang }) {
       const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
       const highlighted = hljs.highlight(text, { language }).value
       return `<pre class="hljs-container"><code class="hljs language-${language}">${highlighted}</code></pre>`
     }
+    
+    let html = marked.parse(tmp, { renderer, async: false, breaks: true, gfm: true }) as string
 
-    // 3. Render Markdown
-    let html = marked.parse(processedText, { renderer, async: false, breaks: true, gfm: true }) as string
+    // Helper to decode entities
+    const decodeEntities = (s: string) => s
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/<br\s*\/?>/gi, '\n')
 
-    // 4. Post-process math to insert real KaTeX
-    html = html.replace(/MATH_BLOCK_START([\s\S]+?)MATH_BLOCK_END/g, (_, formula) => {
-      return `<div class="math-block">${katex.renderToString(formula, { displayMode: true, throwOnError: false })}</div>`
+    // 3. Restore and render KaTeX
+    html = html.replace(/__MATH_BLOCK_(\d+)__/g, (_, i) => {
+      try {
+        const raw = decodeEntities(mathBlocks[parseInt(i)])
+        return `<div class="math-block">${katex.renderToString(raw, { displayMode: true, throwOnError: false })}</div>`
+      } catch (e) { return `<div class="math-error">$$${mathBlocks[parseInt(i)]}$$</div>` }
     })
-    html = html.replace(/MATH_INLINE_START([\s\S]+?)MATH_INLINE_END/g, (_, formula) => {
-      return `<span class="math-inline">${katex.renderToString(formula, { displayMode: false, throwOnError: false })}</span>`
+
+    html = html.replace(/__MATH_INLINE_(\d+)__/g, (_, i) => {
+      try {
+        const raw = decodeEntities(mathInlines[parseInt(i)])
+        return `<span class="math-inline">${katex.renderToString(raw, { displayMode: false, throwOnError: false })}</span>`
+      } catch (e) { return `<span class="math-error">$${mathInlines[parseInt(i)]}$</span>` }
     })
 
     return html
   } catch (e) {
-    console.error('Markdown error:', e)
+    console.error('Markdown rendering error:', e)
     return text
   }
 }
 
-// Format timestamp
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+
+function adjustHeight() {
+  if (!inputRef.value) return
+  inputRef.value.style.height = 'auto'
+  const newHeight = Math.min(inputRef.value.scrollHeight, 150)
+  inputRef.value.style.height = `${newHeight}px`
 }
 
-// Handle right-click context menu
 function handleContextMenu(event: MouseEvent, content: string) {
   event.preventDefault()
-  
-  // Get selected text or use full content
   const selection = window.getSelection()
   const selectedText = selection?.toString() || content
-  
-  // Create simple context menu
   const menu = document.createElement('div')
   menu.className = 'context-menu'
-  menu.style.cssText = `
-    position: fixed;
-    left: ${event.clientX}px;
-    top: ${event.clientY}px;
-    background: white;
-    border: 1px solid #E8E4DF;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    padding: 4px 0;
-    z-index: 10000;
-    min-width: 120px;
-  `
-  
+  menu.style.cssText = `position: fixed; left: ${event.clientX}px; top: ${event.clientY}px; background: white; border: 1px solid #E8E4DF; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; z-index: 10000; min-width: 120px;`
   const copyItem = document.createElement('div')
   copyItem.textContent = '📋 复制'
-  copyItem.style.cssText = `
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    color: #2D2A26;
-  `
+  copyItem.style.cssText = `padding: 8px 16px; cursor: pointer; font-size: 14px; color: #2D2A26;`
   copyItem.onmouseover = () => { copyItem.style.background = '#F5F1EC' }
   copyItem.onmouseout = () => { copyItem.style.background = 'transparent' }
-  copyItem.onclick = () => {
-    navigator.clipboard.writeText(selectedText)
-    document.body.removeChild(menu)
-  }
-  
+  copyItem.onclick = () => { navigator.clipboard.writeText(selectedText); document.body.removeChild(menu) }
   menu.appendChild(copyItem)
   document.body.appendChild(menu)
-  
-  // Remove menu on click outside
-  const removeMenu = (e: MouseEvent) => {
-    if (!menu.contains(e.target as Node)) {
-      document.body.removeChild(menu)
-      document.removeEventListener('click', removeMenu)
-    }
-  }
+  const removeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { document.body.removeChild(menu); document.removeEventListener('click', removeMenu) } }
   setTimeout(() => document.addEventListener('click', removeMenu), 0)
 }
 
-// Check connection on mount
 onMounted(() => {
   checkConnection()
-  // Recheck every 30 seconds
   setInterval(checkConnection, 30000)
 })
 
-// Auto-resize textarea
 watch(inputText, () => {
   if (inputRef.value) {
     inputRef.value.style.height = 'auto'
@@ -503,557 +631,498 @@ watch(inputText, () => {
 </script>
 
 <style scoped>
-/* ===== Claude-Inspired Theme Variables ===== */
-:root {
-  --claude-bg: #FAF8F5;
-  --claude-card: #FFFFFF;
-  --claude-border: #E8E4DF;
-  --claude-text: #2D2A26;
-  --claude-text-secondary: #6B6762;
-  --claude-accent: #D97D54;
-  --claude-accent-light: #FEF3EE;
-  --claude-user-bubble: #F5F1EC;
-}
-
+/* ===== 🎨 Theme: Warm Glass (Claude-Inspired) ===== */
 .agent-container {
+  /* Define variables locally within the component scope */
+  --theme-bg: rgba(250, 248, 245, 0.85); /* Warm Beige Glass */
+  --theme-text: #2D2A26;
+  --theme-text-secondary: #6B6762;
+  --theme-accent: #D97D54; /* Terracotta */
+  --theme-accent-light: #FEF3EE;
+  --theme-border: rgba(232, 228, 223, 0.6);
+
   position: fixed;
-  bottom: 24px;
-  right: 24px;
   z-index: 9999;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* dynamic top/left */
 }
 
-/* Floating Bubble - Terracotta accent */
+/* Glassmorphism Panel Base */
+.glass-panel {
+  background: var(--theme-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== 🟢 Bubble: Draggable & Dockable ===== */
 .agent-bubble {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #D97D54;
-  box-shadow: 0 4px 12px rgba(217, 125, 84, 0.25);
-  cursor: pointer;
+  width: 50px;
+  height: 50px;
+  border-radius: 25px;
+  cursor: grab;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
-  position: relative;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  
+  /* Bubble Style */
+  background: rgba(255, 255, 255, 0.6); /* Translucent when idle */
+  color: var(--theme-accent);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
-.agent-bubble:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(217, 125, 84, 0.35);
+/* Dragging State */
+.agent-container.is-dragging .agent-bubble {
+  cursor: grabbing;
+  transform: scale(1.1);
+  background: rgba(255, 255, 255, 0.9);
 }
 
+/* Docked State (Idle) */
+.agent-container.is-docked .agent-bubble {
+  opacity: 0.6; /* Dim to blend in */
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.4); 
+}
+.agent-container.is-docked:hover .agent-bubble {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* Active State (Chat Open) */
 .agent-bubble--active {
-  background: #C46A45;
+  background: var(--theme-accent) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(217, 125, 84, 0.4);
+}
+
+.agent-bubble:active {
+  transform: scale(0.95);
 }
 
 .agent-bubble__icon {
   width: 24px;
   height: 24px;
-  color: white;
+  pointer-events: none;
 }
-
-.agent-bubble__icon svg {
-  width: 100%;
-  height: 100%;
-}
+.agent-bubble__icon svg { width: 100%; height: 100%; }
 
 .agent-bubble__badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 12px;
-  height: 12px;
+  top: 0; right: 0;
+  width: 12px; height: 12px;
   background: #EF4444;
   border-radius: 50%;
   border: 2px solid white;
 }
 
-/* Chat Window - Clean Claude Style */
+/* ===== 💬 Chat Window ===== */
 .agent-chat {
   position: absolute;
-  bottom: 64px;
+  bottom: 60px;
   right: 0;
-  min-width: 360px;
-  max-width: 440px;
-  width: 400px;
-  min-height: 400px;
-  max-height: 70vh;
+  width: 380px;
   height: 520px;
-  background: #FAF8F5;
   border-radius: 20px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0,0,0,0.04);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transform-origin: bottom right;
+  z-index: 10000;
+  
+  /* Re-apply Warm Texture */
+  background: rgba(250, 248, 245, 0.90);
 }
 
-/* Maximized state */
+/* Maximized State */
 .agent-chat.maximized {
   position: fixed;
-  top: 24px;
-  left: 24px;
-  bottom: 24px;
-  right: 24px;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  bottom: 80px;
   width: auto;
   height: auto;
+  transform: none !important;
   max-width: none;
   max-height: none;
-  border-radius: 24px;
+  z-index: 10001;
 }
 
+/* Flip if on left */
+.agent-chat.align-left {
+  right: auto;
+  left: 0;
+  transform-origin: bottom left;
+}
+
+/* Animation */
 .chat-window-enter-active,
 .chat-window-leave-active {
-  transition: all 0.25s ease;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-
 .chat-window-enter-from,
 .chat-window-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.98);
+  transform: scale(0.9) translateY(20px);
 }
 
-/* Header - Minimal */
+/* Header */
 .agent-chat__header {
   padding: 16px 20px;
-  background: #FFFFFF;
-  border-bottom: 1px solid #E8E4DF;
+  background: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid var(--theme-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .agent-chat__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: flex; align-items: center; gap: 8px;
   font-weight: 600;
-  color: #2D2A26;
+  color: var(--theme-text);
   font-size: 15px;
 }
+.agent-chat__avatar { font-size: 18px; color: var(--theme-accent); }
+.agent-chat__actions { display: flex; gap: 6px; }
 
-.agent-chat__avatar {
-  font-size: 18px;
-}
-
-.agent-chat__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+/* Header Buttons */
 .header-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
+  width: 28px; height: 28px;
+  border: none; background: transparent;
+  cursor: pointer; color: var(--theme-text-secondary);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s;
 }
+.header-btn:hover { background: rgba(0,0,0,0.06); color: var(--theme-text); }
+.header-btn svg { width: 16px; height: 16px; }
 
-.header-btn:hover {
-  background: #F0EDE8;
-}
-
-.header-btn svg {
-  width: 16px;
-  height: 16px;
-  color: #6B6762;
-}
-
-.agent-chat__status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #6B6762;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-dot--online {
-  background: #22C55E;
-}
-
-.status-dot--offline {
-  background: #9CA3AF;
-}
+/* Status */
+.agent-chat__status { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #999; margin-left: 8px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.status-dot--online { background: #22C55E; }
+.status-dot--offline { background: #9CA3AF; }
 
 /* Messages Area */
 .agent-chat__messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden; /* Prevent horizontal scroll */
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background: #FAF8F5;
+  width: 100%;
 }
 
+/* Readability Fix for Wide Windows */
+.agent-chat.maximized .agent-chat__messages {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+.agent-chat.maximized .agent-chat__input {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Welcome Screen */
 .agent-chat__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  text-align: center;
-  padding: 24px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; text-align: center;
+  padding: 20px;
 }
-
-.agent-chat__welcome {
-  margin-bottom: 24px;
-}
-
-.welcome-icon {
-  font-size: 28px;
-  display: block;
-  margin-bottom: 16px;
-  color: #D97D54;
-}
-
 .agent-chat__welcome h3 {
   margin: 0 0 8px;
+  font-family: Georgia, serif; /* Restore Serif */
+  font-weight: normal;
   font-size: 24px;
-  font-weight: 400;
-  font-family: Georgia, 'Times New Roman', serif;
-  color: #2D2A26;
-  letter-spacing: -0.02em;
+  color: var(--theme-text);
 }
+.agent-chat__welcome p { margin: 0; color: var(--theme-text-secondary); font-size: 14px; }
+.welcome-icon { font-size: 32px; color: var(--theme-accent); margin-bottom: 16px; display: block; }
 
-.agent-chat__welcome p {
-  margin: 0;
-  font-size: 14px;
-  color: #6B6762;
-  line-height: 1.5;
-}
-
+/* Suggestion Chips */
 .agent-chat__suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px;
 }
-
 .suggestion-chip {
-  padding: 8px 14px;
   background: #FFFFFF;
-  border: 1px solid #E8E4DF;
-  border-radius: 20px;
-  color: #2D2A26;
+  border: 1px solid var(--theme-border);
+  padding: 6px 12px;
+  border-radius: 12px;
   font-size: 13px;
+  color: var(--theme-text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
 }
-
 .suggestion-chip:hover {
-  background: #FEF3EE;
-  border-color: #D97D54;
-  color: #D97D54;
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+  background: var(--theme-accent-light);
+  transform: translateY(-1px);
 }
 
-/* Message Bubbles */
+/* Message Wrapper - Logic for Alignment */
+.message-wrapper {
+  display: flex;
+  width: 100%;
+}
+
+.message-wrapper.message--user {
+  justify-content: flex-end;
+}
+
+.message-wrapper.message--assistant {
+  justify-content: flex-start;
+}
+
+/* Common Message Container */
 .message {
   display: flex;
   gap: 12px;
-  max-width: 95%;
+  position: relative;
+  /* Remove fixed width from base class to allow flexibility */
 }
 
-.message--user {
-  align-self: flex-end;
-  flex-direction: row-reverse;
+/* User Bubble Styles (Slim, Warm, Subtle) - fit-content is KEY */
+.message--user .message {
+  width: fit-content;
+  max-width: 85%;
+  background: #FDFCFB;
+  color: var(--theme-text);
+  border: 1px solid var(--theme-border);
+  padding: 10px 16px;
+  border-radius: 18px;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  margin-left: auto; /* Ensure it stays right even if flex weirdness happens */
 }
 
-.message--assistant {
-  align-self: flex-start;
+/* Assistant Text Styles (Minimalist, Claude-like) */
+.message--assistant .message {
+  background: transparent;
+  width: 100%;
+  max-width: 100%;
+  padding-left: 0;
 }
 
-.message__avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: #F0EDE8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  flex-shrink: 0;
-  margin-top: 2px;
+/* Hide User Avatar (Claude Style) */
+.message--user .message__avatar {
+  display: none;
 }
 
+/* Assistant Avatar - Subtle Asterisk */
 .message--assistant .message__avatar {
-  background: #FEF3EE;
+  font-size: 18px;
+  color: var(--theme-accent);
+  margin-top: 4px; /* Align with first line of text */
+  flex-shrink: 0;
 }
 
 .message__content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   flex: 1;
-  min-width: 0;
+  overflow: visible; /* Allow math to peek out if needed, handled by parent scroll */
 }
 
 .message__text {
-  padding: 16px 20px;
-  border-radius: 16px;
   font-size: 14px;
-  line-height: 1.7;
-  color: #2D2A26;
+  line-height: 1.6;
+  white-space: normal;
   word-wrap: break-word;
-  overflow-wrap: break-word;
-  user-select: text;
+  overflow-wrap: anywhere;
+  user-select: text; /* Overrides global user-select: none */
   cursor: text;
-  -webkit-user-select: text;
 }
 
-.message--user .message__text {
-  background: #FFFFFF;
-  border: 1px solid #E8E4DF;
-  border-bottom-right-radius: 6px;
-}
-
-.message--assistant .message__text {
-  background: #FAF8F5;
-  border: 1px solid #E8E4DF;
-  border-bottom-left-radius: 6px;
-}
-
-.message__text :deep(p) {
-  margin: 0 0 12px;
-}
-
-.message__text :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.message__text :deep(h1),
-.message__text :deep(h2),
-.message__text :deep(h3),
-.message__text :deep(h4) {
-  margin: 16px 0 8px;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-
-.message__text :deep(h3) {
-  font-size: 15px;
-}
-
-.message__text :deep(ul),
-.message__text :deep(ol) {
-  margin: 8px 0;
-  padding-left: 20px;
-}
-
-.message__text :deep(li) {
-  margin: 6px 0;
-}
-
-.message__text :deep(code) {
-  background: #F0EDE8;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-family: 'SF Mono', Monaco, monospace;
-}
-
-.message__text :deep(pre) {
-  background: #F0EDE8;
-  padding: 14px 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-
-.message__text :deep(blockquote) {
-  border-left: 3px solid #D97D54;
-  margin: 12px 0;
-  padding-left: 16px;
-  color: #666;
-  font-style: italic;
-}
-
-.message__text :deep(strong) {
-  font-weight: 600;
-  color: #1a1a1a;
-}
-
-.message__time {
-  font-size: 11px;
-  color: #9CA3AF;
-  padding: 0 4px;
-}
-
-.message--user .message__time {
-  text-align: right;
-}
-
-/* Typing Indicator */
-.typing-indicator {
+/* Status Update (Floating & Pulsing) */
+.status-update {
+  align-self: flex-start;
+  margin: 5px 0 10px 12px; /* Moved left */
+  padding: 4px 0;
+  background: transparent;
+  border: none;
   display: flex;
+  align-items: center;
   gap: 4px;
-  padding: 12px 16px;
-  position: relative; /* For floating status */
+  font-size: 12px; /* Even smaller */
+  color: var(--theme-accent);
+  opacity: 0.8;
+  animation: shimmer 2s infinite ease-in-out;
 }
 
-.message__status-float {
-  position: absolute;
-  top: -24px;
-  left: 0;
-  font-size: 11px;
-  color: #D97D54;
-  opacity: 0.7;
-  white-space: nowrap;
-  font-style: italic;
-  animation: status-pulse 1.5s infinite ease-in-out;
-  pointer-events: none;
+@keyframes shimmer {
+  0% { opacity: 0.4; transform: translateY(0px); }
+  50% { opacity: 0.8; transform: translateY(-1px); }
+  100% { opacity: 0.4; transform: translateY(0px); }
 }
 
-@keyframes status-pulse {
-  0% { opacity: 0.4; transform: translateY(0.5px); }
-  50% { opacity: 0.8; transform: translateY(-0.5px); }
-  100% { opacity: 0.4; transform: translateY(0.5px); }
-}
+.status-update__dots { opacity: 0.6; }
 
+/* Typing Minimal */
+.typing-minimal {
+  align-self: flex-start;
+  margin-left: 40px;
+  padding: 8px 0;
+}
 .typing-indicator span {
-  width: 6px;
-  height: 6px;
-  background: #D97D54;
-  border-radius: 50%;
-  animation: typing 1.4s infinite;
+  width: 4px; height: 4px; background: #999; border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
 }
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes typing {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-  30% { transform: translateY(-4px); opacity: 1; }
-}
+.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
 /* Input Area */
 .agent-chat__input {
-  padding: 16px;
-  background: #FFFFFF;
-  border-top: 1px solid #E8E4DF;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border-top: 1px solid var(--theme-border);
   display: flex;
-  gap: 12px;
-  align-items: flex-end;
+  align-items: flex-end; /* Align to bottom as it grows */
+  gap: 10px;
 }
 
 .agent-chat__input textarea {
   flex: 1;
-  background: #FAF8F5;
-  border: 1px solid #E8E4DF;
-  border-radius: 12px;
-  padding: 12px 16px;
-  color: #2D2A26;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: #FFFFFF;
+  font-family: inherit;
+  resize: none; 
+  outline: none; 
   font-size: 14px;
-  resize: none;
-  min-height: 44px;
-  max-height: 120px;
-  line-height: 1.5;
-  transition: border-color 0.15s;
+  max-height: 150px;
+  overflow-y: hidden; /* No scrollbar as requested */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  line-height: 1.4;
 }
 
-.agent-chat__input textarea::placeholder {
-  color: #9CA3AF;
-}
-
-.agent-chat__input textarea:focus {
-  outline: none;
-  border-color: #D97D54;
-}
-
-.send-button {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: #D97D54;
-  border: none;
-  cursor: pointer;
+.input-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  flex-shrink: 0;
+  margin-bottom: 2px;
+}
+.agent-chat__input textarea:focus {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  border-color: rgba(217, 125, 84, 0.3);
 }
 
-.send-button:hover:not(:disabled) {
-  background: #C46A45;
-}
-
-.send-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.send-button svg {
-  width: 18px;
-  height: 18px;
+.send-button, .stop-button {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  border: none;
+  background: var(--theme-accent);
   color: white;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.1s, background 0.2s;
+  box-shadow: 0 4px 10px rgba(217, 125, 84, 0.3);
+}
+.send-button:hover { background: #C46A45; transform: scale(1.05); }
+.send-button:active { transform: scale(0.95); }
+.send-button:disabled { background: #E5E7EB; box-shadow: none; cursor: default; }
+
+.stop-button { background: #EF4444; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
+.stop-icon { width: 12px; height: 12px; background: white; border-radius: 2px; }
+
+/* Custom Scrollbar */
+.agent-chat__messages::-webkit-scrollbar { width: 4px; }
+.agent-chat__messages::-webkit-scrollbar-track { background: transparent; }
+.agent-chat__messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+
+/* Markdown Styles Override */
+/* Default (Small) Chat Headers */
+:deep(.message__text h1) { font-size: 1.2em; margin: 12px 0 6px; }
+:deep(.message__text h2) { font-size: 1.1em; margin: 10px 0 5px; }
+:deep(.message__text h3) { font-size: 1.05em; margin: 8px 0 4px; }
+
+:deep(.message__text h1), :deep(.message__text h2), :deep(.message__text h3) {
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--theme-text);
 }
 
-/* Scrollbar */
-.agent-chat__messages::-webkit-scrollbar {
-  width: 6px;
-}
+/* Maximized Chat Headers */
+.maximized :deep(.message__text h1) { font-size: 1.5em; margin: 18px 0 10px; }
+.maximized :deep(.message__text h2) { font-size: 1.3em; margin: 16px 0 8px; }
+.maximized :deep(.message__text h3) { font-size: 1.2em; margin: 14px 0 6px; }
 
-.agent-chat__messages::-webkit-scrollbar-track {
-  background: transparent;
+@keyframes messageSlide {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-.agent-chat__messages::-webkit-scrollbar-thumb:hover {
-  background: #B8B3AD;
+:deep(.message__text ul), :deep(.message__text ol) {
+  padding-left: 28px; /* High enough to prevent overlap/cutoff */
+  margin: 8px 0;
 }
-
-/* Markdown Rendering Enhancements */
-.message__text :deep(pre) {
-  background: #f6f8fa;
-  border-radius: 8px;
-  padding: 12px;
+:deep(.message__text li) {
+  margin-bottom: 4px;
+}
+:deep(.message__text li::marker) {
+  color: var(--theme-accent);
+  font-weight: 600;
+}
+:deep(.message__text pre) { 
+  background: #F3F4F6; 
+  border-radius: 8px; 
+  padding: 12px; 
+  margin: 8px 0; 
+  overflow-x: auto; /* Internal scroll ONLY */
+  max-width: 100%;
+}
+:deep(.math-block) {
   margin: 12px 0;
-  overflow-x: auto;
-  border: 1px solid #e1e4e8;
-}
-
-.message__text :deep(code) {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 13px;
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-
-.message__text :deep(.hljs) {
-  padding: 0;
-  background: transparent;
-}
-
-.message__text :deep(.math-block) {
-  margin: 16px 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
   overflow-x: auto;
   text-align: center;
 }
-
-.message__text :deep(.math-inline) {
-  padding: 0 2px;
+:deep(.math-inline) {
+  padding: 0 4px;
 }
-
-.message__text :deep(.math-error) {
-  color: #ef4444;
+:deep(.math-error) {
+  color: #EF4444;
   font-family: monospace;
+  background: #FEF2F2;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
+:deep(.message__text table) {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 12px 0;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border);
+  -webkit-overflow-scrolling: touch;
+}
+:deep(.message__text th), :deep(.message__text td) {
+  border: 1px solid var(--theme-border);
+  padding: 8px 16px;
+  text-align: left;
+  min-width: 120px; /* Guard against character stacking */
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+:deep(.message__text th) {
+  background: var(--theme-accent-light);
+  font-weight: 600;
+  white-space: nowrap; 
+}
+/* Sub-scrollbar for tables */
+:deep(.message__text table::-webkit-scrollbar) { height: 4px; }
+:deep(.message__text table::-webkit-scrollbar-thumb) { background: rgba(0,0,0,0.1); border-radius: 4px; }
+:deep(.message__text hr) { border: none; border-top: 1px solid var(--theme-border); margin: 16px 0; }
 </style>

@@ -14,23 +14,10 @@ from api.routes import router as api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle management."""
-    # Startup
-    print(f"🚀 Agent Backend starting on port {settings.PORT}")
-    print(f"📚 Database path: {settings.NOTES_DB_PATH}")
-    
-    # Check LLM configuration
-    if not settings.OPENAI_API_KEY:
-        print("⚠️ Warning: OPENAI_API_KEY not set! AI features will fail.")
-    else:
-        print(f"✅ LLM configured (Universal Protocol)")
-        print(f"   Model: {settings.MODEL_NAME}")
-        print(f"   Base URL: {settings.OPENAI_BASE_URL}")
-    
+    """Deeply simplified lifecycle."""
+    print(f"🚀 Origin Notes Backend Ready on port {settings.PORT}")
     yield
-    
-    # Shutdown
-    print("👋 Agent Backend shutting down")
+    print("👋 Shutdown complete.")
 
 
 app = FastAPI(
