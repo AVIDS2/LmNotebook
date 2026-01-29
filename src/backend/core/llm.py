@@ -46,8 +46,8 @@ def get_llm(model: Optional[str] = None) -> ChatOpenAI:
     if model is None:
         _llm = llm
         
-    print(f"✅ LLM configured (Universal Protocol): {target_model}")
-    print(f"🔗 API Base: {settings.OPENAI_BASE_URL}")
+    print(f"[OK] LLM configured (Universal Protocol): {target_model}")
+    print(f"[API] API Base: {settings.OPENAI_BASE_URL}")
     
     return llm
 

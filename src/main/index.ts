@@ -1,12 +1,63 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
+import { spawn, ChildProcess } from 'child_process'
+import { createWriteStream } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import * as database from './database'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
+let backendProcess: ChildProcess | null = null
+
+function startBackend(): void {
+  // Only auto-start backend in production to avoid conflicts during dev
+  if (!app.isPackaged) return
+
+  const backendDir = join(process.resourcesPath, 'backend_src')
+  const logPath = join(app.getPath('userData'), 'backend_error.log')
+  const logStream = createWriteStream(logPath, { flags: 'a' })
+
+  logStream.write(`\n[${new Date().toISOString()}] Attempting to start backend from ${backendDir}\n`)
+
+  // CRITICAL FIX: Prioritize the user's known Anaconda path because system 'python' points to a broken Python 3.11 env
+  const knownCondaPath = 'G:\\APP\\anaconda\\python.exe'
+  const fs = require('fs') // dynamic require to avoid top-level issues if not needed
+
+  let pythonExec = 'python' // default fallback
+  if (fs.existsSync(knownCondaPath)) {
+    pythonExec = knownCondaPath
+    logStream.write(`[Target Lock] Using Anaconda Python: ${pythonExec}\n`)
+  } else {
+    logStream.write(`[System Default] Using generic 'python' command\n`)
+  }
+
+  // Use shell:true to ensure env vars are inherited
+  backendProcess = spawn(pythonExec, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8765'], {
+    cwd: backendDir,
+    shell: true,
+    windowsHide: true
+  })
+
+  backendProcess.stderr?.on('data', (data) => {
+    logStream.write(`[${new Date().toISOString()}] STDERR: ${data}\n`)
+  })
+
+  backendProcess.on('error', (err) => {
+    dialog.showErrorBox(
+      'AI 服务启动失败',
+      `无法启动后台大脑 (Python)。\n错误: ${err.message}\n\n请确保您的系统已安装 Python 并在 PATH 中。\n详细日志已保存至: ${logPath}`
+    )
+  })
+
+  // Watch for early exit (e.g. missing modules)
+  backendProcess.on('exit', (code) => {
+    if (code !== 0 && code !== null) {
+      logStream.write(`[${new Date().toISOString()}] Backend exited with code ${code}\n`)
+    }
+  })
+}
 
 function getTrayIconPath(): string {
   if (app.isPackaged) {
@@ -226,6 +277,7 @@ ipcMain.handle('db-get-path', () => {
 })
 
 app.whenReady().then(() => {
+  startBackend()
   createWindow()
 
   if (mainWindow) {
@@ -244,6 +296,10 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  if (backendProcess) {
+    backendProcess.kill()
+    backendProcess = null
+  }
 })
 
 app.on('window-all-closed', () => {

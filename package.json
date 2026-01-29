@@ -85,7 +85,18 @@
       "package.json"
     ],
     "extraResources": [
-      "build/icon.ico"
+      "build/icon.ico",
+      {
+        "from": "src/backend",
+        "to": "backend_src",
+        "filter": [
+          "!**/*.pyc",
+          "!**/__pycache__",
+          "!**.spec",
+          "!dist",
+          "!build"
+        ]
+      }
     ]
   }
 }

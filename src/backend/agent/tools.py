@@ -19,7 +19,7 @@ async def search_knowledge(query: str) -> str:
     Use this when the user asks a question about their knowledge base, 
     asks 'what do I have on X', or needs to find related information.
     """
-    print(f"🛠️ Tool: search_knowledge -> {query}")
+    print(f"[TOOL] Tool: search_knowledge -> {query}")
     results = await rag_service.search(query, top_k=5)
     if not results:
         return "No relevant notes found for this query."
@@ -36,7 +36,7 @@ async def read_note_content(note_id: str) -> str:
     Read the full, detailed content of a specific note by its ID.
     Use this when you need the exact text of 'the current note' or a specific note found via search.
     """
-    print(f"🛠️ Tool: read_note_content -> {note_id}")
+    print(f"[TOOL] Tool: read_note_content -> {note_id}")
     note = await note_service.get_note(note_id)
     if not note:
         return f"Error: Note with ID {note_id} not found."
@@ -50,7 +50,7 @@ async def list_recent_notes(limit: int = 8) -> str:
     List the most recently updated or created notes.
     Use this when the user asks 'what did I write recently' or 'show all my notes'.
     """
-    print(f"🛠️ Tool: list_recent_notes -> limit={limit}")
+    print(f"[TOOL] Tool: list_recent_notes -> limit={limit}")
     notes = await rag_service.list_all_notes(limit=limit)
     if not notes:
         return "There are no notes in the database yet."
@@ -66,7 +66,7 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
     - instruction: Precise editing instructions (e.g. 'Add a paragraph about Rust', 'Fix typos in section 2').
     - force_rewrite: Set to True ONLY if the user wants to start over with a completely new topic.
     """
-    print(f"🛠️ Tool: update_note -> ID: {note_id}, Instr: {instruction}")
+    print(f"[TOOL] Tool: update_note -> ID: {note_id}, Instr: {instruction}")
     
     # 1. Fetch current content
     note = await note_service.get_note(note_id)
@@ -123,7 +123,7 @@ async def create_note(title: str, content: str) -> str:
     Create a brand new note with a title and content.
     Use this when the user explicitly asks to 'create a note' or 'save this as a note'.
     """
-    print(f"🛠️ Tool: create_note -> {title}")
+    print(f"[TOOL] Tool: create_note -> {title}")
     note = await note_service.create_note(title=title, content=content)
     return f"Successfully created note 「{title}」 with ID: {note['id']}"
 
@@ -133,7 +133,7 @@ async def delete_note(note_id: str) -> str:
     Delete a specific note by its ID.
     Use this ONLY when the user explicitly asks to 'delete', 'remove', or 'trash' a note.
     """
-    print(f"🛠️ Tool: delete_note -> {note_id}")
+    print(f"[TOOL] Tool: delete_note -> {note_id}")
     success = await note_service.delete_note(note_id)
     if success:
         return f"Successfully deleted note {note_id}."

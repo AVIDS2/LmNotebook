@@ -52,11 +52,11 @@ def create_knowledge_worker(llm) -> Callable:
                 "tool_calls": ["search_notes"],
             }
         
-        print(f"🔍 Knowledge Agent processing: {query}")
+        print(f"[SEARCH] Knowledge Agent processing: {query}")
         
         # Enterprise Pattern: LLM decides the strategy (Search vs List vs Recent)
         plan = await _plan_knowledge_action(llm, query)
-        print(f"🧠 Knowledge Plan: {plan}")
+        print(f"[PLAN] Knowledge Plan: {plan}")
         
         if plan['action'] == 'list_recent':
             return await _list_notes(rag_service, llm, query, title_prefix="🕒 **最近的笔记**", limit=plan.get('limit', 8), require_summary=plan.get('require_summary', False))
@@ -76,7 +76,7 @@ def create_knowledge_worker(llm) -> Callable:
             title_match = re.search(r'[「《](.*?)[」》]', query)
             if title_match:
                 specific_title = title_match.group(1)
-                print(f"📖 Detected specific note title: {specific_title}, fetching full content...")
+                print(f"[READ] Detected specific note title: {specific_title}, fetching full content...")
                 from services.note_service import NoteService
                 note_svc = NoteService()
                 # We need a method to find by title, for now let's iterate or rely on search result ID if available
@@ -168,7 +168,7 @@ Plan:"""
         plan = json.loads(content)
         return plan
     except Exception as e:
-        print(f"⚠️ Planning failed, defaulting to search: {e}")
+        print(f"[WARN] Planning failed, defaulting to search: {e}")
         return {"action": "search", "query": query}
 
 
@@ -191,7 +191,7 @@ async def _list_notes(rag_service: RAGService, llm, query: str, title_prefix="�
     # DEEP SUMMARY MODE
     # If user wants summary/outline, we must fetch CONTENT.
     # To avoid context explosion, we limit to top 5 notes for summary or just read first 500 chars
-    print("🧠 Generating deep summary for notes listing...")
+    print("[THINK] Generating deep summary for notes listing...")
     
     # Fetch content (RAGService list_all_notes usually returns content="" for perf, so we might need re-fetch or use what we have)
     # The current list_all_notes implementation (based on previous edits) might return empty content.

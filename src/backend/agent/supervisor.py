@@ -172,7 +172,7 @@ class AgentSupervisor:
                                 note_id = tool_call["args"].get("note_id")
                                 yield json.dumps({"tool_call": "note_deleted", "note_id": note_id, "message": "Note deleted from library."})
                         except Exception as sync_err:
-                            print(f"⚠️ UI Sync Warning: {sync_err}")
+                            print(f"[WARN] UI Sync Warning: {sync_err}")
 
                         messages.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
                     
@@ -202,7 +202,7 @@ class AgentSupervisor:
             yield "抱歉，任务处理轮次超限，未能生成有效回答。请尝试换个问法。"
                     
         except Exception as e:
-            print(f"❌ Orchestration Error: {e}")
+            print(f"[ERR] Orchestration Error: {e}")
             import traceback
             traceback.print_exc()
             yield f"抱歉，系统逻辑层出现错误：{str(e)}"

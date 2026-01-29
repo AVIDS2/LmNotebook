@@ -474,7 +474,7 @@ async function sendMessage(text?: string) {
     if (error.name === 'AbortError') {
       if (streamingMessage.value) streamingMessage.value.content += ' \n\n*(已由用户停止生成)*'
     } else {
-      if (streamingMessage.value) streamingMessage.value.content = '❌ 抱歉，连接服务器出错。'
+      if (streamingMessage.value) streamingMessage.value.content = '❌ 无法连接到 AI 服务。请确保后台服务 (Port 8765) 正在运行。'
     }
   } finally {
     isTyping.value = false

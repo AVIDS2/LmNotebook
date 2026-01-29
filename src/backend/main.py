@@ -15,9 +15,9 @@ from api.routes import router as api_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Deeply simplified lifecycle."""
-    print(f"🚀 Origin Notes Backend Ready on port {settings.PORT}")
+    print(f">> Origin Notes Backend Ready on port {settings.PORT}")
     yield
-    print("👋 Shutdown complete.")
+    print(">> Shutdown complete.")
 
 
 app = FastAPI(

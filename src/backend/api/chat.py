@@ -76,7 +76,7 @@ async def stream_agent(request: ChatRequest):
         start_time = time.time()
         try:
             supervisor = AgentSupervisor()
-            print(f"🔄 Starting stream for: {request.message[:50]}...")
+            print(f">> Starting stream for: {request.message[:50]}...")
             async for chunk in supervisor.invoke_stream(
                 message=request.message,
                 history=request.history_dicts, 
@@ -86,7 +86,7 @@ async def stream_agent(request: ChatRequest):
             ):
                 chunk_count += 1
                 elapsed = time.time() - start_time
-                print(f"📤 Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
+                print(f">> Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
                 
                 # Check if chunk is a JSON control message (status or tool_call)
                 if isinstance(chunk, str) and (chunk.startswith('{"type":') or chunk.startswith('{"tool_call":')):
@@ -95,10 +95,10 @@ async def stream_agent(request: ChatRequest):
                     # Normal text chunk
                     encoded = json.dumps({"text": chunk})
                     yield f"data: {encoded}\n\n"
-            print(f"✅ Stream complete: {chunk_count} chunks in {time.time() - start_time:.2f}s")
+            print(f">> Stream complete: {chunk_count} chunks in {time.time() - start_time:.2f}s")
             yield "data: [DONE]\n\n"
         except Exception as e:
-            print(f"❌ Stream error: {e}")
+            print(f"X Stream error: {e}")
             error_msg = json.dumps({"error": str(e)})
             yield f"data: {error_msg}\n\n"
     

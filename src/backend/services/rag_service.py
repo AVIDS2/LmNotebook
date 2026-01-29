@@ -54,7 +54,7 @@ class RAGService:
     def _get_embedding_fn(self):
         """Proxy-bypass Qwen Embedding Client."""
         if self.emb_fn is None:
-            print(f"🌐 Connecting to Cloud Embedding: {settings.EMBEDDING_MODEL}")
+            print(f"[NET] Connecting to Cloud Embedding: {settings.EMBEDDING_MODEL}")
             
             class ProxyBypassEmbedder:
                 def __init__(self, api_key, api_base, model_name):
@@ -87,16 +87,16 @@ class RAGService:
                 return
 
             if self.index_file.exists() and self.meta_file.exists():
-                print("📂 Loading FAISS index from disk...")
+                print("[IO] Loading FAISS index from disk...")
                 try:
                     self.index = faiss.read_index(str(self.index_file))
                     with open(self.meta_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         self.metadata = data.get("metadata", [])
                         self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
-                    print(f"✅ FAISS Ready. {len(self.metadata)} items loaded.")
+                    print(f"[OK] FAISS Ready. {len(self.metadata)} items loaded.")
                 except Exception as e:
-                    print(f"⚠️ FAISS Load failed: {e}. Starting fresh.")
+                    print(f"[WARN] FAISS Load failed: {e}. Starting fresh.")
                     self._create_empty_index()
             else:
                 self._create_empty_index()
@@ -107,7 +107,7 @@ class RAGService:
         self.index = faiss.IndexFlatIP(dimension) # Inner Product is better for normalized embeddings
         self.metadata = []
         self.id_to_idx = {}
-        print("✨ Created fresh FAISS index.")
+        print("[OK] Created fresh FAISS index.")
 
     async def _ensure_loaded(self):
         if self.index is None:
@@ -126,7 +126,7 @@ class RAGService:
                         db_count = row['count'] if row else 0
                         
                     if db_count > 0:
-                        print(f"🚨 Desync Detected: FAISS=0, DB={db_count}. Starting Auto-Hydration...")
+                        print(f"[WARN] Desync Detected: FAISS=0, DB={db_count}. Starting Auto-Hydration...")
                         # Fetch all notes manually to avoid circular dependency
                         async with aiosqlite.connect(db_path) as db:
                             db.row_factory = aiosqlite.Row
@@ -137,7 +137,7 @@ class RAGService:
                         # Trigger Vectorization
                         await self.reindex_from_db(notes)
             except Exception as e:
-                print(f"❌ Auto-Hydration check failed: {e}")
+                print(f"[ERR] Auto-Hydration check failed: {e}")
                 
         self._loaded_initial = True
 
@@ -156,7 +156,7 @@ class RAGService:
         if not query.strip() or self.index.ntotal == 0:
             return []
             
-        print(f"🔎 FAISS Search: \"{query}\"")
+        print(f"[SEARCH] FAISS Search: \"{query}\"")
         try:
             query_vec = await self._vectorize(query)
             # D = distances (scores), I = indices
@@ -174,7 +174,7 @@ class RAGService:
                 })
             return sorted(output, key=lambda x: x["score"], reverse=True)
         except Exception as e:
-            print(f"❌ FAISS Search Error: {e}")
+            print(f"[ERR] FAISS Search Error: {e}")
             return []
 
     async def list_all_notes(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -190,7 +190,7 @@ class RAGService:
             return [{"id": m['id'], "title": m['title'], "content": ""} for m in reversed(items)]
             
         # 2. Fallback to SQL DB directly if FAISS is empty (Safe Mode)
-        print("⚠️ FAISS is empty, falling back to SQL for listing...")
+        print("[WARN] FAISS is empty, falling back to SQL for listing...")
         try:
             # We import here to avoid circular dependency issues if any
             from services.note_service import NoteService
@@ -202,7 +202,7 @@ class RAGService:
                  rows = await cursor.fetchall()
                  return [{"id": str(r['id']), "title": r['title'], "content": ""} for r in rows]
         except Exception as e:
-            print(f"❌ SQL Fallback Error: {e}")
+            print(f"[ERR] SQL Fallback Error: {e}")
             return []
 
     async def add_document(self, doc_id: str, title: str, content: str) -> None:
@@ -219,7 +219,7 @@ class RAGService:
             
             # Dynamic Dimension Check
             if self.index.d != embedding.shape[1]:
-                print(f"⚠️ Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
+                print(f"[WARN] Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
                 # If dimension changed (e.g. model switch), we must rebuild index or error
                 # For safety, let's error on add, but ideally reindex_all should be called
                 # Here we will re-init index with new dimension for this item (clearing old)
@@ -237,10 +237,10 @@ class RAGService:
             
             # Save change
             await self._save_to_disk()
-            print(f"✅ Added to FAISS: {title}")
+            print(f"[OK] Added to FAISS: {title}")
         except Exception as e:
             import traceback
-            print(f"❌ FAISS Add Error: {e}")
+            print(f"[ERR] FAISS Add Error: {e}")
             traceback.print_exc()
 
     async def remove_document(self, doc_id: str) -> None:
@@ -250,7 +250,7 @@ class RAGService:
         """
         if doc_id not in self.id_to_idx: return
         
-        print(f"🗑️ Removing from FAISS: {doc_id}")
+        print(f"[DEL] Removing from FAISS: {doc_id}")
         self.metadata = [m for m in self.metadata if m['id'] != doc_id]
         # Rebuild index
         if not self.metadata:
@@ -275,7 +275,7 @@ class RAGService:
             with open(self.meta_file, 'w', encoding='utf-8') as f:
                 json.dump({"metadata": self.metadata}, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"❌ FAISS Save failed: {e}")
+            print(f"[ERR] FAISS Save failed: {e}")
 
     async def reload(self) -> int:
         await self._init_resources()
@@ -292,7 +292,7 @@ class RAGService:
                 valid_notes = [n for n in notes if n.get('title') or n.get('plainText') or n.get('content')]
                 if not valid_notes: return 0
                 
-                print(f"🔄 Re-indexing {len(valid_notes)} notes into FAISS...")
+                print(f"[SYNC] Re-indexing {len(valid_notes)} notes into FAISS...")
                 
                 documents = []
                 new_metadata = []
@@ -315,14 +315,14 @@ class RAGService:
                 else:
                     dimension = 1536 # Default fallback
                 
-                print(f"📏 Detected Embedding Dimension: {dimension}")
+                print(f"[INFO] Detected Embedding Dimension: {dimension}")
                 
                 # Update memory state
                 self.index = faiss.IndexFlatIP(dimension)
                 
                 # Ensure embeddings are correct shape/type for FAISS
                 if embeddings.ndim != 2 or embeddings.shape[1] != dimension:
-                    print(f"❌ Embedding Shape Error: Expected (N, {dimension}), got {embeddings.shape}")
+                    print(f"[ERR] Embedding Shape Error: Expected (N, {dimension}), got {embeddings.shape}")
                     return 0
                 
                 self.index.add(embeddings)
@@ -330,11 +330,11 @@ class RAGService:
                 self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
                 
                 await self._save_to_disk()
-                print(f"✅ FAISS Re-sync Complete. Count: {self.index.ntotal}")
+                print(f"[OK] FAISS Re-sync Complete. Count: {self.index.ntotal}")
                 return len(self.metadata)
             except Exception as e:
                 import traceback
-                print(f"❌ FAISS Re-sync Error: {e}")
+                print(f"[ERR] FAISS Re-sync Error: {e}")
                 traceback.print_exc()
                 return 0
             finally:

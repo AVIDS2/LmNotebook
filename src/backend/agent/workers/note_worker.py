@@ -37,7 +37,7 @@ def create_note_worker(llm) -> Callable:
         
         # Parse the intent from worker input with history
         intent = await _parse_note_intent(llm, worker_input, messages)
-        print(f"📝 Note Worker Intent: {intent}")
+        print(f"[NOTE] Note Worker Intent: {intent}")
         
         import json
         
@@ -84,7 +84,7 @@ def create_note_worker(llm) -> Callable:
                 
                 # HEURISTIC REMOVED: Now relying on LLM's "force_rewrite" flag
                 if intent.get("force_rewrite", False):
-                    print(f"🔄 Force Overwrite triggered by LLM intent.")
+                    print(f"[WARN] Force Overwrite triggered by LLM intent.")
                     note_context = "" # FORCE EMPTY CONTEXT
             
                 if note_context and len(note_context) > 10:

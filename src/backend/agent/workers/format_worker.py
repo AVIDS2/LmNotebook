@@ -55,7 +55,7 @@ def create_format_worker(llm) -> Callable:
                 "tool_calls": ["format_text"],
             }
         
-        print(f"✨ Formatting text ({len(text_to_format)} chars)")
+        print(f"[FMT] Formatting text ({len(text_to_format)} chars)")
         
         try:
             response = llm.invoke([
@@ -71,7 +71,7 @@ def create_format_worker(llm) -> Callable:
                 "tool_calls": ["format_text"],
             }
         except Exception as e:
-            print(f"❌ Format error: {e}")
+            print(f"[ERR] Format error: {e}")
             return {
                 "response": "格式化时出现问题，请稍后再试。",
                 "tool_calls": ["format_text"],
