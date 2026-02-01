@@ -197,7 +197,17 @@ if (registerEditorAction) {
   registerEditorAction((html: string) => {
     if (editor.value) {
       console.log('🔮 AI Applying new content to editor...')
-      editor.value.commands.setContent(html, true)
+      
+      // 使用 chain 命令保留 undo 历史，而不是直接 setContent
+      // setContent 会清空整个编辑器状态，包括 undo 历史
+      const { from } = editor.value.state.selection
+      
+      editor.value.chain()
+        .selectAll()
+        .deleteSelection()
+        .insertContent(html)
+        .setTextSelection(Math.min(from, editor.value.state.doc.content.size))
+        .run()
     }
   })
 }

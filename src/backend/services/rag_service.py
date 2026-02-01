@@ -142,10 +142,26 @@ class RAGService:
         self._loaded_initial = True
 
     async def _vectorize(self, texts: Any) -> np.ndarray:
-        """Convert text to normalized numpy embeddings."""
+        """Convert text to normalized numpy embeddings with batch size limiting."""
         emb_fn = self._get_embedding_fn()
-        raw_embs = await asyncio.to_thread(emb_fn.embed_documents, texts if isinstance(texts, list) else [texts])
-        arr = np.array(raw_embs).astype('float32')
+        
+        # Ensure texts is a list
+        if not isinstance(texts, list):
+            texts = [texts]
+        
+        if not texts:
+            return np.array([]).astype('float32')
+        
+        # Batch size limit for Aliyun Embedding API (max 10)
+        BATCH_SIZE = 10
+        all_embeddings = []
+        
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            batch_embs = await asyncio.to_thread(emb_fn.embed_documents, batch)
+            all_embeddings.extend(batch_embs)
+        
+        arr = np.array(all_embeddings).astype('float32')
         # Normalize for Cosine Similarity via Inner Product
         faiss.normalize_L2(arr)
         return arr
@@ -180,21 +196,13 @@ class RAGService:
     async def list_all_notes(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
         List recent documents.
-        Strategy: Try FAISS metadata first. If empty, fallback to DB to ensure data visibility.
+        Strategy: ALWAYS read from DB (single source of truth) to respect isDeleted flag.
+        FAISS metadata is only for vector search, not for listing.
         """
         await self._ensure_loaded()
         
-        # 1. Try FAISS Metadata
-        items = self.metadata[-limit:]
-        if items:
-            return [{"id": m['id'], "title": m['title'], "content": ""} for m in reversed(items)]
-            
-        # 2. Fallback to SQL DB directly if FAISS is empty (Safe Mode)
-        print("[WARN] FAISS is empty, falling back to SQL for listing...")
+        # Always read from DB (respects isDeleted = 0 filter)
         try:
-            # We import here to avoid circular dependency issues if any
-            from services.note_service import NoteService
-            # We need to instantiate a temp service or use a raw query
             db_path = settings.NOTES_DB_PATH
             async with aiosqlite.connect(db_path) as db:
                  db.row_factory = aiosqlite.Row
@@ -202,7 +210,11 @@ class RAGService:
                  rows = await cursor.fetchall()
                  return [{"id": str(r['id']), "title": r['title'], "content": ""} for r in rows]
         except Exception as e:
-            print(f"[ERR] SQL Fallback Error: {e}")
+            print(f"[ERR] SQL List Error: {e}")
+            # Fallback to FAISS metadata only if DB fails
+            items = self.metadata[-limit:]
+            if items:
+                return [{"id": m['id'], "title": m['title'], "content": ""} for m in reversed(items)]
             return []
 
     async def add_document(self, doc_id: str, title: str, content: str) -> None:

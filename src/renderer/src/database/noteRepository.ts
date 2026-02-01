@@ -23,7 +23,9 @@ export interface UpdateNoteInput {
   plainText?: string
   categoryId?: string | null
   isPinned?: boolean
-  markdownSource?: string | null
+  createdAt?: number
+  updatedAt?: number
+  order?: number
 }
 
 // 笔记仓库 - 使用 SQLite

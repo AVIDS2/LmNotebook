@@ -27,7 +27,7 @@
     <main class="main-content">
       <TheSidebar :collapsed="uiStore.sidebarCollapsed" @toggle="uiStore.toggleSidebar" />
       <NoteList />
-      <NoteEditor />
+      <NoteEditor :key="noteStore.currentNote?.id || 'empty'" />
     </main>
 
     <!-- AI Agent 聊天气泡 -->

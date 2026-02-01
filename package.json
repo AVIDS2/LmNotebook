@@ -87,14 +87,10 @@
     "extraResources": [
       "build/icon.ico",
       {
-        "from": "src/backend",
-        "to": "backend_src",
+        "from": "src/backend/dist/origin_backend.exe",
+        "to": "backend/origin_backend.exe",
         "filter": [
-          "!**/*.pyc",
-          "!**/__pycache__",
-          "!**.spec",
-          "!dist",
-          "!build"
+          "**/*"
         ]
       }
     ]

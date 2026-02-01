@@ -1,0 +1,15 @@
+[0131/184711:INFO:mailmaster_exe.cpp(140)] Start ======================================================
+[0131/184711:INFO:mailmaster_exe.cpp(142)] Commandline: --type=gpu-process --field-trial-handle=2388,1252110762396226935,13002455350750819444,131072 --enable-features=CastMediaRouteProvider --disable-features=WinUseBrowserSpellChecker --no-sandbox --log-file="C:\Users\Lenovo\AppData\Local\Netease\MailMaster\logs\web.log" --product-version="Chrome/87.0.4280.141 MailMasterPC/5.0.7.1009 (universal)" --lang=zh-CN --gpu-preferences=MAAAAAAAAADgAAAwAAAAAAAAAAAAAAAAAABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAKAAAAAQAAAAgAAAAAAAAACgAAAAAAAAAMAAAAAAAAAA4AAAAAAAAABAAAAAAAAAAAAAAAAUAAAAQAAAAAAAAAAAAAAAGAAAAEAAAAAAAAAABAAAABQAAABAAAAAAAAAAAQAAAAYAAAA= --use-gl=swiftshader-webgl --log-file="C:\Users\Lenovo\AppData\Local\Netease\MailMaster\logs\web.log" --mojo-platform-channel-handle=2404 /prefetch:2
+[0131/184711:INFO:mailmaster_exe.cpp(76)] Environment: {"CPULogicalCores":20,"CPUModel":"12th Gen Intel(R) Core(TM) i9-12900H","Mac":["F4C88A400ADD","00155D5EFB55"],"Memory":"5365/16176M","OSArchitecture":"x86_64","OSVersion":"10.0.22631"}
+[0131/184711:INFO:mailmaster_exe.cpp(77)] Exe.Path: C:\Program Files (x86)\Netease\MailMaster\Application\mailmaster.exe
+[0131/184711:INFO:mailmaster_exe.cpp(82)] Last system shutdown time: 2026-01-31 09:46:15.334 UTC
+[0131/184711:INFO:mailmaster_exe.cpp(84)] System start time: 2026-01-31 09:46:28.000 UTC
+[0131/184711:INFO:main_dll_loader.cpp(113)] Version: 5.0.7.1009
+[0131/184711:INFO:mailmaster_exe.cpp(140)] Start ======================================================
+[0131/184711:INFO:mailmaster_exe.cpp(142)] Commandline: --type=utility --utility-sub-type=network.mojom.NetworkService --field-trial-handle=2388,1252110762396226935,13002455350750819444,131072 --enable-features=CastMediaRouteProvider --disable-features=WinUseBrowserSpellChecker --lang=zh-CN --service-sandbox-type=network --no-sandbox --log-file="C:\Users\Lenovo\AppData\Local\Netease\MailMaster\logs\web.log" --product-version="Chrome/87.0.4280.141 MailMasterPC/5.0.7.1009 (universal)" --lang=zh-CN --log-file="C:\Users\Lenovo\AppData\Local\Netease\MailMaster\logs\web.log" --mojo-platform-channel-handle=3424 /prefetch:8
+[0131/184711:INFO:mailmaster_exe.cpp(76)] Environment: {"CPULogicalCores":20,"CPUModel":"12th Gen Intel(R) Core(TM) i9-12900H","Mac":["F4C88A400ADD","00155D5EFB55"],"Memory":"5347/16176M","OSArchitecture":"x86_64","OSVersion":"10.0.22631"}
+[0131/184711:INFO:mailmaster_exe.cpp(77)] Exe.Path: C:\Program Files (x86)\Netease\MailMaster\Application\mailmaster.exe
+[0131/184711:INFO:mailmaster_exe.cpp(82)] Last system shutdown time: 2026-01-31 09:46:15.334 UTC
+[0131/184711:INFO:mailmaster_exe.cpp(84)] System start time: 2026-01-31 09:46:28.000 UTC
+[0131/184711:INFO:main_dll_loader.cpp(113)] Version: 5.0.7.1009
+[0131/184713:INFO:mailmaster_exe.cpp(204)] Process will exit with code: 0

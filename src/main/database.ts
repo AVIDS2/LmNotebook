@@ -36,7 +36,8 @@ function initDatabase(): void {
       isDeleted INTEGER NOT NULL DEFAULT 0,
       deletedAt INTEGER,
       createdAt INTEGER NOT NULL,
-      updatedAt INTEGER NOT NULL
+      updatedAt INTEGER NOT NULL,
+      "order" INTEGER NOT NULL DEFAULT 0
     )
   `)
 
@@ -49,6 +50,13 @@ function initDatabase(): void {
       "order" INTEGER NOT NULL DEFAULT 0
     )
   `)
+
+    // 为旧数据库添加 order 列
+    try {
+        db.exec('ALTER TABLE notes ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0')
+    } catch (e) {
+        // 列已经存在
+    }
 
     // 创建索引
     db.exec(`
@@ -85,6 +93,7 @@ export interface Note {
     deletedAt: number | null
     createdAt: number
     updatedAt: number
+    order: number
 }
 
 // 分类类型定义
@@ -98,7 +107,7 @@ export interface Category {
 // ==================== 笔记操作 ====================
 
 export function getAllNotes(): Note[] {
-    return db.prepare('SELECT * FROM notes WHERE isDeleted = 0 ORDER BY isPinned DESC, updatedAt DESC').all() as Note[]
+    return db.prepare('SELECT * FROM notes WHERE isDeleted = 0 ORDER BY isPinned DESC, "order" ASC, updatedAt DESC').all() as Note[]
 }
 
 export function getDeletedNotes(): Note[] {
@@ -106,7 +115,7 @@ export function getDeletedNotes(): Note[] {
 }
 
 export function getNotesByCategory(categoryId: string): Note[] {
-    return db.prepare('SELECT * FROM notes WHERE categoryId = ? AND isDeleted = 0 ORDER BY isPinned DESC, updatedAt DESC').all(categoryId) as Note[]
+    return db.prepare('SELECT * FROM notes WHERE categoryId = ? AND isDeleted = 0 ORDER BY isPinned DESC, "order" ASC, updatedAt DESC').all(categoryId) as Note[]
 }
 
 export function getNoteById(id: string): Note | undefined {
@@ -115,9 +124,10 @@ export function getNoteById(id: string): Note | undefined {
 
 export function createNote(note: Partial<Note> & { id: string }): Note {
     const now = Date.now()
+    const maxOrder = (db.prepare('SELECT MAX("order") as maxOrder FROM notes').get() as { maxOrder: number | null }).maxOrder ?? -1
     const stmt = db.prepare(`
-    INSERT INTO notes (id, title, content, plainText, markdownSource, categoryId, isPinned, isDeleted, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, title, content, plainText, markdownSource, categoryId, isPinned, isDeleted, createdAt, updatedAt, "order")
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
     stmt.run(
         note.id,
@@ -129,7 +139,8 @@ export function createNote(note: Partial<Note> & { id: string }): Note {
         note.isPinned ? 1 : 0,
         0,
         now,
-        now
+        now,
+        maxOrder + 1
     )
     return getNoteById(note.id)!
 }
@@ -173,6 +184,10 @@ export function updateNote(id: string, updates: Partial<Note>): Note | undefined
         fields.push('deletedAt = ?')
         values.push(updates.deletedAt)
     }
+    if (updates.order !== undefined) {
+        fields.push('"order" = ?')
+        values.push(updates.order)
+    }
 
     fields.push('updatedAt = ?')
     values.push(Date.now())
@@ -206,7 +221,7 @@ export function searchNotes(query: string): Note[] {
     return db.prepare(`
     SELECT * FROM notes 
     WHERE isDeleted = 0 AND (title LIKE ? OR plainText LIKE ?)
-    ORDER BY isPinned DESC, updatedAt DESC
+    ORDER BY isPinned DESC, "order" ASC, updatedAt DESC
   `).all(pattern, pattern) as Note[]
 }
 

@@ -4,10 +4,11 @@ uvicorn[standard]>=0.32.0
 pydantic>=2.10.0
 pydantic-settings>=2.6.0
 
-# LangChain ecosystem
-langchain>=0.3.14
-langgraph>=0.2.60
+# LangChain ecosystem (LangGraph 1.x - Oct 2025 major release)
+langchain>=1.0.0
+langgraph>=1.0.7
 langchain-community>=0.3.14
+langchain-openai>=0.3.0
 
 # ZhipuAI integration
 zhipuai>=2.1.0
@@ -15,8 +16,8 @@ zhipuai>=2.1.0
 # Vector store
 faiss-cpu>=1.9.0
 
-# Embeddings (using local model)
-sentence-transformers>=3.3.0
+# Embeddings (using cloud API now)
+# sentence-transformers>=3.3.0
 
 # Database
 aiosqlite>=0.20.0
@@ -24,4 +25,5 @@ aiosqlite>=0.20.0
 # Utilities
 python-dotenv>=1.0.1
 httpx>=0.28.0
+markdown>=3.5.0
 

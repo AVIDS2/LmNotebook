@@ -113,6 +113,9 @@ export const useNoteStore = defineStore('notes', () => {
       if (a.isPinned !== b.isPinned) {
         return a.isPinned ? -1 : 1
       }
+      if (a.order !== b.order) {
+        return a.order - b.order
+      }
       return b.updatedAt - a.updatedAt
     })
   }
@@ -318,6 +321,28 @@ export const useNoteStore = defineStore('notes', () => {
     currentNote.value = null
   }
 
+  // 重新排序（拖拽）
+  async function reorderNotes(draggedId: string, targetId: string): Promise<void> {
+    const draggedIndex = notes.value.findIndex(n => n.id === draggedId)
+    const targetIndex = notes.value.findIndex(n => n.id === targetId)
+
+    if (draggedIndex === -1 || targetIndex === -1) return
+
+    // 如果涉及置顶状态不同，不处理手动排序（置顶始终在顶部）
+    if (notes.value[draggedIndex].isPinned !== notes.value[targetIndex].isPinned) return
+
+    const [draggedNote] = notes.value.splice(draggedIndex, 1)
+    notes.value.splice(targetIndex, 0, draggedNote)
+
+    // 更新所有笔记的 order 值（受当前模式限制，只更新可见列表）
+    for (let i = 0; i < notes.value.length; i++) {
+      if (notes.value[i].order !== i) {
+        await noteRepository.update(notes.value[i].id, { order: i })
+        notes.value[i].order = i
+      }
+    }
+  }
+
   // 初始化
   async function initialize(): Promise<void> {
     await loadNotes()
@@ -353,6 +378,7 @@ export const useNoteStore = defineStore('notes', () => {
     permanentDeleteNote,
     emptyTrash,
     initialize,
-    cleanupEmptyCurrentNote
+    cleanupEmptyCurrentNote,
+    reorderNotes
   }
 })

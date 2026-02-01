@@ -225,6 +225,13 @@ function handleDragStart(categoryId: string): void {
 // 拖拽经过
 function handleDragOver(e: DragEvent, categoryId: string): void {
   e.preventDefault()
+  
+  // 检查是否在拖拽笔记
+  const isNote = e.dataTransfer?.types.includes('source/type')
+  if (isNote) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  }
+  
   dragOverCategoryId.value = categoryId
 }
 
@@ -235,10 +242,21 @@ function handleDragLeave(): void {
 
 // 拖拽放下
 async function handleDrop(targetCategoryId: string): Promise<void> {
+  // 处理分类重排序
   if (draggedCategoryId.value && draggedCategoryId.value !== targetCategoryId) {
     await categoryStore.reorderCategories(draggedCategoryId.value, targetCategoryId)
+    draggedCategoryId.value = null
+  } 
+  // 处理笔记移动到分类
+  else {
+    const noteId = document.querySelector('.note-card--dragging')?.getAttribute('data-id') 
+                   || (window as any)._draggedNoteId // 兜底
+    
+    if (noteId) {
+      await noteStore.updateNote(noteId, { categoryId: targetCategoryId })
+    }
   }
-  draggedCategoryId.value = null
+  
   dragOverCategoryId.value = null
 }
 

@@ -3,8 +3,17 @@
     class="note-card"
     :class="{
       'note-card--active': isActive,
-      'note-card--pinned': note.isPinned
+      'note-card--pinned': note.isPinned,
+      'note-card--dragging': isDragging,
+      'note-card--dragover': isDragOver
     }"
+    draggable="true"
+    :data-id="note.id"
+    @dragstart="handleDragStart"
+    @dragover.prevent="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+    @dragend="handleDragEnd"
   >
     <!-- 置顶标识 -->
     <div v-if="note.isPinned" class="note-card__pin">
@@ -41,7 +50,45 @@ import { useCategoryStore } from '@/stores/categoryStore'
 const props = defineProps<{
   note: Note
   isActive: boolean
+  isDragging?: boolean
+  isDragOver?: boolean
 }>()
+
+const emit = defineEmits<{
+  dragstart: [id: string]
+  dragover: [id: string]
+  dragleave: []
+  drop: [id: string]
+  dragend: []
+}>()
+
+function handleDragStart(e: DragEvent) {
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', props.note.id)
+    e.dataTransfer.setData('source/type', 'note')
+    // 注入全局变量以便跨组件访问
+    ;(window as any)._draggedNoteId = props.note.id
+  }
+  emit('dragstart', props.note.id)
+}
+
+function handleDragOver(e: DragEvent) {
+  emit('dragover', props.note.id)
+}
+
+function handleDragLeave() {
+  emit('dragleave')
+}
+
+function handleDrop(e: DragEvent) {
+  emit('drop', props.note.id)
+}
+
+function handleDragEnd() {
+  ;(window as any)._draggedNoteId = null
+  emit('dragend')
+}
 
 const categoryStore = useCategoryStore()
 
@@ -109,6 +156,16 @@ function formatDate(timestamp: number): string {
 
   &--pinned {
     border-left: 3px solid $color-accent;
+  }
+
+  &--dragging {
+    opacity: 0.5;
+    background: $color-bg-hover;
+  }
+
+  &--dragover {
+    border-top: 2px solid $color-accent;
+    background: $color-bg-active;
   }
 }
 

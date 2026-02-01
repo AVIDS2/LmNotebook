@@ -40,3 +40,12 @@ Thumbs.db
 # Windows temp
 nul
 
+# Python local environments
+backend_env/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# References
+.for_look/

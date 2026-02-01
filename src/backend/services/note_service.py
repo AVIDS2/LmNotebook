@@ -156,6 +156,28 @@ class NoteService:
         """Perform semantic search across notes."""
         return await self.rag_service.search(query, top_k)
     
+    async def get_all_categories(self) -> List[Dict[str, Any]]:
+        """Get all categories."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT id, name, color, "order"
+                FROM categories
+                ORDER BY "order" ASC
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    async def set_note_category(self, note_id: str, category_id: Optional[str]) -> bool:
+        """Set or clear a note's category."""
+        async with aiosqlite.connect(self.db_path) as db:
+            result = await db.execute(
+                "UPDATE notes SET categoryId = ?, updatedAt = ? WHERE id = ? AND isDeleted = 0",
+                (category_id, int(datetime.now().timestamp() * 1000), note_id)
+            )
+            await db.commit()
+            return result.rowcount > 0
+    
     async def reindex_all(self) -> int:
         """Rebuild the vector index from all notes."""
         notes = await self.get_all_notes()

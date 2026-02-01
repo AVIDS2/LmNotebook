@@ -14,6 +14,7 @@ export interface Note {
     deletedAt: number | null
     createdAt: number
     updatedAt: number
+    order: number
 }
 
 // 分类类型

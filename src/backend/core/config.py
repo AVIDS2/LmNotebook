@@ -41,7 +41,16 @@ class Settings(BaseSettings):
     TOP_K_RESULTS: int = 5
     
     class Config:
-        env_file = ".env"
+        # Smart .env resolution for PyInstaller
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled exe
+            base_path = sys._MEIPASS
+            env_file = os.path.join(base_path, ".env")
+        else:
+            # Running from source
+            env_file = ".env"
+            
         extra = "ignore"
 
 

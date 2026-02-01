@@ -3,12 +3,40 @@ Origin Notes Agent Backend
 FastAPI server for AI agent functionality.
 """
 import os
-from contextlib import asynccontextmanager
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
 
+# CRITICAL: Load .env before importing anything that uses config
+if getattr(sys, 'frozen', False):
+    # PyInstaller mode: .env is in temp folder
+    base_path = sys._MEIPASS
+    env_path = os.path.join(base_path, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        print(f"[ENV] Loaded from bundled: {env_path}")
+    else:
+        print(f"[ENV] Warning: Bundled .env not found at {env_path}")
+else:
+    # Dev mode
+    load_dotenv()
+
+# FORCE IMPORT: Explicitly import critical dependencies to force PyInstaller to bundle them
+# This bypasses any "hidden-import" detection issues
+import markdown
+import zhipuai
+import langchain
+import langchain_community
+import langchain_openai
+import uvicorn
+import httpx
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
+from core.model_manager import model_manager
 from api.routes import router as api_router
 
 
@@ -43,20 +71,26 @@ app.include_router(api_router, prefix="/api")
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    active = model_manager.get_active_provider()
     return {
         "status": "healthy",
         "version": "1.0.0",
-        "llm_configured": bool(settings.OPENAI_API_KEY),
-        "model": settings.MODEL_NAME,
-        "base_url": settings.OPENAI_BASE_URL
+        "provider": active["name"] if active else "Default",
+        "llm_configured": bool(active.get("apiKey")) if active else False,
+        "model": active.get("modelName") if active else settings.MODEL_NAME,
+        "base_url": active.get("baseUrl") if active else settings.OPENAI_BASE_URL
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+    import multiprocessing
+    
+    # Required for frozen executables using multiprocessing/uvicorn on Windows
+    multiprocessing.freeze_support()
+    
     uvicorn.run(
-        "main:app",
+        app,
         host="127.0.0.1",
-        port=settings.PORT,
-        reload=True
+        port=settings.PORT
     )

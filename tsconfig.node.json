@@ -10,5 +10,9 @@
   "include": [
     "electron.vite.config.ts",
     "src/main/**/*.ts"
+  ],
+  "exclude": [
+    ".for_look",
+    "node_modules"
   ]
 }

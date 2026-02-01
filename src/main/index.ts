@@ -21,23 +21,45 @@ function startBackend(): void {
 
   logStream.write(`\n[${new Date().toISOString()}] Attempting to start backend from ${backendDir}\n`)
 
-  // CRITICAL FIX: Prioritize the user's known Anaconda path because system 'python' points to a broken Python 3.11 env
-  const knownCondaPath = 'G:\\APP\\anaconda\\python.exe'
-  const fs = require('fs') // dynamic require to avoid top-level issues if not needed
+  let backendExec: string
+  let execArgs: string[] = []
+  let cwd: string
 
-  let pythonExec = 'python' // default fallback
-  if (fs.existsSync(knownCondaPath)) {
-    pythonExec = knownCondaPath
-    logStream.write(`[Target Lock] Using Anaconda Python: ${pythonExec}\n`)
+  if (app.isPackaged) {
+    // Production: Run the compiled executable
+    // Path: resources/backend/origin_backend.exe
+    backendExec = join(process.resourcesPath, 'backend', 'origin_backend.exe')
+    cwd = join(process.resourcesPath, 'backend')
+
+    // Validate
+    if (!require('fs').existsSync(backendExec)) {
+      logStream.write(`[FATAL] Backend executable not found at: ${backendExec}\n`)
+    } else {
+      logStream.write(`[Production] Starting compiled backend: ${backendExec}\n`)
+    }
   } else {
-    logStream.write(`[System Default] Using generic 'python' command\n`)
+    // Development: Run python script from source using local env
+    // Path: backend_env/Scripts/python.exe
+    const pythonExe = join(process.cwd(), 'backend_env', 'Scripts', 'python.exe')
+    backendExec = pythonExe
+    execArgs = ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8765']
+    cwd = join(process.cwd(), 'src', 'backend')
+
+    logStream.write(`[Development] Starting backend from source using: ${backendExec}\n`)
   }
 
-  // Use shell:true to ensure env vars are inherited
-  backendProcess = spawn(pythonExec, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8765'], {
-    cwd: backendDir,
-    shell: true,
-    windowsHide: true
+  // Spawn the process
+  // Note: For compiled exe, no args needed as main.py handles uvicorn.run
+  backendProcess = spawn(backendExec, execArgs, {
+    cwd: cwd,
+    shell: false, // Shell not needed for direct exe execution
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'] // Capture stdout/stderr but ignore stdin
+  })
+
+  // Log STDOUT (Important for uvicorn logs)
+  backendProcess.stdout?.on('data', (data) => {
+    logStream.write(`[stdout] ${data}`)
   })
 
   backendProcess.stderr?.on('data', (data) => {
@@ -121,6 +143,22 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
+
+  // 🛡️ Enterprise-Grade Security: Intercept navigation to prevent app from jumping to external sites
+  if (mainWindow) {
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      if (mainWindow && url !== mainWindow.webContents.getURL()) {
+        event.preventDefault()
+        require('electron').shell.openExternal(url)
+      }
+    })
+
+    // Handle links specifically marked to open in new windows
+    mainWindow.webContents.setWindowOpenHandler((details) => {
+      require('electron').shell.openExternal(details.url)
+      return { action: 'deny' }
+    })
+  }
 
   mainWindow.on('close', (event) => {
     if (!quitting) {
@@ -297,7 +335,16 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   quitting = true
   if (backendProcess) {
-    backendProcess.kill()
+    if (process.platform === 'win32') {
+      try {
+        const { execSync } = require('child_process')
+        execSync(`taskkill /pid ${backendProcess.pid} /F /T`)
+      } catch (e) {
+        // Ignore errors if process is already dead
+      }
+    } else {
+      backendProcess.kill()
+    }
     backendProcess = null
   }
 })

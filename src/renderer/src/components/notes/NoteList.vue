@@ -17,7 +17,14 @@
           :key="note.id"
           :note="note"
           :is-active="noteStore.currentNote?.id === note.id"
+          :is-dragging="draggedNoteId === note.id"
+          :is-dragover="dragOverNoteId === note.id"
           @click="noteStore.selectNote(note)"
+          @dragstart="handleDragStart"
+          @dragover="handleDragOver"
+          @dragleave="handleDragLeave"
+          @drop="handleDrop"
+          @dragend="handleDragEnd"
         />
       </TransitionGroup>
 
@@ -34,12 +41,40 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useNoteStore } from '@/stores/noteStore'
 import NoteCard from './NoteCard.vue'
 import SearchBar from '@/components/search/SearchBar.vue'
 
 const noteStore = useNoteStore()
+
+// 拖拽相关状态
+const draggedNoteId = ref<string | null>(null)
+const dragOverNoteId = ref<string | null>(null)
+
+function handleDragStart(id: string) {
+  draggedNoteId.value = id
+}
+
+function handleDragOver(id: string) {
+  if (draggedNoteId.value === id) return
+  dragOverNoteId.value = id
+}
+
+function handleDragLeave() {
+  dragOverNoteId.value = null
+}
+
+async function handleDrop(targetId: string) {
+  if (draggedNoteId.value && draggedNoteId.value !== targetId) {
+    await noteStore.reorderNotes(draggedNoteId.value, targetId)
+  }
+}
+
+function handleDragEnd() {
+  draggedNoteId.value = null
+  dragOverNoteId.value = null
+}
 
 const headerTitle = computed(() => {
   switch (noteStore.currentView) {

@@ -1,217 +1,277 @@
 """
-Agent Supervisor - Orchestrator of Thinking and Action.
-Enterprise-grade implementation with Autonomous ReAct Loop.
+Agent Supervisor - LangGraph 1.x Edition.
+
+This module provides the main entry point for the AI agent.
+It has been refactored from a hand-written ReAct loop to use
+LangGraph's StateGraph for production-grade agent orchestration.
+
+Key Improvements:
+1. Graph-based State Machine (LangGraph StateGraph)
+2. Declarative node and edge definitions
+3. Built-in checkpointing support
+4. Doom Loop detection
+5. Multi-mode streaming
+
+API Compatibility:
+- invoke_stream() signature unchanged
+- SSE format unchanged (frontend requires NO changes)
 """
-from typing import List, Dict, Any, Optional, AsyncIterator, Union
-import asyncio
 import json
-import markdown
+import re
+from typing import Optional, List, Dict, Any, AsyncIterator
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, BaseMessage
-from langchain_core.utils.function_calling import convert_to_openai_tool
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
-from core.config import settings
 from core.llm import get_llm
-from .tools import get_all_agent_tools
+from agent.tools import get_all_agent_tools
+from agent.state import NoteAgentState, create_initial_state
+from agent.graph import create_note_agent_graph, NoteAgentGraph
+from agent.stream_adapter import langgraph_stream_to_sse
+
+# Import session manager for state persistence
+from core.session_manager import SessionManager
 
 
-# Master System Prompt
-SUPERVISOR_PROMPT = """你是一个拥有自主性、思考能力的企业级知识助手 "Origin"。
+# ============================================================================
+# LEGACY PROMPTS (kept for reference and fast_chat fallback)
+# ============================================================================
+
+SUPERVISOR_PROMPT = """
+你是一个拥有自主性、思考能力的企业级知识助手 "Origin"。
 你的工作模式是基于 **ReAct (Reasoning and Acting)** 框架的。
 
 ### 核心准则：
-1. **工具决策自理**：当用户提出问题，你首先分析：我是否需要查阅现有的笔记？还是这属于“通用百科知识”？
-2. **严防“私货”驱动**：
-   - 对于涉及用户**个人资产**（如“我的账号”、“我昨天的感悟”）的问题，**必须**调用工具，严禁编造。
-   - 对于涉及**客观通用知识**（如“拉格朗日中值定理”、“Python 语法”）的问题，如果工具未搜到内容，你可以基于自身知识库回复，但**必须声明**：“在您的笔记中未找到相关记录，以下是基于通用知识的解答”。
-4. **专业交互**：最终回复必须逻辑清晰。如果是对笔记进行了优化或格式调整，应当明确指出改进了哪些地方。
-5. **持久化优先**：凡是涉及“修改格式”、“优化排版”、“整理笔记”的要求，必须通过 `update_note` 工具将修改保存到编辑器中，然后再给用户一段自然语言总结。
+1. **工具决策自理**：当用户提出问题，你首先分析：我是否需要查阅现有的笔记？还是这属于"通用百科知识"？
+2. **拒绝无意义搜索**：
+   - 如果问题属于**通用知识**（Python 语法、历史事件、科学常识），**直接回答**，禁止调用工具。
+   - 如果问题需要用户**个人笔记/数据**，再调用 `search_knowledge` 或 `read_note_content`。
+3. **工具失败时不要重复**：如果工具返回"未找到"、"无结果"，**不要再调用同一工具**，直接告知用户。
+4. **诚实第一**：当无法回答时，坦诚告知用户，而非编造信息。
 
-### 处理流程：
-- **Thought**: 思考下一步该做什么，为什么要这么做。
-- **Action**: 调用最合适的工具（search_knowledge, read_note_content, list_recent_notes 等）。
-- **Observation**: 观察工具反馈的数据。
-- **Final Answer**: 基于事实给出最终结论。
+### 重要：操作当前笔记
+当用户提到"这篇笔记"、"当前笔记"、"这个"等指代词时：
+- 首先检查是否有 `active_note_id` 上下文
+- 如果需要读取内容，先调用 `read_note_content` 工具
+- 如果需要修改，使用 `update_note` 工具
 
-⚠️ **警告**：如果工具返回“未找到内容”，请如实告知，严禁脑补。
+### ⚠️ 分类操作规则（严格遵守）：
+- 笔记的**分类/标签**只能通过 `set_note_category` 工具操作
+- **绝对禁止**通过 `update_note` 修改笔记内容来添加分类信息
+- 用户说"归类到 X"、"打标签"、"分类为"时 → 使用 `set_note_category`
+- 用户说"修改内容"、"编辑正文" → 使用 `update_note`
 """
+
+
+# ============================================================================
+# AGENT SUPERVISOR CLASS
+# ============================================================================
+
+# Shared graph instance to persist MemorySaver across requests
+_shared_graph = None
+
+def get_agent_graph():
+    """Return a singleton instance of the compiled graph."""
+    global _shared_graph
+    if _shared_graph is None:
+        from agent.graph import create_note_agent_graph
+        from agent.tools import get_all_agent_tools
+        print("[Agent] Initializing shared singleton graph...")
+        _shared_graph = create_note_agent_graph(tools=get_all_agent_tools())
+    return _shared_graph
+
 
 class AgentSupervisor:
     """
-    Autonomous Orchestrator using functional tool-calling and recursive reasoning.
+    Production-Grade Agent Supervisor using LangGraph 1.x.
+    
+    This class handles the interface between the API and the stateful graph.
+    It utilizes a shared singleton graph to ensure memory persistence.
     """
     
     def __init__(self):
+        """Initialize the supervisor."""
         self.llm = get_llm()
         self.tools = get_all_agent_tools()
-        # Bind tools to the model (OpenAI Protocol compatible)
+        self.session_manager = SessionManager()
+        
+        # Use the singleton graph instance for persistent memory
+        self.graph = get_agent_graph()
+        
+        # Keep model_with_tools for legacy compatibility
         self.model_with_tools = self.llm.bind_tools(self.tools)
-        # Internal map for execution
         self.tools_map = {tool.name: tool for tool in self.tools}
     
-    def _prepare_history(self, history: Optional[List[Any]]) -> List[BaseMessage]:
-        """Convert list of dicts or ChatMessage objects to LangChain message objects."""
-        full_history = []
-        if history:
-            for h in history:
-                role = h.get("role", "user") if isinstance(h, dict) else getattr(h, "role", "user")
-                content = h.get("content", "") if isinstance(h, dict) else getattr(h, "content", "")
-                
-                if role == "user":
-                    full_history.append(HumanMessage(content=content))
-                else:
-                    full_history.append(AIMessage(content=content))
-        return full_history
-
-    async def _execute_tool_call(self, tool_call: Dict[str, Any]) -> str:
-        """Execute a single tool call and return the result as string."""
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-        
-        if tool_name not in self.tools_map:
-            return f"Error: Tool {tool_name} not found."
-            
-        try:
-            tool = self.tools_map[tool_name]
-            # Execute async tool
-            result = await tool.ainvoke(tool_args)
-            
-            # Special case for JSON string results (like update_note)
-            if isinstance(result, str) and result.startswith("{"):
-                return result
-            return str(result)
-        except Exception as e:
-            return f"Error executing {tool_name}: {str(e)}"
-
     async def invoke_stream(
         self,
         message: str,
-        history: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "default",
+        history: Optional[List[Dict[str, Any]]] = None,  # Deprecated, kept for compat
         note_context: Optional[str] = None,
         active_note_id: Optional[str] = None,
+        active_note_title: Optional[str] = None,
         selected_text: Optional[str] = None,
+        context_note_id: Optional[str] = None,
+        context_note_title: Optional[str] = None,
+        use_knowledge: bool = False
     ) -> AsyncIterator[str]:
         """
-        Multi-turn Autonomous Execution Loop.
-        Implements the Reasoning -> Acting -> Observation loop.
+        Stream agent responses using LangGraph.
+        
+        This method maintains the exact same API as before for backward compatibility.
+        The frontend SSE format is preserved through the stream adapter.
+        
+        Args:
+            message: User message
+            session_id: Session ID for state persistence
+            history: Deprecated, ignored
+            note_context: Current note content
+            active_note_id: Current note ID
+            active_note_title: Current note title
+            selected_text: Selected text for operations
+            context_note_id: Referenced note ID (@ mention)
+            context_note_title: Referenced note title
+            use_knowledge: Whether to search knowledge base first (@)
+        
+        Yields:
+            JSON strings in SSE format (compatible with existing frontend)
         """
+        # ================================================================
+        # STEP 1: Build context (same as before)
+        # ================================================================
+        context_notes_info = ""
+        
+        # Handle Active Note
+        if active_note_id:
+            title = active_note_title or "Active Note"
+            context_notes_info += f"\n[AUTO-INSPECTED NOTE]\nTitle: {title}\nID: {active_note_id}\nContent:\n{note_context or '(Empty)'}\n---\n"
+        
+        # Handle Referenced Note
+        if context_note_id and context_note_id != active_note_id:
+            try:
+                from services.note_service import NoteService
+                ns = NoteService()
+                note = await ns.get_note(context_note_id)
+                if note:
+                    title = context_note_title or note.get('title', 'Referenced Note')
+                    content = note.get('content') or note.get('plainText') or "(Empty)"
+                    context_notes_info += f"\n[EXPLICITLY REFERENCED NOTE (@)]\nTitle: {title}\nID: {context_note_id}\nContent:\n{content}\n---\n"
+                    print(f"[Agent] Loaded explicit context: {title}")
+            except Exception as e:
+                print(f"[Agent] Failed to load referenced note context: {e}")
+        
+        # ================================================================
+        # STEP 1: Build initial state for LangGraph
+        # ================================================
+        initial_state = create_initial_state(
+            session_id=session_id,
+            active_note_id=active_note_id,
+            active_note_title=active_note_title,
+            context_note_id=context_note_id,
+            context_note_title=context_note_title,
+            note_content=context_notes_info if context_notes_info else note_context,
+            selected_text=selected_text,
+            use_knowledge=use_knowledge,
+        )
+        
+        # In LangGraph 1.x with checkpointer, we don't manually append the new message to history.
+        # The checkpointer restores the history based on thread_id, and we only pass the NEW message.
+        initial_state["messages"] = [HumanMessage(content=message)]
+        
+        # ================================================================
+        # STEP 2: LangGraph config with thread_id for checkpointing
+        # ================================================================
+        config = {
+            "configurable": {
+                "thread_id": session_id,
+            }
+        }
+        
+        # ================================================================
+        # STEP 3: Stream via LangGraph with SSE adapter
+        # ================================================================
         try:
-            # 1. Setup Initial State
-            full_history = self._prepare_history(history)
+            print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
             
-            # Inject dynamic situational awareness
-            current_situation = f"\n\n[Current Context]\nActive Note ID: {active_note_id or 'None'}\n"
-            if note_context:
-                current_situation += f"Quick Preview of Active Note (First 500 chars): {note_context[:500]}...\n"
-                
-            messages = [
-                SystemMessage(content=SUPERVISOR_PROMPT + current_situation),
-            ] + full_history + [
-                HumanMessage(content=message)
-            ]
-
-            max_turns = 3 # Reduce turns to avoid excessive searching for common knowledge
-            turn = 0
+            async for sse_chunk in langgraph_stream_to_sse(
+                self.graph,
+                initial_state,
+                config
+            ):
+                yield sse_chunk
             
-            while turn < max_turns:
-                turn += 1
-                
-                # Check if this is the last chance to answer
-                is_last_turn = (turn == max_turns)
-                
-                # UI Feedback
-                if turn == 1:
-                    yield json.dumps({"type": "status", "text": "🧠 思考中..."})
-                
-                # Ask the model (Thinking step)
-                # If it's the last turn, we append a final instruction to stop tool use
-                current_messages = messages
-                if is_last_turn:
-                    current_messages = messages + [HumanMessage(content="[SYSTEM]: 搜索次数已达上限。请不要再调用任何工具，直接基于现有信息或你的通用背景知识给出最终回答。")]
-
-                ai_msg = await self.model_with_tools.ainvoke(current_messages)
-                
-                # Case A: Model wants to call tools (and we haven't hit the limit yet)
-                if ai_msg.tool_calls and not is_last_turn:
-                    messages.append(ai_msg)
-                    
-                    for tool_call in ai_msg.tool_calls:
-                        tool_name = tool_call["name"]
-                        
-                        # UI Feedback
-                        STATUS_LABELS = {
-                            "search_knowledge": "📚 正在检索知识库...",
-                            "read_note_content": "📖 正在读取笔记全文...",
-                            "list_recent_notes": "📝 正在寻找笔记...",
-                            "update_note": "⚙️ 正在执行笔记更新...",
-                            "create_note": "🆕 正在创建新笔记...",
-                            "delete_note": "🗑️ 正在清理笔记..."
-                        }
-                        yield json.dumps({"type": "status", "text": STATUS_LABELS.get(tool_name, f"🛠️ 调用 {tool_name}...")})
-                        
-                        # Execute
-                        observation = await self._execute_tool_call(tool_call)
-                        
-                        # High-End UX: Trigger UI refresh for ALL data mutations
-                        try:
-                            if tool_name == "update_note" and "Successfully updated" in observation:
-                                from services.note_service import NoteService
-                                ns = NoteService()
-                                note_data = await ns.get_note(tool_call["args"].get("note_id"))
-                                if note_data:
-                                    html_content = markdown.markdown(note_data.get("content", ""), extensions=['fenced_code', 'tables', 'nl2br'])
-                                    yield json.dumps({"tool_call": "format_apply", "formatted_html": html_content})
-                            
-                            elif tool_name == "create_note" and "Successfully created" in observation:
-                                # Extract ID using regex: ID: ([\w-]+)
-                                match = re.search(r"ID:\s*([\w-]+)", observation)
-                                note_id = match.group(1) if match else None
-                                yield json.dumps({"tool_call": "note_created", "note_id": note_id, "message": "New note created and synced."})
-                            
-                            elif tool_name == "delete_note" and "Successfully deleted" in observation:
-                                note_id = tool_call["args"].get("note_id")
-                                yield json.dumps({"tool_call": "note_deleted", "note_id": note_id, "message": "Note deleted from library."})
-                        except Exception as sync_err:
-                            print(f"[WARN] UI Sync Warning: {sync_err}")
-
-                        messages.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
-                    
-                    # Continue for next turn
-                    continue
-                
-                # Case B: Model gives a final answer OR we forced it on the last turn
-                else:
-                    # Clear status for final output
-                    yield json.dumps({"type": "status", "text": ""})
-                    
-                    # 1. First, yield whatever content we already got from ainvoke
-                    if ai_msg.content:
-                        yield ai_msg.content
-                    
-                    # 2. If it was a forced turn and content was empty, or we want a synthesis flow, 
-                    # we could stream, but usually ai_msg.content has the answer now.
-                    # Only stream if ai_msg.content is surprisingly short/missing
-                    if not ai_msg.content.strip():
-                        async for chunk in self.llm.astream(messages):
-                            if chunk.content:
-                                yield chunk.content
-                    
-                    return # Exit after final answer
+            yield json.dumps({"type": "status", "text": ""})  # Clear status
             
-            # Fallback if loop finishes without yield (should not happen with else block logic)
-            yield "抱歉，任务处理轮次超限，未能生成有效回答。请尝试换个问法。"
-                    
         except Exception as e:
-            print(f"[ERR] Orchestration Error: {e}")
+            print(f"[Agent] LangGraph stream error: {e}")
             import traceback
             traceback.print_exc()
-            yield f"抱歉，系统逻辑层出现错误：{str(e)}"
+            yield json.dumps({"error": str(e)})
+    
+    async def classify_intent(self, query: str) -> str:
+        """
+        Classify user intent (CHAT or TASK).
+        
+        This is now delegated to the router node in the graph,
+        but kept here for backward compatibility.
+        """
+        classification_prompt = """
+        Analyze user intent.
+        Output ONLY one word: 'CHAT' or 'TASK'.
 
+        Rules:
+        - 'TASK': If user asks to perform ANY action, modify data, search info, clean up format, organize notes.
+        - 'CHAT': ONLY for pure discussion, coding questions, or philosophy where specific note tools are NOT needed.
+
+        User: {query}
+        Intent:
+        """
+        try:
+            resp = await self.llm.ainvoke([
+                HumanMessage(content=classification_prompt.format(query=query))
+            ])
+            intent = resp.content.strip().upper().replace("'", "").replace('"', "")
+            return "TASK" if "TASK" in intent else "CHAT"
+        except Exception:
+            return "TASK"
+    
     async def invoke(self, *args, **kwargs) -> Dict[str, Any]:
-        """Legacy compatibility for non-streaming calls."""
-        # Simple implementation: collect stream and return
+        """
+        Non-streaming invocation (legacy compatibility).
+        
+        Collects streaming output and returns as a single response.
+        """
         full_text = ""
         async for chunk in self.invoke_stream(*args, **kwargs):
-            if not chunk.startswith("{"):
+            try:
+                data = json.loads(chunk)
+                if "text" in data:
+                    full_text += data["text"]
+            except json.JSONDecodeError:
                 full_text += chunk
+        
         return {"response": full_text, "tool_calls": []}
+    
+    async def format_text(self, text: str, context: Optional[str] = None) -> str:
+        """
+        Format text using AI (for format brush feature).
+        
+        This is a simple direct LLM call, doesn't need the full graph.
+        """
+        format_prompt = f"""
+        请将以下文本进行格式化和优化，保持原意并提升可读性。
+        使用 Markdown 格式输出。
+        
+        {"上下文:\n" + context if context else ""}
+        
+        需要格式化的文本:
+        {text}
+        
+        格式化后的文本:
+        """
+        
+        try:
+            resp = await self.llm.ainvoke([HumanMessage(content=format_prompt)])
+            return resp.content.strip()
+        except Exception as e:
+            print(f"[Agent] Format error: {e}")
+            return text

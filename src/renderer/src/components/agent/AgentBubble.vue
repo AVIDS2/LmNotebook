@@ -3,13 +3,13 @@
   <div 
     class="agent-container" 
     :style="containerStyle"
-    @mousedown="startDrag"
     :class="{ 'is-dragging': isDragging, 'is-docked': isDocked && !isOpen }"
   >
     <!-- Floating Bubble Button -->
     <div
       class="agent-bubble glass-panel"
       :class="{ 'agent-bubble--active': isOpen }"
+      @mousedown="startDrag"
       @click.stop="handleClick"
     >
       <div class="agent-bubble__icon">
@@ -38,18 +38,28 @@
       >
         <!-- Header -->
         <div class="agent-chat__header">
-          <div class="agent-chat__title">
+          <div class="agent-chat__title" @mousedown="startDrag" style="cursor: grab;">
             <span class="agent-chat__avatar">✦</span>
             <span>Origin Agent</span>
           </div>
           <div class="agent-chat__actions">
-            <button class="header-btn" @click="clearChat" title="开始新对话">
+            <button 
+              class="header-btn" 
+              @click="showModelSettings = true; console.log('Settings toggle')" 
+              title="模型设置"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+            <button class="header-btn" @mousedown.stop @click="clearChat" title="开始新对话">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M23 4v6h-6"/>
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
               </svg>
             </button>
-            <button class="header-btn" @click="isMaximized = !isMaximized" :title="isMaximized ? '还原' : '最大化'">
+            <button class="header-btn" @mousedown.stop @click="isMaximized = !isMaximized" :title="isMaximized ? '还原' : '最大化'">
               <svg v-if="!isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
               </svg>
@@ -86,7 +96,7 @@
           </div>
 
           <div
-            v-for="(msg, index) in messages.filter(m => m.content.trim())"
+            v-for="(msg, index) in messages.filter(m => m.content.trim() || (m.parts && m.parts.length))"
             :key="index"
             class="message-wrapper"
             :class="[`message--${msg.role}`]">
@@ -95,9 +105,34 @@
                 {{ msg.role === 'user' ? '◉' : '✦' }}
               </div>
               <div class="message__content">
-                <div class="message__text" 
-                     v-html="renderMarkdown(msg.content)"
-                     @contextmenu="handleContextMenu($event, msg.content)"></div>
+                <!-- Part-Based Rendering -->
+                <template v-if="msg.parts && msg.parts.length">
+                  <template v-for="(part, partIndex) in msg.parts" :key="partIndex">
+                    <!-- Text Part -->
+                    <div v-if="part.type === 'text'" 
+                         class="message__text" 
+                         v-html="renderMarkdown(part.content)"
+                         @contextmenu="handleContextMenu($event, part.content)"></div>
+                    
+                    <!-- Tool Part -->
+                    <div v-else-if="part.type === 'tool'" 
+                         class="tool-part"
+                         :class="[`tool-part--${part.status}`]">
+                      <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
+                      <span class="tool-part__name">{{ part.title || part.tool }}</span>
+                      <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
+                      <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
+                      <span v-if="part.output && part.status === 'completed'" class="tool-part__output">{{ part.output }}</span>
+                    </div>
+                  </template>
+                </template>
+                
+                <!-- Fallback: Legacy content rendering -->
+                <template v-else>
+                  <div class="message__text" 
+                       v-html="renderMarkdown(msg.content)"
+                       @contextmenu="handleContextMenu($event, msg.content)"></div>
+                </template>
               </div>
             </div>
           </div>
@@ -116,40 +151,122 @@
           </div>
         </div>
 
-        <!-- Input -->
-        <div class="agent-chat__input">
-          <textarea
-            v-model="inputText"
-            @keydown.enter.exact.prevent="sendMessage()"
-            @input="adjustHeight"
-            placeholder="输入消息... (Enter 发送)"
-            rows="1"
-            ref="inputRef"
-          ></textarea>
-          <div class="input-actions">
+        <!-- Context Bar (Automatic & Explicit) -->
+        <div class="agent-chat__context-bar">
+          <!-- 1. Automatic: Current Active Note -->
+          <div v-if="noteStore.currentNote" class="context-pill inspecting-pill" :class="{ 'inactive': !includeActiveNote }">
+            <button class="pill-toggle-btn" @click="includeActiveNote = !includeActiveNote" title="切换上下文包含">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="eye-svg">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+                <line v-if="!includeActiveNote" x1="1" y1="1" x2="23" y2="23" stroke-width="3" />
+              </svg>
+            </button>
+            <span class="pill-text">{{ noteStore.currentNote.title || '无标题' }}</span>
+          </div>
+
+          <!-- 2. Explicit: Manually selected @ note -->
+          <div v-if="selectedContextNote" class="context-pill mentioned-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span class="pill-text">{{ selectedContextNote.title }}</span>
+            <button class="pill-clear" @click="clearContextNote">×</button>
+          </div>
+        </div>
+
+        <!-- Compact Input Area -->
+        <div class="agent-chat__footer">
+          <div class="chat-input-unified-box">
+            <!-- + Menu Button -->
+            <div class="input-menu-wrapper">
+              <button 
+                class="menu-trigger-btn" 
+                @click="showInputMenu = !showInputMenu"
+                :class="{ 'active': showInputMenu }"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              
+              <!-- Popup Menu (Smaller) -->
+              <Transition name="menu-fade">
+                <div v-if="showInputMenu" class="input-menu-popup shallow-glass">
+                  <div class="menu-item" @click="triggerKnowledgeSearch">
+                    <span class="menu-icon">@</span>
+                    <span class="menu-label">笔记知识库</span>
+                  </div>
+                  <div class="menu-item" @click="toggleNoteSelector">
+                    <span class="menu-icon smaller">📎</span>
+                    <span class="menu-label">添加笔记上下文</span>
+                  </div>
+                </div>
+              </Transition>
+              
+              <!-- Note Selector (triggered from menu) -->
+              <Transition name="menu-fade">
+                <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
+                  <div class="selector-header">选择笔记</div>
+                  <div class="selector-list">
+                    <div 
+                      v-for="note in noteStore.notes" 
+                      :key="note.id" 
+                      class="selector-item"
+                      @click="selectNoteAsContext(note)"
+                    >
+                      <span class="item-icon">📄</span>
+                      <span class="item-title">{{ note.title || '无标题' }}</span>
+                    </div>
+                    <div v-if="noteStore.notes.length === 0" class="selector-empty">暂无笔记</div>
+                  </div>
+                </div>
+              </Transition>
+            </div>
+
+            <!-- Auto-resize Textarea (Background transparent to inherit container) -->
+            <textarea
+              v-model="inputText"
+              @keydown.enter.exact.prevent="sendMessage()"
+              @input="autoResizeInput"
+              placeholder="输入消息..."
+              rows="1"
+              ref="inputRef"
+            ></textarea>
+
+            <!-- Compact Send Button -->
             <button
               v-if="!isTyping"
-              class="send-button"
+              class="send-btn-compact"
               :disabled="!inputText.trim()"
               @click="sendMessage()"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22,2 15,22 11,13 2,9"/>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
               </svg>
             </button>
             <button
               v-else
-              class="stop-button"
+              class="stop-btn-compact"
               @click="stopGeneration"
-              title="停止生成"
             >
-              <div class="stop-icon"></div>
+              <div class="stop-icon-small"></div>
             </button>
           </div>
         </div>
       </div>
     </Transition>
+
+    <!-- Model Settings Modal -->
+    <Teleport to="body">
+      <ModelSettings 
+        v-if="showModelSettings" 
+        :backend-url="BACKEND_URL" 
+        @close="() => { console.log('Closing settings'); showModelSettings = false; }"
+        @updated="checkConnection"
+      />
+    </Teleport>
   </div>
 </template>
 
@@ -162,11 +279,41 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { useNoteStore } from '@/stores/noteStore'
 import { noteRepository } from '@/database/noteRepository'
+import ModelSettings from './ModelSettings.vue'
+
+// Inject dependencies
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  parts?: MessagePart[]  // Part-Based: for structured rendering
   timestamp: Date
+  isError?: boolean
+}
+
+// Part-Based Message Types (OpenCode-style)
+interface TextPart {
+  type: 'text'
+  content: string
+}
+
+interface ToolPart {
+  type: 'tool'
+  tool: string
+  toolId?: string  // For precise status matching
+  status: 'running' | 'completed' | 'error'
+  title?: string
+  output?: string
+  inputPreview?: string
+}
+
+type MessagePart = TextPart | ToolPart
+
+const STATUS_MAP = {
+  THINKING: '思考中...',
+  SEARCHING: '搜索知识库...',
+  WRITING: '正在撰写...',
+  ERROR: '出错了'
 }
 
 // Stores
@@ -186,9 +333,79 @@ const messages = ref<ChatMessage[]>([])
 const messagesContainer = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const isMaximized = ref(false)
+const showModelSettings = ref(false)
 const streamingMessage = ref<ChatMessage | null>(null)
 const currentStatus = ref('')
 const abortController = ref<AbortController | null>(null)
+const includeActiveNote = ref(true)
+
+// --- Context (@) Selection ---
+const showNoteSelector = ref(false)
+const selectedContextNote = ref<any>(null)
+const selectorRef = ref<HTMLElement | null>(null)
+
+// --- New: Input Menu & Knowledge Search ---
+const showInputMenu = ref(false)
+
+function toggleNoteSelector() {
+  showInputMenu.value = false  // Close menu first
+  showNoteSelector.value = !showNoteSelector.value
+  if (showNoteSelector.value) {
+    noteStore.loadNotes()
+  }
+}
+
+function triggerKnowledgeSearch() {
+  const triggerText = "@笔记知识库 "
+  if (!inputText.value.includes(triggerText)) {
+    inputText.value = triggerText + inputText.value
+  }
+  showInputMenu.value = false
+  nextTick(() => {
+    inputRef.value?.focus()
+    // Trigger height adjust
+    if (inputRef.value) {
+      autoResizeInput({ target: inputRef.value } as any)
+    }
+  })
+}
+
+function selectNoteAsContext(note: any) {
+  selectedContextNote.value = note
+  showNoteSelector.value = false
+}
+
+function clearContextNote() {
+  selectedContextNote.value = null
+}
+
+// Auto-resize input
+function autoResizeInput(e: Event) {
+  const el = e.target as HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px'
+}
+
+// Reset textarea height when chat window opens
+watch(isOpen, (newVal) => {
+  if (newVal) {
+    // Reset textarea height when window opens
+    nextTick(() => {
+      if (inputRef.value) {
+        inputRef.value.style.height = 'auto'
+      }
+    })
+  }
+})
+
+// Close menus when clicking outside
+function handleGlobalClick(e: MouseEvent) {
+  const menuWrapper = document.querySelector('.input-menu-wrapper')
+  if (menuWrapper && !menuWrapper.contains(e.target as Node)) {
+    showInputMenu.value = false
+    showNoteSelector.value = false
+  }
+}
 
 // --- Draggable Logic ---
 const position = ref({ x: window.innerWidth - 40, y: window.innerHeight - 100 })
@@ -273,12 +490,63 @@ function handleClick() {
 }
 
 // Initial Position setup
+// Handle window resize - keep bubble within visible bounds
+const handleResize = () => {
+  const oldWidth = windowWidth.value
+  const newWidth = window.innerWidth
+  const oldHeight = window.innerHeight // approximate
+  
+  // Update stored width
+  windowWidth.value = newWidth
+  
+  const BUBBLE_SIZE = 50
+  const screenH = window.innerHeight
+  
+  // Calculate distance from right edge BEFORE update
+  const distanceFromRight = oldWidth - position.value.x
+  
+  // sticky horizontal: favor the side it was closer to
+  if (position.value.x > oldWidth / 2) {
+    // Right side: Keep same distance from right edge
+    position.value.x = newWidth - distanceFromRight
+  } else {
+    // Left side: Keep same distance from left edge (position.x stays same)
+    // But verify it doesn't stay off-screen if it was docked
+    // Actually, if it was -25, it stays -25. That's fine.
+  }
+
+  // Safety clamps (in case of extreme resize or rounding)
+  // 1. Right bound
+  if (position.value.x > newWidth - BUBBLE_SIZE / 2) {
+     position.value.x = newWidth - BUBBLE_SIZE / 2
+  }
+  // 2. Left bound
+  if (position.value.x < -BUBBLE_SIZE / 2) {
+     position.value.x = -BUBBLE_SIZE / 2
+  }
+  
+  // Constrain Y position
+  if (position.value.y > screenH - BUBBLE_SIZE) {
+    position.value.y = screenH - BUBBLE_SIZE - 10
+  }
+  if (position.value.y < 0) {
+    position.value.y = 10
+  }
+}
+
+// Initial Position setup
 onMounted(() => {
-  window.addEventListener('resize', () => { windowWidth.value = window.innerWidth })
+  checkConnection(true) // Start checks with "isStartup = true"
+  setInterval(() => checkConnection(false), 30000) // Regular heartbeat
+  
+  window.addEventListener('resize', handleResize)
+  document.addEventListener('mousedown', handleGlobalClick)
   setTimeout(snapToEdge, 100) // Initial dock
 })
+
 onUnmounted(() => {
-  window.removeEventListener('resize', () => { windowWidth.value = window.innerWidth })
+  window.removeEventListener('resize', handleResize)
+  document.removeEventListener('mousedown', handleGlobalClick)
 })
 // ----------------------
 
@@ -287,6 +555,22 @@ const suggestions = [
   '整理一下当前笔记的格式',
   '总结一下这篇笔记的内容'
 ]
+
+// Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
+const TOOL_ICONS: Record<string, string> = {
+  'search_knowledge': '◎',
+  'read_note_content': '◉',
+  'list_recent_notes': '◎',
+  'update_note': '✎',
+  'create_note': '+',
+  'delete_note': '×',
+  'list_categories': '◎',
+  'set_note_category': '▸',
+}
+
+function getToolIcon(tool: string): string {
+  return TOOL_ICONS[tool] || '▸'
+}
 
 function toggleChat() {
   isOpen.value = !isOpen.value
@@ -308,59 +592,152 @@ function clearChat() {
     abortController.value.abort()
     abortController.value = null
   }
+  
+  // Fix: Force New Session on Clear
+  console.log('[Agent] User cleared chat. Rotating Session ID.')
+  currentSessionId.value = crypto.randomUUID()
+  localStorage.setItem('origin_agent_session_id', currentSessionId.value)
+  
   inputRef.value?.focus()
 }
 
-async function checkConnection() {
+const retryCount = ref(0)
+const maxRetries = 30 // Wait up to 30s for startup
+
+async function checkConnection(isStartup = false) {
   try {
     const response = await fetch(`${BACKEND_URL}/health`)
     isConnected.value = response.ok
+    if (isConnected.value) {
+        retryCount.value = 0 // Reset on success
+    }
   } catch {
     isConnected.value = false
   }
+
+  // Startup Intelligence: If starting up and failed, retry quickly
+  if (isStartup && !isConnected.value && retryCount.value < maxRetries) {
+    retryCount.value++
+    setTimeout(() => checkConnection(true), 1000)
+  }
 }
+
+
+// Fix: Reactive Session to prevent Context Locking
+const SESSION_KEY = 'origin_agent_session_id'
+// Initialize session ID (create if missing)
+if (!localStorage.getItem(SESSION_KEY)) {
+    localStorage.setItem(SESSION_KEY, crypto.randomUUID())
+}
+const currentSessionId = ref(localStorage.getItem(SESSION_KEY)!)
+
+// Watch active note change to reset session
+watch(() => noteStore.currentNote?.id, (newId, oldId) => {
+    // Only reset if ID actually changed (and isn't just initializing to same value)
+    if (newId !== oldId) {
+        console.log(`[Agent] Note switched (${oldId} -> ${newId}). Rotating Session ID.`)
+        currentSessionId.value = crypto.randomUUID()
+        localStorage.setItem(SESSION_KEY, currentSessionId.value)
+        // Optional: Insert a system divider in UI?
+        // messages.value.push({ role: 'assistant', content: '*(New Context Loaded)*', timestamp: new Date() })
+    }
+})
 
 async function sendMessage(text?: string) {
   const messageText = text || inputText.value.trim()
   if (!messageText || isTyping.value) return
   
-  messages.value.push({
-    role: 'user',
-    content: messageText,
-    timestamp: new Date()
-  })
-  
+  // Optimistic UI update
+  messages.value.push({ role: 'user', content: messageText, timestamp: new Date() })
+  // Clear state
   inputText.value = ''
-  nextTick(() => adjustHeight())
   isTyping.value = true
-  scrollToBottom()
+  showInputMenu.value = false
+  showNoteSelector.value = false
+  
+  // Reset height
+  if (inputRef.value) {
+    inputRef.value.style.height = '24px' // Explicitly set to min-height
+    nextTick(() => {
+        if (inputRef.value) inputRef.value.style.height = '' // Then let CSS take over
+    })
+  }
+  
+  currentStatus.value = STATUS_MAP.THINKING
+  
+  // Ensure keyboard on mobile doesn't hide input
+  nextTick(() => {
+    scrollToBottom()
+  })
+
+  // Check connection before sending (Deep Check)
+  if (!isConnected.value) {
+     // Try one last ping
+     try {
+       const res = await fetch(`${BACKEND_URL}/health`)
+       if (res.ok) isConnected.value = true
+     } catch {}
+     
+     if (!isConnected.value) {
+        messages.value.push({ 
+            role: 'assistant', 
+            content: '❌ 无法连接到 AI 服务。请确保后台服务 (Port 8765) 正在运行。',
+            isError: true,
+            timestamp: new Date()
+        })
+        isTyping.value = false
+        currentStatus.value = ''
+        return
+     }
+  }
+  
+  
   
   abortController.value = new AbortController()
   
-  const assistantMessage: ChatMessage = {
-    role: 'assistant',
-    content: '',
-    timestamp: new Date()
-  }
-  messages.value.push(assistantMessage)
-  streamingMessage.value = assistantMessage
+  // Don't add assistant message yet - wait for first chunk
+  // This prevents the "empty bubble" flash
+  let assistantMessageIndex = -1
   
   try {
-    const noteContext = getCurrentNoteContext()
+    const noteContext = includeActiveNote.value ? getCurrentNoteContext() : ""
+    const activeNoteId = includeActiveNote.value ? (noteStore.currentNote?.id || null) : null
     
+    // Detection for knowledge search in text
+    const kbTrigger = "@笔记知识库 "
+    let finalMessage = messageText
+    let explicitKnowledge = false
+    
+    if (messageText.startsWith(kbTrigger)) {
+      explicitKnowledge = true
+      finalMessage = messageText.substring(kbTrigger.length).trim()
+    }
+
+    // Note: We no longer send full history. Backend manages state via session_id.
+    const payload: any = {
+      message: finalMessage,
+      session_id: currentSessionId.value,
+      history: [], // Deprecated client-side history
+      note_context: noteContext,
+      active_note_id: activeNoteId,
+      use_knowledge: explicitKnowledge  // @ knowledge search flag
+    }
+
+    // Add context info if selected
+    if (selectedContextNote.value) {
+      payload.context_note_id = selectedContextNote.value.id
+      payload.context_note_title = selectedContextNote.value.title
+    } else if (noteStore.currentNote && includeActiveNote.value) {
+      // If no context explicitly selected, fallback to current note if applicable
+      payload.current_note_id = noteStore.currentNote.id
+      payload.active_note_title = noteStore.currentNote.title
+    }
+
     const response = await fetch(`${BACKEND_URL}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: abortController.value.signal,
-      body: JSON.stringify({
-        message: messageText,
-        history: messages.value.slice(0, -2).slice(-10).map(m => ({
-          role: m.role,
-          content: m.content
-        })),
-        note_context: noteContext,
-        active_note_id: noteStore.currentNote?.id || null
-      })
+      body: JSON.stringify(payload)
     })
     
     if (!response.ok) throw new Error('请求失败')
@@ -370,7 +747,8 @@ async function sendMessage(text?: string) {
     const decoder = new TextDecoder()
     let buffer = ''
     
-    const messageIndex = messages.value.length - 1
+    // We'll create the assistant message on the first chunk
+    let messageIndex = -1
     
     while (true) {
       const { done, value } = await reader.read()
@@ -378,43 +756,160 @@ async function sendMessage(text?: string) {
       
       buffer += decoder.decode(value, { stream: true })
       
-      const events = buffer.split('\n\n')
-      buffer = events.pop() || ''
+      // SSE events are delimited by double newline
+      const parts = buffer.split('\n\n')
+      // The last part is either empty (if events ended perfectly) or a partial event
+      buffer = parts.pop() || ''
       
-      for (const line of events) {
-        if (!line.trim()) continue
-        const dataMatch = line.match(/^data:\s*(.*)$/)
-        if (!dataMatch) continue
-        
-        const rawData = dataMatch[1]
-        if (rawData === '[DONE]') continue
-        
-        try {
-          const chunk = JSON.parse(rawData)
+      for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
           
-          if (chunk.type === 'status') {
-            currentStatus.value = chunk.text
-            continue
-          }
-          if (currentStatus.value) currentStatus.value = ''
+          const rawData = line.substring(6).trim() // Remove 'data: '
+          if (rawData === '[DONE]') continue
           
-          if (chunk.text) {
-            messages.value[messageIndex].content += chunk.text
-            messages.value = [...messages.value]
-            scrollToBottom()
-          } else if (chunk.tool_call) {
-            // HANDLE REAL-TIME TOOL CALL
-            await handleToolCallEvent(chunk, messages.value[messageIndex])
-          } else if (chunk.error) {
-            messages.value[messageIndex].content = `❌ 错误: ${chunk.error}`
-            messages.value = [...messages.value]
+          try {
+              const chunk = JSON.parse(rawData)
+              console.log('[SSE] Parsed chunk:', chunk.type || chunk.tool_call || (chunk.text ? 'text' : 'unknown'))
+              
+              // 1. Status Update
+              if (chunk.type === 'status') {
+                  currentStatus.value = chunk.text
+              } 
+              // NEW: Part-Based Events
+              else if (chunk.part_type) {
+                  console.log('[SSE] Part event:', chunk.part_type)
+                  
+                  // Ensure message exists
+                  if (messageIndex === -1) {
+                      const assistantMessage: ChatMessage = {
+                          role: 'assistant',
+                          content: '',
+                          parts: [],
+                          timestamp: new Date()
+                      }
+                      messages.value.push(assistantMessage)
+                      streamingMessage.value = assistantMessage
+                      messageIndex = messages.value.length - 1
+                      currentStatus.value = ''
+                  }
+                  
+                  const msg = messages.value[messageIndex]
+                  if (!msg.parts) msg.parts = []
+                  
+                  if (chunk.part_type === 'text') {
+                      // Find or create text part at the end
+                      const lastPart = msg.parts[msg.parts.length - 1]
+                      if (lastPart && lastPart.type === 'text') {
+                          // Append to existing text part
+                          lastPart.content += chunk.delta
+                      } else {
+                          // Create new text part
+                          msg.parts.push({ type: 'text', content: chunk.delta })
+                      }
+                      // Also update legacy content for compatibility
+                      msg.content += chunk.delta
+                  } 
+                  else if (chunk.part_type === 'tool') {
+                      if (chunk.status === 'running') {
+                          // Add new tool part with toolId
+                          msg.parts.push({
+                              type: 'tool',
+                              tool: chunk.tool,
+                              toolId: chunk.tool_id,
+                              status: 'running',
+                              title: chunk.title,
+                              inputPreview: chunk.input_preview
+                          } as ToolPart)
+                      } 
+                      else if (chunk.status === 'completed') {
+                          // Update existing tool part to completed - prefer matching by toolId
+                          let toolPart: ToolPart | undefined
+                          if (chunk.tool_id) {
+                              toolPart = [...msg.parts].reverse().find(
+                                  p => p.type === 'tool' && (p as ToolPart).toolId === chunk.tool_id
+                              ) as ToolPart | undefined
+                          }
+                          // Fallback: match by tool name + running status
+                          if (!toolPart) {
+                              toolPart = [...msg.parts].reverse().find(
+                                  p => p.type === 'tool' && (p as ToolPart).tool === chunk.tool && (p as ToolPart).status === 'running'
+                              ) as ToolPart | undefined
+                          }
+                          if (toolPart) {
+                              toolPart.status = 'completed'
+                              toolPart.output = chunk.output
+                          }
+                      }
+                  }
+                  
+                  messages.value = [...messages.value]
+                  scrollToBottom()
+              }
+              // 2. Legacy Tool Call (for actions like note_created)
+              else if (chunk.tool_call) {
+                  // Ensure bubble exists
+                  if (messageIndex === -1) {
+                      const assistantMessage: ChatMessage = {
+                          role: 'assistant',
+                          content: '',
+                          parts: [],
+                          timestamp: new Date()
+                      }
+                      messages.value.push(assistantMessage)
+                      streamingMessage.value = assistantMessage
+                      messageIndex = messages.value.length - 1
+                  }
+                  // Wrap in separate try-catch to not block text processing
+                  try {
+                      await handleToolCallEvent(chunk, messages.value[messageIndex])
+                  } catch (toolErr) {
+                      console.warn('[SSE] Tool event handling failed (non-blocking):', toolErr)
+                  }
+              } 
+              // 3. Legacy Text Content (fallback)
+              else if (chunk.text) {
+                  console.log('[SSE] Legacy text chunk:', chunk.text.substring(0, 20))
+                  // Normal text
+                  if (messageIndex === -1) {
+                      const assistantMessage: ChatMessage = {
+                          role: 'assistant',
+                          content: '',
+                          parts: [],
+                          timestamp: new Date()
+                      }
+                      messages.value.push(assistantMessage)
+                      streamingMessage.value = assistantMessage
+                      messageIndex = messages.value.length - 1
+                      
+                      // Clear status
+                      currentStatus.value = ''
+                  }
+                  
+                  if (currentStatus.value) currentStatus.value = ''
+                  
+                  messages.value[messageIndex].content += chunk.text
+                  messages.value = [...messages.value]
+                  scrollToBottom()
+              }
+              // 4. Error
+              else if (chunk.error) {
+                   if (messageIndex === -1) {
+                      messages.value.push({ role: 'assistant', content: '', parts: [], timestamp: new Date(), isError: true })
+                      messageIndex = messages.value.length - 1
+                   }
+                   messages.value[messageIndex].content += `❌ ${chunk.error}`
+              }
+          } catch (e) {
+              console.warn("Failed to parse SSE JSON:", rawData, e)
           }
-        } catch {
-          messages.value[messageIndex].content += rawData
-          messages.value = [...messages.value]
-          scrollToBottom()
-        }
       }
+    }
+    
+    // Guard against no message created (edge case)
+    if (messageIndex === -1) {
+      messages.value.push({ role: 'assistant', content: '*(No response received)*', timestamp: new Date() })
+      messageIndex = messages.value.length - 1
     }
     
     const finalMsg = messages.value[messageIndex]
@@ -476,12 +971,32 @@ async function sendMessage(text?: string) {
     } else {
       if (streamingMessage.value) streamingMessage.value.content = '❌ 无法连接到 AI 服务。请确保后台服务 (Port 8765) 正在运行。'
     }
+    // Mark all running tools as completed/aborted on error
+    finalizeRunningTools(streamingMessage.value)
   } finally {
+    // Always finalize any remaining running tools
+    finalizeRunningTools(streamingMessage.value)
+    
     isTyping.value = false
     streamingMessage.value = null
     currentStatus.value = ''
     abortController.value = null
     scrollToBottom()
+  }
+}
+
+// Helper: Mark all "running" tool parts as completed when stream ends
+function finalizeRunningTools(msg: ChatMessage | null) {
+  if (!msg || !msg.parts) return
+  let changed = false
+  for (const part of msg.parts) {
+    if (part.type === 'tool' && (part as ToolPart).status === 'running') {
+      (part as ToolPart).status = 'completed'
+      changed = true
+    }
+  }
+  if (changed) {
+    messages.value = [...messages.value]
   }
 }
 
@@ -493,15 +1008,63 @@ async function handleToolCallEvent(data: any, msg: any) {
         const newNote = await noteRepository.getById(data.note_id)
         if (newNote) noteStore.currentNote = newNote
       }
-      msg.content = data.message || `✅ 已成功创建笔记！`
+      // Only append log if there's already content (don't start with log)
+      if (msg.content) {
+        msg.content += `\n\n> [SYSTEM_LOG] Created Note ID: ${data.note_id}`
+      }
     } else if (data.tool_call === 'note_updated') {
       await noteStore.loadNotes()
-      msg.content = data.message || '✅ 笔记已更新！'
+      
+      // Fix: Real-time update for active note
+      if (data.note_id && noteStore.currentNote?.id === data.note_id) {
+          const fresh = await noteRepository.getById(data.note_id)
+          if (fresh && setEditorContent) {
+              setEditorContent(fresh.content)
+              noteStore.currentNote = fresh
+          }
+      }
+
+      // Only append log if there's already content
+      if (msg.content) {
+        msg.content += `\n\n> [SYSTEM_LOG] Updated Note`
+      }
     } else if (data.tool_call === 'note_deleted') {
+      try {
+        await noteStore.loadNotes()
+      } catch (e) {
+        // Fallback: Remove from local state if DB refresh fails
+        console.warn('[Agent] noteStore.loadNotes() failed, using local removal fallback')
+        if (data.note_id && noteStore.notes) {
+          noteStore.notes = noteStore.notes.filter((n: any) => n.id !== data.note_id)
+          // Clear current note if it was deleted
+          if (noteStore.currentNote?.id === data.note_id) {
+            noteStore.currentNote = noteStore.notes[0] || null
+          }
+        }
+      }
+      if (msg.content) {
+        msg.content += `\n\n> [SYSTEM_LOG] Deleted Note ID: ${data.note_id}`
+      }
+    } else if (data.tool_call === 'note_categorized') {
       await noteStore.loadNotes()
-      msg.content = data.message || '🗑️ 笔记已从知识库中移除。'
+      if (msg.content) {
+        msg.content += `\n\n> [SYSTEM_LOG] Categorized Note ${data.note_id} as '${data.category_id}'`
+      }
+    } else if (data.tool_call === 'note_renamed') {
+      // Refresh note list to show new title
+      await noteStore.loadNotes()
+      // Also refresh current note to update title in editor header
+      if (noteStore.currentNote?.id) {
+        const fresh = await noteRepository.getById(noteStore.currentNote.id)
+        if (fresh) noteStore.currentNote = fresh
+      }
+      if (msg.content) {
+        msg.content += `\n\n> [SYSTEM_LOG] Renamed Note`
+      }
     } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
-      const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: true, gfm: true })
+      // Fix: 'breaks: false' to prevent double spacing (newlines becoming <br>)
+      // Ideally, the editor should handle markdown block spacing naturally.
+      const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: false, gfm: true })
       setEditorContent(renderedHtml)
       // Silent sync, no change to msg.content
     } else if (data.tool_call === 'note_summarized') {
@@ -534,12 +1097,16 @@ function scrollToBottom() {
 
 function renderMarkdown(text: string): string {
   if (!text) return ''
+  
+  // Hide system logs from UI but keep them in history for AI context
+  const displayContent = text.split(/\n\n> \[SYSTEM_LOG\]/)[0]
+  
   try {
     const mathBlocks: string[] = []
     const mathInlines: string[] = []
 
     // 1. Double escape certain math chars and protect blocks
-    let tmp = text
+    let tmp = displayContent
       .replace(/\$\$([\s\S]+?)\$\$/g, (_, f) => {
         mathBlocks.push(f)
         return `__MATH_BLOCK_${mathBlocks.length - 1}__`
@@ -551,10 +1118,22 @@ function renderMarkdown(text: string): string {
 
     // 2. Render Markdown
     const renderer = new marked.Renderer()
-    renderer.code = function({ text, lang }) {
+    
+    // 🔗 Enterprise Link Handling: Force open in external browser
+    // Updated for marked v17+ compatibility
+    renderer.link = (token) => {
+      const href = token.href || ''
+      const title = token.title || ''
+      const text = token.text || ''
+      const cleanHref = href.replace(/&amp;/g, '&')
+      return `<a href="${cleanHref}" title="${title}" target="_blank" rel="noopener noreferrer">${text}</a>`
+    }
+
+    renderer.code = (token) => {
+      const { text, lang } = token
       const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
       const highlighted = hljs.highlight(text, { language }).value
-      return `<pre class="hljs-container"><code class="hljs language-${language}">${highlighted}</code></pre>`
+      return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`
     }
     
     let html = marked.parse(tmp, { renderer, async: false, breaks: true, gfm: true }) as string
@@ -734,6 +1313,28 @@ watch(inputText, () => {
   
   /* Re-apply Warm Texture */
   background: rgba(250, 248, 245, 0.90);
+}
+
+/* Responsive Chat Window - Scale up on larger screens */
+@media (min-width: 1200px) {
+  .agent-chat:not(.maximized) {
+    width: 420px;
+    height: 580px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .agent-chat:not(.maximized) {
+    width: 480px;
+    height: 650px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .agent-chat:not(.maximized) {
+    width: 520px;
+    height: 720px;
+  }
 }
 
 /* Maximized State */
@@ -927,7 +1528,9 @@ watch(inputText, () => {
 
 .message__content {
   flex: 1;
-  overflow: visible; /* Allow math to peek out if needed, handled by parent scroll */
+  overflow: hidden; /* Prevent horizontal overflow */
+  min-width: 0; /* Required for flex child to shrink properly */
+  max-width: 100%;
 }
 
 .message__text {
@@ -938,6 +1541,89 @@ watch(inputText, () => {
   overflow-wrap: anywhere;
   user-select: text; /* Overrides global user-select: none */
   cursor: text;
+  max-width: 100%;
+  overflow-x: auto; /* Allow scrolling for very wide content like code */
+}
+
+/* =========================================
+   Tool Part Styles (OpenCode/Antigravity style)
+   Minimal inline indicators, no prominent UI
+   ========================================= */
+.tool-part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  margin: 2px 0;
+  font-size: 12px;
+  color: var(--theme-text-secondary, #888);
+  opacity: 0.85;
+}
+
+.tool-part--running {
+  color: var(--theme-text-secondary, #888);
+}
+
+.tool-part--completed {
+  color: var(--theme-text-secondary, #666);
+}
+
+.tool-part--error {
+  color: #e74c3c;
+}
+
+.tool-part__icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.tool-part__name {
+  font-weight: 400;
+}
+
+.tool-part__spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(100, 100, 100, 0.3);
+  border-top-color: rgba(100, 100, 100, 0.8);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.tool-part__check {
+  color: #888;
+  font-size: 11px;
+}
+
+.tool-part__output {
+  display: none; /* Hide output in minimal style */
+}
+
+/* Ensure code blocks don't overflow */
+.message__text pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.message__text code {
+  word-break: break-all;
+}
+
+/* Tables should scroll horizontally if too wide but keep table layout */
+.message__text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border);
+  table-layout: auto; /* Allow content to define width */
 }
 
 /* Status Update (Floating & Pulsing) */
@@ -978,60 +1664,350 @@ watch(inputText, () => {
 .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
 @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
-/* Input Area */
-.agent-chat__input {
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.6);
+/* ========== Compact & Unified Input Area (v2) ========== */
+.agent-chat__footer {
+  padding: 8px 12px;
+  background: white;
   border-top: 1px solid var(--theme-border);
+}
+
+/* Responsive footer in maximized mode - match chat area width */
+.agent-chat.maximized .agent-chat__footer {
   display: flex;
-  align-items: flex-end; /* Align to bottom as it grows */
-  gap: 10px;
+  justify-content: center;
+  padding: 12px 20px;
 }
 
-.agent-chat__input textarea {
-  flex: 1;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  padding: 10px 14px;
-  background: #FFFFFF;
-  font-family: inherit;
-  resize: none; 
-  outline: none; 
-  font-size: 14px;
-  max-height: 150px;
-  overflow-y: hidden; /* No scrollbar as requested */
-  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
-  transition: border-color 0.2s, box-shadow 0.2s;
-  line-height: 1.4;
+.agent-chat.maximized .agent-chat__footer .chat-input-unified-box {
+  width: 100%;
+  max-width: 800px;
 }
 
-.input-actions {
+/* Context bar alignment in maximized mode */
+.agent-chat.maximized .agent-chat__context-bar {
+  display: flex;
+  justify-content: flex-start; /* Align content to start (left) */
+  width: 100%;
+  max-width: 800px; /* Match input box width */
+  margin: 0 auto;   /* Center the bar itself in the window */
+  padding-left: 6px; /* Align strictly with input content (match input padding) */
+}
+
+
+.chat-input-unified-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 12px;
+  transition: background 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.chat-input-unified-box:focus-within {
+  background: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 0 1px rgba(217, 125, 84, 0.1);
+}
+
+/* + Menu Wrapper & Button */
+.input-menu-wrapper {
+  position: relative;
   display: flex;
   align-items: center;
-  margin-bottom: 2px;
-}
-.agent-chat__input textarea:focus {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  border-color: rgba(217, 125, 84, 0.3);
+  margin-bottom: 1px; /* Visual alignment with textarea bottom */
 }
 
-.send-button, .stop-button {
-  width: 40px; height: 40px;
-  border-radius: 12px;
+.menu-trigger-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   border: none;
-  background: var(--theme-accent);
-  color: white;
+  background: transparent;
+  color: #888;
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: transform 0.1s, background 0.2s;
-  box-shadow: 0 4px 10px rgba(217, 125, 84, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
 }
-.send-button:hover { background: #C46A45; transform: scale(1.05); }
-.send-button:active { transform: scale(0.95); }
-.send-button:disabled { background: #E5E7EB; box-shadow: none; cursor: default; }
 
-.stop-button { background: #EF4444; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
-.stop-icon { width: 12px; height: 12px; background: white; border-radius: 2px; }
+.menu-trigger-btn:hover, .menu-trigger-btn.active {
+  color: var(--theme-accent);
+  background: rgba(217, 125, 84, 0.1);
+}
+
+.menu-trigger-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Redesigned Popup Menu (Smaller) */
+.input-menu-popup {
+  position: absolute;
+  bottom: 30px;
+  left: -4px;
+  min-width: 140px;
+  background: white;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  overflow: hidden;
+  z-index: 100;
+  padding: 4px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+  font-size: 12px;
+  color: var(--theme-text);
+}
+
+.menu-item:hover {
+  background: var(--theme-accent-light);
+  color: var(--theme-accent);
+}
+
+.menu-icon {
+  font-size: 12px;
+  width: 14px;
+  text-align: center;
+  color: #888;
+}
+
+.menu-item:hover .menu-icon {
+  color: var(--theme-accent);
+}
+
+.menu-icon.smaller { font-size: 10px; }
+
+/* Menu Fade Transition */
+.menu-fade-enter-active, .menu-fade-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+.menu-fade-enter-from, .menu-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* Auto-resize Textarea */
+.chat-input-unified-box textarea {
+  flex: 1;
+  min-height: 24px;
+  max-height: 120px;
+  padding: 4px 4px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+  color: var(--theme-text);
+}
+
+.chat-input-unified-box textarea::placeholder {
+  color: #bbb;
+  font-size: 12px;
+}
+
+/* Compact Send/Stop Buttons */
+.send-btn-compact, .stop-btn-compact {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  margin-bottom: 1px;
+}
+
+.send-btn-compact {
+  background: transparent;
+  color: #aaa;
+}
+
+.send-btn-compact:hover:not(:disabled) {
+  color: var(--theme-accent);
+  background: rgba(217, 125, 84, 0.1);
+}
+
+.send-btn-compact:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.send-btn-compact svg {
+  width: 14px;
+  height: 14px;
+}
+
+.stop-btn-compact {
+  background: #EF4444;
+}
+
+.stop-icon-small {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 1px;
+}
+
+/* Note Selector Dropdown (Even smaller) */
+.note-selector-dropdown {
+  position: absolute;
+  bottom: 30px;
+  left: -4px;
+  width: 180px;
+  max-height: 200px;
+  background: white;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+}
+
+.selector-header {
+  padding: 6px 10px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #bbb;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(0,0,0,0.03);
+}
+
+.selector-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 3px;
+}
+
+.selector-item {
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.selector-item:hover {
+  background: var(--theme-accent-light);
+}
+
+.item-icon { font-size: 11px; }
+.item-title {
+  font-size: 11px;
+  color: var(--theme-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selector-empty {
+  padding: 12px;
+  text-align: center;
+  color: #bbb;
+  font-size: 11px;
+}
+
+/* Context Bar (Mini Pills) */
+.agent-chat__context-bar {
+  padding: 2px 12px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.context-pill {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  background: rgba(0, 0, 0, 0.03);
+  color: #777;
+  max-width: 120px;
+}
+
+.mentioned-pill {
+  background: rgba(217, 125, 84, 0.08);
+  color: var(--theme-accent);
+}
+
+.inspecting-pill.inactive {
+  opacity: 0.5;
+  text-decoration: line-through;
+  filter: grayscale(1);
+}
+
+.pill-toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  transition: transform 0.2s;
+}
+
+.pill-toggle-btn:hover {
+  transform: scale(1.1);
+}
+
+.eye-svg, .pill-svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+.pill-toggle-btn {
+  display: flex;
+  align-items: center;
+}
+
+.pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-clear {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.pill-clear:hover { opacity: 1; }
+
+/* Shallow Glass override */
+.shallow-glass {
+  backdrop-filter: blur(4px);
+  background: rgba(255, 255, 255, 0.95) !important;
+}
 
 /* Custom Scrollbar */
 .agent-chat__messages::-webkit-scrollbar { width: 4px; }
@@ -1097,32 +2073,42 @@ watch(inputText, () => {
   border-radius: 4px;
 }
 :deep(.message__text table) {
-  display: block;
-  width: 100%;
-  overflow-x: auto;
+  display: table; /* Reset to standard table behavior */
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   margin: 12px 0;
   background: white;
   border-radius: 8px;
   border: 1px solid var(--theme-border);
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden; /* For radius */
 }
+
+/* Wrapping table in a container for horizontal scroll without breaking table layout */
+.message__text {
+  overflow-x: auto;
+}
+
 :deep(.message__text th), :deep(.message__text td) {
   border: 1px solid var(--theme-border);
-  padding: 8px 16px;
+  padding: 10px 16px;
   text-align: left;
-  min-width: 120px; /* Guard against character stacking */
+  min-width: 80px;
   white-space: normal;
   word-break: normal;
-  overflow-wrap: normal;
+  line-height: 1.5;
 }
+
 :deep(.message__text th) {
   background: var(--theme-accent-light);
   font-weight: 600;
   white-space: nowrap; 
+  color: var(--theme-accent);
 }
-/* Sub-scrollbar for tables */
-:deep(.message__text table::-webkit-scrollbar) { height: 4px; }
-:deep(.message__text table::-webkit-scrollbar-thumb) { background: rgba(0,0,0,0.1); border-radius: 4px; }
+
+/* Sub-scrollbar for the container */
+.message__text::-webkit-scrollbar { height: 4px; }
+.message__text::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
 :deep(.message__text hr) { border: none; border-top: 1px solid var(--theme-border); margin: 16px 0; }
 </style>
