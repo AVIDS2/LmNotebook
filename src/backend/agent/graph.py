@@ -454,14 +454,11 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
         if state.get("workflow_done", False):
             return "end"
         
-        # 3. No tool_calls + has executed tools before + recover not exhausted → recover
-        tool_call_count = state.get("tool_call_count", 0)
-        recover_count = state.get("recover_count", 0)
+        # 3. [REMOVED] Aggressive recovery caused double-generation. 
+        # If the agent outputs text without tool calls, we assume it's the final answer.
+        # This prevents the "Double Summary" bug.
         
-        if tool_call_count > 0 and recover_count < MAX_RECOVER:
-            return "recover"
-        
-        # 4. Otherwise → end (first response without tools, or recover exhausted)
+        # 4. Otherwise → end (response is text-only, task complete)
         return "end"
     
     def _recover_node(self, state: NoteAgentState) -> dict:
