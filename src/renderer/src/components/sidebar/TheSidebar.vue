@@ -61,14 +61,14 @@
           <div
             v-for="category in categoryStore.categories"
             :key="category.id"
-            class="sidebar__item"
+            class="sidebar__item sidebar__item--category"
             :class="{
               'sidebar__item--active': noteStore.currentView === 'category' && noteStore.currentCategoryId === category.id,
               'sidebar__item--dragging': draggedCategoryId === category.id,
               'sidebar__item--dragover': dragOverCategoryId === category.id
             }"
             draggable="true"
-            @click="noteStore.setView('category', category.id)"
+            @click="editingCategoryId !== category.id && noteStore.setView('category', category.id)"
             @dragstart="handleDragStart(category.id)"
             @dragover="handleDragOver($event, category.id)"
             @dragleave="handleDragLeave"
@@ -77,7 +77,28 @@
             :tabindex="collapsed ? -1 : 0"
           >
             <span class="sidebar__dot" :style="{ background: category.color }"></span>
-            <span>{{ category.name }}</span>
+            <input
+              v-if="editingCategoryId === category.id"
+              v-model="editingCategoryName"
+              class="sidebar__category-input"
+              @click.stop
+              @keyup.enter="confirmRenameCategory"
+              @keyup.escape="cancelRenameCategory"
+              @blur="confirmRenameCategory"
+              autofocus
+            />
+            <span v-else class="sidebar__category-name">{{ category.name }}</span>
+            <button 
+              v-if="editingCategoryId !== category.id"
+              class="sidebar__more-btn"
+              @click.stop="toggleCategoryMenu(category.id, $event)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2"/>
+                <circle cx="12" cy="12" r="2"/>
+                <circle cx="12" cy="19" r="2"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -214,6 +235,30 @@
       </div>
     </div>
 
+    <!-- 分类右键菜单 -->
+    <Teleport to="body">
+      <div 
+        v-if="categoryContextMenu.visible" 
+        class="context-menu"
+        :style="{ left: categoryContextMenu.x + 'px', top: categoryContextMenu.y + 'px' }"
+      >
+        <div class="context-menu__item" @click="startRenameCategory">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          <span>重命名</span>
+        </div>
+        <div class="context-menu__item context-menu__item--danger" @click="deleteCategory">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+          </svg>
+          <span>删除</span>
+        </div>
+      </div>
+      <div v-if="categoryContextMenu.visible" class="context-menu-overlay" @click="hideCategoryContextMenu"></div>
+    </Teleport>
+
     <!-- 添加分类对话框 -->
     <div v-if="showAddCategory" class="modal-overlay" @click.self="showAddCategory = false">
       <div class="modal">
@@ -271,6 +316,16 @@ const showDataSettings = ref(false)
 const newCategoryName = ref('')
 const newCategoryColor = ref('#C4A882')
 
+// 分类编辑状态
+const editingCategoryId = ref<string | null>(null)
+const editingCategoryName = ref('')
+const categoryContextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  categoryId: ''
+})
+
 const categoryColors = [
   '#6366F1', // 靛蓝 - Indigo
   '#8B5CF6', // 紫罗兰 - Violet  
@@ -313,6 +368,65 @@ async function handleAddCategory(): Promise<void> {
     newCategoryName.value = ''
     newCategoryColor.value = '#C4A882'
     showAddCategory.value = false
+  }
+}
+
+// 分类菜单
+function toggleCategoryMenu(categoryId: string, e: MouseEvent): void {
+  if (categoryContextMenu.value.visible && categoryContextMenu.value.categoryId === categoryId) {
+    hideCategoryContextMenu()
+  } else {
+    const btn = e.currentTarget as HTMLElement
+    const rect = btn.getBoundingClientRect()
+    categoryContextMenu.value = {
+      visible: true,
+      x: rect.right + 4,
+      y: rect.top,
+      categoryId
+    }
+  }
+}
+
+function hideCategoryContextMenu(): void {
+  categoryContextMenu.value.visible = false
+}
+
+// 开始重命名分类
+function startRenameCategory(): void {
+  const category = categoryStore.categories.find(c => c.id === categoryContextMenu.value.categoryId)
+  if (category) {
+    editingCategoryId.value = category.id
+    editingCategoryName.value = category.name
+    hideCategoryContextMenu()
+  }
+}
+
+// 确认重命名
+async function confirmRenameCategory(): Promise<void> {
+  if (editingCategoryId.value && editingCategoryName.value.trim()) {
+    await categoryStore.updateCategory(editingCategoryId.value, { name: editingCategoryName.value.trim() })
+  }
+  editingCategoryId.value = null
+  editingCategoryName.value = ''
+}
+
+// 取消重命名
+function cancelRenameCategory(): void {
+  editingCategoryId.value = null
+  editingCategoryName.value = ''
+}
+
+// 删除分类
+async function deleteCategory(): Promise<void> {
+  const categoryId = categoryContextMenu.value.categoryId
+  hideCategoryContextMenu()
+  
+  if (categoryId) {
+    // 如果当前正在查看这个分类，切换到全部笔记
+    if (noteStore.currentView === 'category' && noteStore.currentCategoryId === categoryId) {
+      await noteStore.setView('all')
+    }
+    await categoryStore.deleteCategory(categoryId)
   }
 }
 
@@ -941,5 +1055,100 @@ async function handleExportAllMarkdown(): Promise<void> {
   justify-content: flex-end;
   gap: $spacing-sm;
   margin-top: $spacing-lg;
+}
+
+// 分类内联编辑输入框
+.sidebar__category-input {
+  flex: 1;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  outline: none;
+  min-width: 0;
+}
+
+.sidebar__category-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 分类项更多按钮
+.sidebar__item--category {
+  position: relative;
+}
+
+.sidebar__more-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.sidebar__item--category:hover .sidebar__more-btn {
+  opacity: 1;
+}
+
+// 右键菜单
+.context-menu {
+  position: fixed;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+}
+
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--color-bg-hover);
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.context-menu__item--danger {
+  color: var(--color-danger, #ef4444);
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.1);
+  }
+}
+
+.context-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
 }
 </style>
