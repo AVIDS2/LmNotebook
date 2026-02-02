@@ -508,10 +508,11 @@ async function handleExportAllMarkdown(): Promise<void> {
   padding: $spacing-md;
   position: relative;
   overflow: hidden;
-  // 优化过渡：使用更快的时间和 GPU 加速
-  transition: padding 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              background-color 0.2s ease;
+  // 苹果风格丝滑过渡
+  transition: padding 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              background-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   will-change: padding;
+  backface-visibility: hidden;
 
   &--collapsed {
     padding: $spacing-sm;
@@ -526,12 +527,13 @@ async function handleExportAllMarkdown(): Promise<void> {
   min-width: 0;
   opacity: 1;
   transform: translateX(0);
-  // 优化过渡：更快的动画
-  transition: opacity 0.15s ease-out,
-              transform 0.15s ease-out,
-              visibility 0.15s;
+  // 苹果风格丝滑过渡
+  transition: opacity 0.18s cubic-bezier(0.25, 0.1, 0.25, 1),
+              transform 0.18s cubic-bezier(0.25, 0.1, 0.25, 1),
+              visibility 0.18s;
   visibility: visible;
   will-change: opacity, transform;
+  backface-visibility: hidden;
   
   &--hidden {
     opacity: 0;

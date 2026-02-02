@@ -77,10 +77,12 @@
     </Transition>
 
     <!-- 笔记列表 -->
-    <div class="note-list__content">
-      <TransitionGroup name="list" tag="div" :css="true">
+    <div class="note-list__content" ref="listContainerRef" @scroll="handleScroll">
+      <!-- 虚拟滚动：只渲染可见区域的笔记 -->
+      <div class="note-list__virtual-spacer" :style="{ height: virtualSpacerTop + 'px' }"></div>
+      <TransitionGroup name="list" tag="div" :css="!isVirtualScrolling">
         <NoteCard
-          v-for="note in noteStore.notes"
+          v-for="note in visibleNotes"
           :key="note.id"
           :note="note"
           :is-active="noteStore.currentNote?.id === note.id"
@@ -97,6 +99,7 @@
           @dragend="handleDragEnd"
         />
       </TransitionGroup>
+      <div class="note-list__virtual-spacer" :style="{ height: virtualSpacerBottom + 'px' }"></div>
 
       <!-- 空状态 -->
       <div v-if="noteStore.notes.length === 0" class="note-list__empty">
@@ -111,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useNoteStore } from '@/stores/noteStore'
 import type { Note } from '@/database/noteRepository'
 import NoteCard from './NoteCard.vue'
@@ -121,6 +124,84 @@ const noteStore = useNoteStore()
 
 // 全选复选框 ref
 const selectAllCheckbox = ref<HTMLInputElement | null>(null)
+
+// 虚拟滚动相关
+const listContainerRef = ref<HTMLElement | null>(null)
+const ITEM_HEIGHT = 98 // 预估每个笔记卡片高度（包含 margin）
+const BUFFER_SIZE = 5 // 上下缓冲区大小
+const VIRTUAL_THRESHOLD = 50 // 超过这个数量才启用虚拟滚动
+
+const scrollTop = ref(0)
+const containerHeight = ref(400)
+
+// 是否启用虚拟滚动
+const isVirtualScrolling = computed(() => noteStore.notes.length > VIRTUAL_THRESHOLD)
+
+// 计算可见范围
+const visibleRange = computed(() => {
+  if (!isVirtualScrolling.value) {
+    return { start: 0, end: noteStore.notes.length }
+  }
+  
+  const start = Math.max(0, Math.floor(scrollTop.value / ITEM_HEIGHT) - BUFFER_SIZE)
+  const visibleCount = Math.ceil(containerHeight.value / ITEM_HEIGHT) + BUFFER_SIZE * 2
+  const end = Math.min(noteStore.notes.length, start + visibleCount)
+  
+  return { start, end }
+})
+
+// 可见的笔记
+const visibleNotes = computed(() => {
+  const { start, end } = visibleRange.value
+  return noteStore.notes.slice(start, end)
+})
+
+// 虚拟滚动占位高度
+const virtualSpacerTop = computed(() => {
+  if (!isVirtualScrolling.value) return 0
+  return visibleRange.value.start * ITEM_HEIGHT
+})
+
+const virtualSpacerBottom = computed(() => {
+  if (!isVirtualScrolling.value) return 0
+  return (noteStore.notes.length - visibleRange.value.end) * ITEM_HEIGHT
+})
+
+// 滚动处理（使用 RAF 节流）
+let scrollRAF: number | null = null
+function handleScroll() {
+  if (scrollRAF) return
+  scrollRAF = requestAnimationFrame(() => {
+    if (listContainerRef.value) {
+      scrollTop.value = listContainerRef.value.scrollTop
+    }
+    scrollRAF = null
+  })
+}
+
+// 监听容器大小变化
+let resizeObserver: ResizeObserver | null = null
+onMounted(() => {
+  if (listContainerRef.value) {
+    containerHeight.value = listContainerRef.value.clientHeight
+    
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        containerHeight.value = entry.contentRect.height
+      }
+    })
+    resizeObserver.observe(listContainerRef.value)
+  }
+})
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+  if (scrollRAF) {
+    cancelAnimationFrame(scrollRAF)
+  }
+})
 
 // 处理 indeterminate 状态
 watch(
@@ -381,6 +462,10 @@ const emptyText = computed(() => {
   padding: $spacing-sm;
 }
 
+.note-list__virtual-spacer {
+  flex-shrink: 0;
+}
+
 .note-list__empty {
   display: flex;
   flex-direction: column;
@@ -400,25 +485,26 @@ const emptyText = computed(() => {
   }
 }
 
-// 列表动画 - 使用 GPU 加速的 transform 和 opacity
+// 列表动画 - 苹果风格丝滑过渡
 .list-enter-active,
 .list-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .list-enter-from {
   opacity: 0;
-  transform: translateX(-8px);
+  transform: translateX(-8px) scale(0.98);
 }
 
 .list-leave-to {
   opacity: 0;
-  transform: translateX(8px);
+  transform: translateX(8px) scale(0.98);
 }
 
 // 移动动画 - 使用 transform 而非 top/left
 .list-move {
-  transition: transform 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 // 离开时不占位，避免布局抖动

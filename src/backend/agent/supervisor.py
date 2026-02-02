@@ -257,6 +257,41 @@ class AgentSupervisor:
         try:
             print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
             
+            # Pre-check: Validate checkpoint state before streaming
+            # This prevents the "tool_calls must be followed by tool messages" error
+            try:
+                from agent.graph import CHECKPOINT_DB_PATH
+                import aiosqlite
+                from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+                
+                async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                    cursor = await db.execute(
+                        "SELECT checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+                        (session_id,)
+                    )
+                    row = await cursor.fetchone()
+                    
+                    if row:
+                        serde = JsonPlusSerializer()
+                        checkpoint_data = serde.loads(row[0])
+                        
+                        if checkpoint_data and 'channel_values' in checkpoint_data:
+                            messages = checkpoint_data['channel_values'].get('messages', [])
+                            
+                            # Check for orphaned tool_calls (AIMessage with tool_calls but no following ToolMessage)
+                            if messages:
+                                last_msg = messages[-1]
+                                if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                                    # Last message has tool_calls - this is a corrupted state
+                                    print(f"[Agent] Detected incomplete tool_calls in checkpoint, cleaning up...")
+                                    await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+                                    await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+                                    await db.commit()
+                                    print(f"[Agent] Cleaned up corrupted checkpoint for session {session_id}")
+                                    yield json.dumps({"type": "status", "text": "\\u2714 Session recovered"})
+            except Exception as check_err:
+                print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
+            
             async for sse_chunk in langgraph_stream_to_sse(
                 graph,
                 initial_state,

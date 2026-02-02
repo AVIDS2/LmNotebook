@@ -70,3 +70,15 @@ $font-size-2xl: 24px;
 $transition-fast: 0.15s ease;
 $transition-normal: 0.25s ease;
 $transition-slow: 0.35s ease;
+
+// 苹果风格贝塞尔曲线 - 更丝滑的动画
+$ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);        // 标准苹果曲线
+$ease-apple-in: cubic-bezier(0.42, 0, 1, 1);          // 加速进入
+$ease-apple-out: cubic-bezier(0, 0, 0.58, 1);         // 减速退出
+$ease-apple-spring: cubic-bezier(0.34, 1.56, 0.64, 1); // 弹性效果
+$ease-apple-smooth: cubic-bezier(0.4, 0, 0.2, 1);     // Material 风格平滑
+
+// 高性能过渡（使用 GPU 加速属性）
+$transition-gpu-fast: 0.12s $ease-apple;
+$transition-gpu-normal: 0.2s $ease-apple;
+$transition-gpu-slow: 0.3s $ease-apple;

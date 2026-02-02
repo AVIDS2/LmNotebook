@@ -35,14 +35,10 @@
     </div>
 
     <!-- 标题 -->
-    <h3 class="note-card__title">
-      {{ displayTitle }}
-    </h3>
+    <h3 class="note-card__title" v-html="highlightedTitle"></h3>
 
     <!-- 预览内容 -->
-    <p class="note-card__preview">
-      {{ displayPreview }}
-    </p>
+    <p class="note-card__preview" v-html="highlightedPreview"></p>
 
     <!-- 底部信息 -->
     <div class="note-card__footer">
@@ -58,6 +54,7 @@
 import { computed } from 'vue'
 import type { Note } from '@/services/database'
 import { useCategoryStore } from '@/stores/categoryStore'
+import { useNoteStore } from '@/stores/noteStore'
 
 const props = defineProps<{
   note: Note
@@ -116,6 +113,26 @@ function handleDragEnd() {
 }
 
 const categoryStore = useCategoryStore()
+const noteStore = useNoteStore()
+
+// 转义 HTML 特殊字符
+function escapeHtml(text: string): string {
+  const div = document.createElement('div')
+  div.textContent = text
+  return div.innerHTML
+}
+
+// 高亮搜索关键词
+function highlightText(text: string, keyword: string): string {
+  if (!keyword || !text) return escapeHtml(text)
+  
+  const escaped = escapeHtml(text)
+  const escapedKeyword = escapeHtml(keyword)
+  
+  // 创建不区分大小写的正则
+  const regex = new RegExp(`(${escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+  return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
+}
 
 const displayTitle = computed(() => {
   return props.note.title || '无标题笔记'
@@ -125,6 +142,16 @@ const displayPreview = computed(() => {
   const text = props.note.plainText.trim()
   if (!text) return '暂无内容...'
   return text.length > 60 ? text.slice(0, 60) + '...' : text
+})
+
+// 高亮后的标题
+const highlightedTitle = computed(() => {
+  return highlightText(displayTitle.value, noteStore.searchKeyword)
+})
+
+// 高亮后的预览
+const highlightedPreview = computed(() => {
+  return highlightText(displayPreview.value, noteStore.searchKeyword)
 })
 
 const category = computed(() => {
@@ -163,19 +190,29 @@ function formatDate(timestamp: number): string {
   margin-bottom: $spacing-sm;
   cursor: pointer;
   
-  // 性能优化：使用 GPU 加速的属性
-  transition: background-color 0.15s ease, 
-              border-color 0.15s ease, 
-              opacity 0.15s ease;
+  // 性能优化：使用 GPU 加速的属性 + 苹果风格曲线
+  transition: background-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              border-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              box-shadow 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   
   // 启用硬件加速和内容可见性优化
   content-visibility: auto;
   contain: layout style paint;
-  contain-intrinsic-size: 0 90px; // 预估高度，减少布局抖动
-  will-change: opacity, background-color;
+  contain-intrinsic-size: 0 90px;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
 
   &:hover {
     background: var(--color-bg-hover);
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  
+  &:active {
+    transform: scale(0.98);
+    transition-duration: 0.1s;
   }
 
   &--active {
@@ -302,5 +339,13 @@ function formatDate(timestamp: number): string {
   padding: 2px 8px;
   border-radius: $radius-sm;
   color: white;
+}
+
+// 搜索高亮样式
+:deep(.search-highlight) {
+  background: #fef08a;
+  color: #854d0e;
+  padding: 0 2px;
+  border-radius: 2px;
 }
 </style>

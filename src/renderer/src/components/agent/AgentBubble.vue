@@ -1689,15 +1689,16 @@ watch(inputText, () => {
   transform-origin: bottom left;
 }
 
-/* Animation */
+/* Animation - 苹果风格丝滑弹出 */
 .chat-window-enter-active,
 .chat-window-leave-active {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 0.25s cubic-bezier(0.25, 0.1, 0.25, 1),
+              transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .chat-window-enter-from,
 .chat-window-leave-to {
   opacity: 0;
-  transform: scale(0.9) translateY(20px);
+  transform: scale(0.92) translateY(16px);
 }
 
 /* Header */
@@ -1779,14 +1780,22 @@ watch(inputText, () => {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              background 0.15s cubic-bezier(0.25, 0.1, 0.25, 1),
+              box-shadow 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   z-index: 10;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 .scroll-to-bottom-btn:hover {
   background: var(--theme-bg-hover);
   color: var(--theme-text);
-  transform: translateX(-50%) translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%) translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+.scroll-to-bottom-btn:active {
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .scroll-to-bottom-btn svg {
   width: 18px;
