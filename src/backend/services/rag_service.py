@@ -176,18 +176,36 @@ class RAGService:
         try:
             query_vec = await self._vectorize(query)
             # D = distances (scores), I = indices
-            D, I = self.index.search(query_vec, min(top_k, self.index.ntotal))
+            # Request more results to account for deleted notes
+            D, I = self.index.search(query_vec, min(top_k * 2, self.index.ntotal))
+            
+            # Get valid (non-deleted) note IDs from database
+            from core.config import settings
+            valid_ids = set()
+            try:
+                async with aiosqlite.connect(settings.NOTES_DB_PATH) as db:
+                    cursor = await db.execute("SELECT id FROM notes WHERE isDeleted = 0")
+                    rows = await cursor.fetchall()
+                    valid_ids = {str(row[0]) for row in rows}
+            except Exception as e:
+                print(f"[WARN] Could not fetch valid IDs: {e}")
             
             output = []
             for i, idx in enumerate(I[0]):
                 if idx == -1: continue
                 meta = self.metadata[idx]
+                # Filter out deleted notes
+                if valid_ids and meta['id'] not in valid_ids:
+                    print(f"[SEARCH] Skipping deleted note: {meta['id']}")
+                    continue
                 output.append({
                     "id": meta['id'],
                     "content": meta['content'],
                     "title": meta['title'],
-                    "score": round(float(D[0][i]), 4), # Cosine similarity since normalized
+                    "score": round(float(D[0][i]), 4),
                 })
+                if len(output) >= top_k:
+                    break
             return sorted(output, key=lambda x: x["score"], reverse=True)
         except Exception as e:
             print(f"[ERR] FAISS Search Error: {e}")

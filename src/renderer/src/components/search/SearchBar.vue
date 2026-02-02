@@ -59,13 +59,14 @@ watch(() => noteStore.currentView, () => {
   align-items: center;
   gap: $spacing-sm;
   padding: $spacing-sm $spacing-md;
-  background: $color-bg-secondary;
-  border-bottom: 1px solid $color-border-light;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+  transition: background-color 0.3s ease;
 }
 
 .search-bar__icon {
   flex-shrink: 0;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
 }
 
 .search-bar__input {
@@ -73,11 +74,11 @@ watch(() => noteStore.currentView, () => {
   border: none;
   background: transparent;
   font-size: $font-size-sm;
-  color: $color-text-primary;
+  color: var(--color-text-primary);
   outline: none;
 
   &::placeholder {
-    color: $color-text-placeholder;
+    color: var(--color-text-placeholder);
   }
 }
 
@@ -89,14 +90,14 @@ watch(() => noteStore.currentView, () => {
   height: 20px;
   border: none;
   border-radius: 50%;
-  background: $color-bg-hover;
-  color: $color-text-muted;
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: background-color $transition-fast, color $transition-fast;
 
   &:hover {
-    background: $color-bg-active;
-    color: $color-text-primary;
+    background: var(--color-bg-active);
+    color: var(--color-text-primary);
   }
 }
 </style>

@@ -53,6 +53,12 @@
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </button>
+            <button class="header-btn" @mousedown.stop @click="toggleSessionHistory" title="历史对话">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </button>
             <button class="header-btn" @mousedown.stop @click="clearChat" title="开始新对话">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M23 4v6h-6"/>
@@ -75,8 +81,68 @@
           </div>
         </div>
 
+        <!-- Session History Panel -->
+        <Transition name="slide-panel">
+          <div v-if="showSessionHistory" class="session-history-panel">
+            <div class="session-history__header">
+              <span>历史对话</span>
+              <button class="close-btn" @click="showSessionHistory = false">×</button>
+            </div>
+            <div class="session-history__list">
+              <div v-if="sessionList.length === 0" class="session-history__empty">
+                暂无历史对话
+              </div>
+              <div 
+                v-for="session in sessionList" 
+                :key="session.id"
+                class="session-item"
+                :class="{ 'session-item--active': session.id === currentSessionId, 'session-item--pinned': session.pinned }"
+                @click="editingSessionId !== session.id && loadSession(session.id)"
+              >
+                <!-- Normal display mode -->
+                <div v-if="editingSessionId !== session.id" class="session-item__preview">
+                  <span v-if="session.pinned" class="pin-indicator">
+                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="12" height="12">
+                      <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
+                    </svg>
+                  </span>
+                  {{ session.preview }}
+                </div>
+                <!-- Editing mode -->
+                <input 
+                  v-else
+                  v-model="editingTitle"
+                  class="session-rename-input"
+                  @click.stop
+                  @keyup.enter="confirmRename(session.id)"
+                  @keyup.escape="cancelRename"
+                  @blur="confirmRename(session.id)"
+                />
+                <div v-if="editingSessionId !== session.id" class="session-item__actions">
+                  <button class="session-item__btn" @click.stop="togglePinSession(session.id)" :title="session.pinned ? '取消置顶' : '置顶'">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
+                    </svg>
+                  </button>
+                  <button class="session-item__btn" @click.stop="renameSession(session.id)" title="重命名">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                  </button>
+                  <button class="session-item__btn session-item__btn--danger" @click.stop="deleteSession(session.id)" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
         <!-- Messages -->
-        <div class="agent-chat__messages" ref="messagesContainer">
+        <div class="agent-chat__messages" ref="messagesContainer" @scroll="handleMessagesScroll">
           <div v-if="messages.length === 0" class="agent-chat__empty">
             <div class="agent-chat__welcome">
               <span class="welcome-icon">✦</span>
@@ -88,7 +154,7 @@
                 v-for="suggestion in suggestions"
                 :key="suggestion"
                 class="suggestion-chip"
-                @click="sendMessage(suggestion)"
+                @click="handleSuggestionClick(suggestion)"
               >
                 {{ suggestion }}
               </button>
@@ -150,6 +216,20 @@
             </div>
           </div>
         </div>
+
+        <!-- Scroll to bottom button -->
+        <Transition name="fade">
+          <button 
+            v-if="showScrollToBottom" 
+            class="scroll-to-bottom-btn"
+            @click="forceScrollToBottom"
+            title="滚动到底部"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </Transition>
 
         <!-- Context Bar (Automatic & Explicit) -->
         <div class="agent-chat__context-bar">
@@ -339,10 +419,178 @@ const currentStatus = ref('')
 const abortController = ref<AbortController | null>(null)
 const includeActiveNote = ref(true)
 
+// --- Auto-scroll control ---
+const userScrolledUp = ref(false)
+const showScrollToBottom = ref(false)
+
 // --- Context (@) Selection ---
 const showNoteSelector = ref(false)
 const selectedContextNote = ref<any>(null)
 const selectorRef = ref<HTMLElement | null>(null)
+
+// --- Session History ---
+interface SessionInfo {
+  id: string
+  preview: string
+  title?: string
+  pinned?: boolean
+  updated_at?: string
+}
+const showSessionHistory = ref(false)
+const sessionList = ref<SessionInfo[]>([])
+
+// Session metadata stored locally (pinned status, custom titles)
+const sessionMeta = ref<Record<string, { pinned?: boolean; title?: string }>>({})
+
+// Load session metadata from localStorage
+function loadSessionMeta() {
+  try {
+    const stored = localStorage.getItem('agent_session_meta')
+    if (stored) sessionMeta.value = JSON.parse(stored)
+  } catch { sessionMeta.value = {} }
+}
+
+// Save session metadata to localStorage
+function saveSessionMeta() {
+  localStorage.setItem('agent_session_meta', JSON.stringify(sessionMeta.value))
+}
+
+async function toggleSessionHistory() {
+  showSessionHistory.value = !showSessionHistory.value
+  if (showSessionHistory.value) {
+    loadSessionMeta()
+    await loadSessionList()
+  }
+}
+
+async function loadSessionList() {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/chat/sessions`)
+    if (response.ok) {
+      const data = await response.json()
+      // Merge with local metadata (pinned, custom title)
+      const sessions = (data.sessions || []).map((s: SessionInfo) => {
+        const meta = sessionMeta.value[s.id] || {}
+        return {
+          ...s,
+          preview: meta.title || s.preview,
+          pinned: meta.pinned || false
+        }
+      })
+      // Sort: pinned first, then by updated_at
+      sessions.sort((a: SessionInfo, b: SessionInfo) => {
+        if (a.pinned && !b.pinned) return -1
+        if (!a.pinned && b.pinned) return 1
+        return 0
+      })
+      sessionList.value = sessions
+    }
+  } catch (e) {
+    console.error('Failed to load sessions:', e)
+  }
+}
+
+// Toggle pin status
+function togglePinSession(sessionId: string) {
+  if (!sessionMeta.value[sessionId]) {
+    sessionMeta.value[sessionId] = {}
+  }
+  sessionMeta.value[sessionId].pinned = !sessionMeta.value[sessionId].pinned
+  saveSessionMeta()
+  // Update list
+  const session = sessionList.value.find(s => s.id === sessionId)
+  if (session) {
+    session.pinned = sessionMeta.value[sessionId].pinned
+    // Re-sort
+    sessionList.value.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      return 0
+    })
+  }
+}
+
+// Rename session - inline editing
+const editingSessionId = ref<string | null>(null)
+const editingTitle = ref('')
+
+function renameSession(sessionId: string) {
+  const session = sessionList.value.find(s => s.id === sessionId)
+  if (!session) return
+  
+  editingSessionId.value = sessionId
+  editingTitle.value = session.preview
+  
+  // Focus input after render
+  nextTick(() => {
+    const input = document.querySelector('.session-rename-input') as HTMLInputElement
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+function confirmRename(sessionId: string) {
+  if (editingTitle.value.trim()) {
+    if (!sessionMeta.value[sessionId]) {
+      sessionMeta.value[sessionId] = {}
+    }
+    sessionMeta.value[sessionId].title = editingTitle.value.trim()
+    saveSessionMeta()
+    
+    const session = sessionList.value.find(s => s.id === sessionId)
+    if (session) {
+      session.preview = editingTitle.value.trim()
+    }
+  }
+  editingSessionId.value = null
+  editingTitle.value = ''
+}
+
+function cancelRename() {
+  editingSessionId.value = null
+  editingTitle.value = ''
+}
+
+async function loadSession(sessionId: string) {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/chat/sessions/${sessionId}/messages`)
+    if (response.ok) {
+      const data = await response.json()
+      // Switch to this session
+      currentSessionId.value = sessionId
+      localStorage.setItem(SESSION_KEY, sessionId)
+      // Load messages
+      messages.value = (data.messages || []).map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        timestamp: new Date()
+      }))
+      showSessionHistory.value = false
+      nextTick(() => scrollToBottom())
+    }
+  } catch (e) {
+    console.error('Failed to load session:', e)
+  }
+}
+
+async function deleteSession(sessionId: string) {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/chat/sessions/${sessionId}`, {
+      method: 'DELETE'
+    })
+    if (response.ok) {
+      sessionList.value = sessionList.value.filter(s => s.id !== sessionId)
+      // If deleted current session, start new one
+      if (sessionId === currentSessionId.value) {
+        clearChat()
+      }
+    }
+  } catch (e) {
+    console.error('Failed to delete session:', e)
+  }
+}
 
 // --- New: Input Menu & Knowledge Search ---
 const showInputMenu = ref(false)
@@ -551,9 +799,9 @@ onUnmounted(() => {
 // ----------------------
 
 const suggestions = [
-  '帮我搜索最近的笔记',
-  '整理一下当前笔记的格式',
-  '总结一下这篇笔记的内容'
+  '@笔记知识库 查找关于...',
+  '帮我写一篇关于...的笔记',
+  '总结一下这篇笔记的要点'
 ]
 
 // Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
@@ -643,6 +891,29 @@ watch(() => noteStore.currentNote?.id, (newId, oldId) => {
     }
 })
 
+// Handle suggestion chip click - fill input if contains "...", otherwise send directly
+function handleSuggestionClick(suggestion: string) {
+  if (suggestion.includes('...')) {
+    // Fill input box and let user complete it
+    inputText.value = suggestion
+    // Focus the input
+    nextTick(() => {
+      const input = document.querySelector('.agent-chat__input') as HTMLTextAreaElement
+      if (input) {
+        input.focus()
+        // Place cursor at the "..." position
+        const dotIndex = suggestion.indexOf('...')
+        if (dotIndex !== -1) {
+          input.setSelectionRange(dotIndex, dotIndex + 3)
+        }
+      }
+    })
+  } else {
+    // Send directly
+    sendMessage(suggestion)
+  }
+}
+
 async function sendMessage(text?: string) {
   const messageText = text || inputText.value.trim()
   if (!messageText || isTyping.value) return
@@ -654,6 +925,10 @@ async function sendMessage(text?: string) {
   isTyping.value = true
   showInputMenu.value = false
   showNoteSelector.value = false
+  
+  // Reset scroll state - user sending message means they want to see the response
+  userScrolledUp.value = false
+  showScrollToBottom.value = false
   
   // Reset height
   if (inputRef.value) {
@@ -667,7 +942,7 @@ async function sendMessage(text?: string) {
   
   // Ensure keyboard on mobile doesn't hide input
   nextTick(() => {
-    scrollToBottom()
+    scrollToBottom(true)
   })
 
   // Check connection before sending (Deep Check)
@@ -1089,10 +1364,39 @@ function getCurrentNoteContext(): string | null {
   } catch { return null }
 }
 
-function scrollToBottom() {
+function scrollToBottom(force = false) {
   nextTick(() => {
-    if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    if (messagesContainer.value) {
+      // Only auto-scroll if user hasn't scrolled up, or if forced
+      if (force || !userScrolledUp.value) {
+        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+        userScrolledUp.value = false
+        showScrollToBottom.value = false
+      }
+    }
   })
+}
+
+// Handle user scroll to detect if they scrolled up
+function handleMessagesScroll() {
+  if (!messagesContainer.value) return
+  const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value
+  const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+  
+  if (isAtBottom) {
+    userScrolledUp.value = false
+    showScrollToBottom.value = false
+  } else {
+    userScrolledUp.value = true
+    showScrollToBottom.value = true
+  }
+}
+
+// Force scroll to bottom (for button click)
+function forceScrollToBottom() {
+  userScrolledUp.value = false
+  showScrollToBottom.value = false
+  scrollToBottom(true)
 }
 
 function renderMarkdown(text: string): string {
@@ -1210,19 +1514,44 @@ watch(inputText, () => {
 </script>
 
 <style scoped>
-/* ===== 🎨 Theme: Warm Glass (Claude-Inspired) ===== */
+/* ===== 🎨 Theme: Warm Glass (Claude-Inspired) with Dark Mode Support ===== */
 .agent-container {
-  /* Define variables locally within the component scope */
-  --theme-bg: rgba(250, 248, 245, 0.85); /* Warm Beige Glass */
+  /* Light Theme Variables (Default) */
+  --theme-bg: rgba(250, 248, 245, 0.85);
+  --theme-bg-solid: #FDFCFB;
   --theme-text: #2D2A26;
   --theme-text-secondary: #6B6762;
-  --theme-accent: #D97D54; /* Terracotta */
+  --theme-accent: #D97D54;
   --theme-accent-light: #FEF3EE;
   --theme-border: rgba(232, 228, 223, 0.6);
+  --theme-input-bg: rgba(0, 0, 0, 0.04);
+  --theme-code-bg: #F3F4F6;
+  --theme-bubble-bg: rgba(255, 255, 255, 0.6);
+  --theme-bubble-active: rgba(255, 255, 255, 0.9);
+  --theme-header-bg: rgba(255, 255, 255, 0.5);
+  --theme-footer-bg: white;
+  --theme-suggestion-bg: #FFFFFF;
 
   position: fixed;
   z-index: 9999;
-  /* dynamic top/left */
+}
+
+/* Dark Theme Override */
+[data-theme="dark"] .agent-container {
+  --theme-bg: rgba(35, 35, 38, 0.92);
+  --theme-bg-solid: #2A2A2E;
+  --theme-text: #E8E8E6;
+  --theme-text-secondary: #A8A8A5;
+  --theme-accent: #E8A87C;
+  --theme-accent-light: rgba(232, 168, 124, 0.15);
+  --theme-border: rgba(60, 60, 65, 0.8);
+  --theme-input-bg: rgba(255, 255, 255, 0.06);
+  --theme-code-bg: #1E1E22;
+  --theme-bubble-bg: rgba(50, 50, 55, 0.8);
+  --theme-bubble-active: rgba(60, 60, 65, 0.95);
+  --theme-header-bg: rgba(40, 40, 45, 0.8);
+  --theme-footer-bg: #232326;
+  --theme-suggestion-bg: #2A2A2E;
 }
 
 /* Glassmorphism Panel Base */
@@ -1243,12 +1572,12 @@ watch(inputText, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease, background 0.3s ease;
   
   /* Bubble Style */
-  background: rgba(255, 255, 255, 0.6); /* Translucent when idle */
+  background: var(--theme-bubble-bg);
   color: var(--theme-accent);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--theme-border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
@@ -1256,18 +1585,18 @@ watch(inputText, () => {
 .agent-container.is-dragging .agent-bubble {
   cursor: grabbing;
   transform: scale(1.1);
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--theme-bubble-active);
 }
 
 /* Docked State (Idle) */
 .agent-container.is-docked .agent-bubble {
-  opacity: 0.6; /* Dim to blend in */
+  opacity: 0.6;
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.4); 
+  background: var(--theme-bubble-bg);
 }
 .agent-container.is-docked:hover .agent-bubble {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--theme-bubble-active);
 }
 
 /* Active State (Chat Open) */
@@ -1311,8 +1640,9 @@ watch(inputText, () => {
   transform-origin: bottom right;
   z-index: 10000;
   
-  /* Re-apply Warm Texture */
-  background: rgba(250, 248, 245, 0.90);
+  /* Warm Texture with theme support */
+  background: var(--theme-bg);
+  transition: background 0.3s ease;
 }
 
 /* Responsive Chat Window - Scale up on larger screens */
@@ -1340,10 +1670,10 @@ watch(inputText, () => {
 /* Maximized State */
 .agent-chat.maximized {
   position: fixed;
-  top: 20px;
+  top: 50px;
   left: 20px;
   right: 20px;
-  bottom: 80px;
+  bottom: 20px;
   width: auto;
   height: auto;
   transform: none !important;
@@ -1373,11 +1703,12 @@ watch(inputText, () => {
 /* Header */
 .agent-chat__header {
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--theme-header-bg);
   border-bottom: 1px solid var(--theme-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  transition: background 0.3s ease;
 }
 
 .agent-chat__title {
@@ -1396,16 +1727,16 @@ watch(inputText, () => {
   cursor: pointer; color: var(--theme-text-secondary);
   border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
-  transition: background 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
-.header-btn:hover { background: rgba(0,0,0,0.06); color: var(--theme-text); }
+.header-btn:hover { background: var(--theme-input-bg); color: var(--theme-text); }
 .header-btn svg { width: 16px; height: 16px; }
 
 /* Status */
-.agent-chat__status { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #999; margin-left: 8px; }
+.agent-chat__status { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--theme-text-secondary); margin-left: 8px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; }
 .status-dot--online { background: #22C55E; }
-.status-dot--offline { background: #9CA3AF; }
+.status-dot--offline { background: var(--theme-text-secondary); }
 
 /* Messages Area */
 .agent-chat__messages {
@@ -1431,6 +1762,37 @@ watch(inputText, () => {
   margin: 0 auto;
 }
 
+/* Scroll to bottom button */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+.scroll-to-bottom-btn:hover {
+  background: var(--theme-bg-hover);
+  color: var(--theme-text);
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.scroll-to-bottom-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
 /* Welcome Screen */
 .agent-chat__empty {
   display: flex; flex-direction: column;
@@ -1453,7 +1815,7 @@ watch(inputText, () => {
   display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px;
 }
 .suggestion-chip {
-  background: #FFFFFF;
+  background: var(--theme-suggestion-bg);
   border: 1px solid var(--theme-border);
   padding: 6px 12px;
   border-radius: 12px;
@@ -1495,7 +1857,7 @@ watch(inputText, () => {
 .message--user .message {
   width: fit-content;
   max-width: 85%;
-  background: #FDFCFB;
+  background: var(--theme-bg-solid);
   color: var(--theme-text);
   border: 1px solid var(--theme-border);
   padding: 10px 16px;
@@ -1556,16 +1918,16 @@ watch(inputText, () => {
   padding: 4px 0;
   margin: 2px 0;
   font-size: 12px;
-  color: var(--theme-text-secondary, #888);
+  color: var(--theme-text-secondary);
   opacity: 0.85;
 }
 
 .tool-part--running {
-  color: var(--theme-text-secondary, #888);
+  color: var(--theme-text-secondary);
 }
 
 .tool-part--completed {
-  color: var(--theme-text-secondary, #666);
+  color: var(--theme-text-secondary);
 }
 
 .tool-part--error {
@@ -1584,8 +1946,8 @@ watch(inputText, () => {
 .tool-part__spinner {
   width: 10px;
   height: 10px;
-  border: 1.5px solid rgba(100, 100, 100, 0.3);
-  border-top-color: rgba(100, 100, 100, 0.8);
+  border: 1.5px solid var(--theme-border);
+  border-top-color: var(--theme-text-secondary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1595,7 +1957,7 @@ watch(inputText, () => {
 }
 
 .tool-part__check {
-  color: #888;
+  color: var(--theme-text-secondary);
   font-size: 11px;
 }
 
@@ -1657,7 +2019,7 @@ watch(inputText, () => {
   padding: 8px 0;
 }
 .typing-indicator span {
-  width: 4px; height: 4px; background: #999; border-radius: 50%;
+  width: 4px; height: 4px; background: var(--theme-text-secondary); border-radius: 50%;
   animation: bounce 1.4s infinite ease-in-out both;
 }
 .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
@@ -1667,8 +2029,9 @@ watch(inputText, () => {
 /* ========== Compact & Unified Input Area (v2) ========== */
 .agent-chat__footer {
   padding: 8px 12px;
-  background: white;
+  background: var(--theme-footer-bg);
   border-top: 1px solid var(--theme-border);
+  transition: background 0.3s ease;
 }
 
 /* Responsive footer in maximized mode - match chat area width */
@@ -1699,15 +2062,15 @@ watch(inputText, () => {
   align-items: flex-end;
   gap: 4px;
   padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--theme-input-bg);
   border-radius: 12px;
   transition: background 0.2s, box-shadow 0.2s;
   position: relative;
 }
 
 .chat-input-unified-box:focus-within {
-  background: rgba(0, 0, 0, 0.06);
-  box-shadow: 0 0 0 1px rgba(217, 125, 84, 0.1);
+  background: var(--theme-input-bg);
+  box-shadow: 0 0 0 1px rgba(217, 125, 84, 0.15);
 }
 
 /* + Menu Wrapper & Button */
@@ -1724,7 +2087,7 @@ watch(inputText, () => {
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: #888;
+  color: var(--theme-text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1735,7 +2098,7 @@ watch(inputText, () => {
 
 .menu-trigger-btn:hover, .menu-trigger-btn.active {
   color: var(--theme-accent);
-  background: rgba(217, 125, 84, 0.1);
+  background: var(--theme-accent-light);
 }
 
 .menu-trigger-btn svg {
@@ -1749,10 +2112,10 @@ watch(inputText, () => {
   bottom: 30px;
   left: -4px;
   min-width: 140px;
-  background: white;
+  background: var(--theme-bg-solid);
   border: 1px solid var(--theme-border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   overflow: hidden;
   z-index: 100;
   padding: 4px;
@@ -1779,7 +2142,7 @@ watch(inputText, () => {
   font-size: 12px;
   width: 14px;
   text-align: center;
-  color: #888;
+  color: var(--theme-text-secondary);
 }
 
 .menu-item:hover .menu-icon {
@@ -1815,7 +2178,8 @@ watch(inputText, () => {
 }
 
 .chat-input-unified-box textarea::placeholder {
-  color: #bbb;
+  color: var(--theme-text-secondary);
+  opacity: 0.6;
   font-size: 12px;
 }
 
@@ -1836,12 +2200,12 @@ watch(inputText, () => {
 
 .send-btn-compact {
   background: transparent;
-  color: #aaa;
+  color: var(--theme-text-secondary);
 }
 
 .send-btn-compact:hover:not(:disabled) {
   color: var(--theme-accent);
-  background: rgba(217, 125, 84, 0.1);
+  background: var(--theme-accent-light);
 }
 
 .send-btn-compact:disabled {
@@ -1872,10 +2236,10 @@ watch(inputText, () => {
   left: -4px;
   width: 180px;
   max-height: 200px;
-  background: white;
+  background: var(--theme-bg-solid);
   border: 1px solid var(--theme-border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1886,10 +2250,10 @@ watch(inputText, () => {
   padding: 6px 10px;
   font-size: 9px;
   font-weight: 700;
-  color: #bbb;
+  color: var(--theme-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 1px solid rgba(0,0,0,0.03);
+  border-bottom: 1px solid var(--theme-border);
 }
 
 .selector-list {
@@ -1924,7 +2288,7 @@ watch(inputText, () => {
 .selector-empty {
   padding: 12px;
   text-align: center;
-  color: #bbb;
+  color: var(--theme-text-secondary);
   font-size: 11px;
 }
 
@@ -1943,8 +2307,8 @@ watch(inputText, () => {
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 9px;
-  background: rgba(0, 0, 0, 0.03);
-  color: #777;
+  background: var(--theme-input-bg);
+  color: var(--theme-text-secondary);
   max-width: 120px;
 }
 
@@ -2006,13 +2370,13 @@ watch(inputText, () => {
 /* Shallow Glass override */
 .shallow-glass {
   backdrop-filter: blur(4px);
-  background: rgba(255, 255, 255, 0.95) !important;
+  background: var(--theme-bg-solid) !important;
 }
 
 /* Custom Scrollbar */
 .agent-chat__messages::-webkit-scrollbar { width: 4px; }
 .agent-chat__messages::-webkit-scrollbar-track { background: transparent; }
-.agent-chat__messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+.agent-chat__messages::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, rgba(0,0,0,0.1)); border-radius: 4px; }
 
 /* Markdown Styles Override */
 /* Default (Small) Chat Headers */
@@ -2047,7 +2411,7 @@ watch(inputText, () => {
   font-weight: 600;
 }
 :deep(.message__text pre) { 
-  background: #F3F4F6; 
+  background: var(--theme-code-bg); 
   border-radius: 8px; 
   padding: 12px; 
   margin: 8px 0; 
@@ -2057,7 +2421,7 @@ watch(inputText, () => {
 :deep(.math-block) {
   margin: 12px 0;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--theme-input-bg);
   border-radius: 8px;
   overflow-x: auto;
   text-align: center;
@@ -2079,7 +2443,7 @@ watch(inputText, () => {
   max-width: 100%;
   border-collapse: collapse;
   margin: 12px 0;
-  background: white;
+  background: var(--theme-bg-solid);
   border-radius: 8px;
   border: 1px solid var(--theme-border);
   overflow: hidden; /* For radius */
@@ -2109,6 +2473,165 @@ watch(inputText, () => {
 
 /* Sub-scrollbar for the container */
 .message__text::-webkit-scrollbar { height: 4px; }
-.message__text::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+.message__text::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, rgba(0,0,0,0.1)); border-radius: 4px; }
 :deep(.message__text hr) { border: none; border-top: 1px solid var(--theme-border); margin: 16px 0; }
+
+/* Session History Panel */
+.session-history-panel {
+  position: absolute;
+  top: 48px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--theme-bg-solid);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 0 16px 16px;
+}
+
+.session-history__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--theme-border);
+  font-weight: 500;
+  color: var(--theme-text);
+}
+
+.session-history__header .close-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--theme-text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.session-history__header .close-btn:hover {
+  background: var(--theme-hover);
+}
+
+.session-history__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.session-history__empty {
+  text-align: center;
+  color: var(--theme-text-secondary);
+  padding: 40px 20px;
+  font-size: 13px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 4px;
+}
+
+.session-item:hover {
+  background: var(--theme-hover);
+}
+
+.session-item--active {
+  background: var(--theme-accent-light, rgba(var(--accent-rgb), 0.1));
+}
+
+.session-item--pinned {
+  border-left: 2px solid var(--theme-accent);
+}
+
+.session-item__preview {
+  flex: 1;
+  font-size: 13px;
+  color: var(--theme-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pin-indicator {
+  color: var(--theme-accent);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pin-indicator svg {
+  width: 12px;
+  height: 12px;
+}
+
+.session-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.session-item:hover .session-item__actions {
+  opacity: 1;
+}
+
+.session-item__btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--theme-text-secondary);
+  border-radius: 4px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-item__btn:hover {
+  background: var(--theme-bg-secondary);
+  color: var(--theme-text);
+}
+
+.session-item__btn--danger:hover {
+  color: var(--color-danger, #ef4444);
+}
+
+.session-item__btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.session-rename-input {
+  flex: 1;
+  background: var(--theme-bg);
+  border: 1px solid var(--theme-accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--theme-text);
+  outline: none;
+}
+
+/* Slide Panel Transition */
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  transform: translateY(-10px);
+  opacity: 0;
+}
 </style>

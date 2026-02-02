@@ -1,15 +1,21 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, protocol } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import { createWriteStream } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import * as database from './database'
+import * as imageStore from './imageStore'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
 let backendProcess: ChildProcess | null = null
+
+// 注册自定义协议为特权协议（需要在 app ready 之前）
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'origin-image', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
+])
 
 function startBackend(): void {
   // Only auto-start backend in production to avoid conflicts during dev
@@ -314,13 +320,144 @@ ipcMain.handle('db-get-path', () => {
   return database.dbPath
 })
 
+// ==================== 配置和备份 IPC ====================
+
+// 获取应用配置
+ipcMain.handle('config-get', () => {
+  return database.getConfig()
+})
+
+// 保存应用配置
+ipcMain.handle('config-save', (_event, config: Parameters<typeof database.saveConfig>[0]) => {
+  return database.saveConfig(config)
+})
+
+// 创建备份
+ipcMain.handle('backup-create', (_event, customPath?: string) => {
+  return database.createBackup(customPath)
+})
+
+// 获取备份列表
+ipcMain.handle('backup-list', () => {
+  return database.getBackupList()
+})
+
+// 从备份恢复
+ipcMain.handle('backup-restore', async (_event, backupPath: string) => {
+  const result = database.restoreFromBackup(backupPath)
+  if (result) {
+    // 恢复成功后需要重启应用
+    dialog.showMessageBox(mainWindow!, {
+      type: 'info',
+      title: '恢复成功',
+      message: '数据已恢复，应用将重启以应用更改。',
+      buttons: ['确定']
+    }).then(() => {
+      app.relaunch()
+      app.exit(0)
+    })
+  }
+  return result
+})
+
+// 迁移数据目录
+ipcMain.handle('data-migrate', async (_event, newPath: string) => {
+  const result = database.migrateDataDirectory(newPath)
+  if (result.success) {
+    // 迁移成功后需要重启应用
+    const response = await dialog.showMessageBox(mainWindow!, {
+      type: 'info',
+      title: '迁移成功',
+      message: '数据目录已迁移，应用将重启以应用更改。',
+      buttons: ['确定']
+    })
+    if (response.response === 0) {
+      app.relaunch()
+      app.exit(0)
+    }
+  }
+  return result
+})
+
+// 选择目录对话框
+ipcMain.handle('dialog-select-directory', async (_event, options?: { title?: string; defaultPath?: string }) => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: options?.title || '选择目录',
+    defaultPath: options?.defaultPath,
+    properties: ['openDirectory', 'createDirectory']
+  })
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    return { success: true, path: result.filePaths[0] }
+  }
+  return { success: false }
+})
+
+// 获取数据库统计
+ipcMain.handle('db-get-stats', () => {
+  return database.getDatabaseStats()
+})
+
+// 获取数据目录路径
+ipcMain.handle('db-get-data-path', () => {
+  return database.appDataPath
+})
+
+// 获取默认数据目录
+ipcMain.handle('db-get-default-data-path', () => {
+  return database.getDefaultDataDirectory()
+})
+
+// 在文件管理器中打开路径
+ipcMain.handle('shell-open-path', async (_event, path: string) => {
+  return shell.openPath(path)
+})
+
+// ==================== 图片存储 IPC ====================
+
+// 存储图片（大图片分离存储，小图片返回原始 base64）
+ipcMain.handle('image-store', (_event, base64DataUrl: string) => {
+  return imageStore.storeImage(base64DataUrl)
+})
+
+// 加载图片（将 origin-image:// 引用转换为 base64）
+ipcMain.handle('image-load', (_event, imageRef: string) => {
+  return imageStore.loadImage(imageRef)
+})
+
+// 删除图片
+ipcMain.handle('image-delete', (_event, imageRef: string) => {
+  return imageStore.deleteImage(imageRef)
+})
+
+// 获取图片统计
+ipcMain.handle('image-stats', () => {
+  return imageStore.getImageStats()
+})
+
+// 清理未使用的图片
+ipcMain.handle('image-cleanup', (_event, usedImageRefs: string[]) => {
+  return imageStore.cleanupUnusedImages(usedImageRefs)
+})
+
 app.whenReady().then(() => {
+  // 注册自定义协议处理 origin-image://
+  protocol.registerFileProtocol('origin-image', (request, callback) => {
+    const filename = request.url.replace('origin-image://', '')
+    const config = database.getConfig()
+    const filepath = join(config.dataDirectory, 'images', filename)
+    callback({ path: filepath })
+  })
+
   startBackend()
   createWindow()
 
   if (mainWindow) {
     createTray(mainWindow)
   }
+
+  // 自动备份检查
+  performAutoBackup()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -331,6 +468,25 @@ app.whenReady().then(() => {
     }
   })
 })
+
+// 自动备份功能
+async function performAutoBackup(): Promise<void> {
+  const config = database.getConfig()
+  if (!config.autoBackup) return
+
+  const backups = database.getBackupList()
+  const now = Date.now()
+  const oneDayMs = 24 * 60 * 60 * 1000
+
+  // 如果没有备份或最近一次备份超过24小时，则创建新备份
+  if (backups.length === 0 || (now - backups[0].createdAt) > oneDayMs) {
+    console.log('Performing auto backup...')
+    const result = database.createBackup()
+    if (result) {
+      console.log('Auto backup created:', result.filename)
+    }
+  }
+}
 
 app.on('before-quit', () => {
   quitting = true

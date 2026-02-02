@@ -7,6 +7,8 @@ from langchain_core.tools import tool
 from services.note_service import NoteService
 from services.rag_service import RAGService
 import json
+import re
+import markdown
 
 # Instantiate services
 note_service = NoteService()
@@ -78,7 +80,7 @@ async def list_recent_notes(limit: int = 8) -> str:
     if not notes:
         return "There are no notes in the database yet."
     
-    note_list = "\n".join([f"• 「{n['title']}」 (ID: {n['id']})" for n in notes])
+    note_list = "\n".join([f"- {n['title']} (ID: {n['id']})" for n in notes])
     return f"Recent Notes:\n{note_list}"
 
 @tool
@@ -97,59 +99,72 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
         return f"Error: Note {note_id} not found."
     
     current_content = note.get('plainText') or note.get('content') or ""
+    html_content_original = note.get('content') or ""
     
-    # 2. Heuristic check for "Clear" intent to avoid LLM "formatting" it as a summary
-    destructive_keywords = ["清空", "删除所有内容", "clear all", "empty content"]
-    if any(k in instruction.lower() for k in destructive_keywords) and not force_rewrite:
-        new_content = "" # Completely empty
-        if "保留标题" in instruction or "标题" in instruction:
-            new_content = f"# {note.get('title', 'Untitled')}\n\n(内容已清空)"
+    # IMAGE PRESERVATION: Extract existing images from HTML content
+    image_pattern = r'<img[^>]+>'
+    existing_img_tags = re.findall(image_pattern, html_content_original)
+    if existing_img_tags:
+        print(f"[TOOL] Found {len(existing_img_tags)} existing image(s) to preserve")
+    
+    # 2. Heuristic check for "Clear" intent
+    destructive_keywords = ["clear all", "empty content"]
+    destructive_keywords_cn = ["清空", "删除所有内容"]
+    all_destructive = destructive_keywords + destructive_keywords_cn
+    
+    if any(k in instruction.lower() for k in all_destructive) and not force_rewrite:
+        html_result = ""
+        # Preserve images unless explicitly asked to remove them
+        if existing_img_tags and "image" not in instruction.lower():
+            for img_tag in existing_img_tags:
+                html_result += f"<p>{img_tag}</p>\n"
         
-        await note_service.update_note(note_id=note_id, content=new_content)
-        return f"Successfully updated note 「{note['title']}」. (Note content cleared as requested)"
+        await note_service.update_note(note_id=note_id, content=html_result)
+        return f"Successfully updated note (ID: {note_id}). (Content cleared, images preserved)"
 
-    # 3. Reasoning for the Edit
+    # 3. LLM Edit
     from core.llm import get_llm
     from langchain_core.messages import SystemMessage, HumanMessage
     llm = get_llm()
     
     if force_rewrite:
-        sys_prompt = "你是一个创意写作助手。输出要求：仅输出 Markdown 正文，严禁包含任何如“好的”、“这是修改后的视频”等开场白或解释。"
-        user_prompt = f"写作要求：{instruction}"
+        sys_prompt = "You are a creative writing assistant. Output only Markdown content, no explanations."
+        user_prompt = f"Writing request: {instruction}"
     else:
-        sys_prompt = """你是一个精确的文本编辑助手。
-规则：
-1. 仅输出最终完成修改后的 Markdown 完整正文。
-2. 严禁包含任何如“好的”、“已为您完成”、“Editor Synchronized”等解释性文字、开场白或结尾总结。
-3. 如果指令要求清空或删除，请输出空字符串。
-4. 保持原有 Markdown 格式的严谨性。"""
-        user_prompt = f"待修改的原始内容：\n---\n{current_content}\n---\n修改指令：{instruction}\n\n请直接输出修改后的全文本内容，严禁包含任何前言、摘要或 Markdown 以外的解释性文字："
+        sys_prompt = """You are a precise text editing assistant.
+Rules:
+1. Output ONLY the final edited Markdown content.
+2. NO explanations, greetings, or summaries.
+3. If asked to clear/delete, output empty string.
+4. Preserve Markdown formatting.
+5. Do NOT handle images - they are preserved automatically."""
+        user_prompt = f"Original content:\n---\n{current_content}\n---\nEdit instruction: {instruction}\n\nOutput the edited content directly:"
 
     response = await llm.ainvoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
     new_content = response.content.strip()
     
-    # Anti-Chatter Safety: If model outputs conversational filler like "Here is your update:", strip it.
-    # A common pattern is triple backticks or leading sentences.
+    # Strip markdown code blocks if present
     if new_content.startswith("```markdown"):
         new_content = new_content.split("```markdown")[1].split("```")[0].strip()
     elif new_content.startswith("```"):
         new_content = new_content.split("```")[1].split("```")[0].strip()
     
-    # Fix: Clean up excessive blank lines (reduce to max 1 blank line between paragraphs)
-    import re
-    new_content = re.sub(r'\n{3,}', '\n\n', new_content)  # 3+ newlines → 2 newlines (1 blank line)
+    # Clean up excessive blank lines
+    new_content = re.sub(r'\n{3,}', '\n\n', new_content)
     
-    # 3. Persistence
-    # CRITICAL FIX: Convert Markdown -> HTML before saving
-    import markdown
+    # Convert Markdown -> HTML
     html_content = markdown.markdown(new_content, extensions=['fenced_code', 'tables'])
-    
-    # Fix: Remove empty <p> tags that cause excessive spacing
     html_content = re.sub(r'<p>\s*</p>', '', html_content)
+    
+    # IMAGE PRESERVATION: Append existing images at the end
+    if existing_img_tags:
+        print(f"[TOOL] Preserving {len(existing_img_tags)} image(s) in updated content")
+        for img_tag in existing_img_tags:
+            html_content += f"\n<p>{img_tag}</p>"
     
     await note_service.update_note(note_id=note_id, content=html_content)
     
-    return f"Successfully updated note (ID: {note_id}) 「{note['title']}」. The user can now see the changes in the editor. [SYSTEM: DO NOT output the note content. Just confirm the update briefly.]"
+    return f"Successfully updated note (ID: {note_id}). [SYSTEM: DO NOT output the note content.]"
 
 @tool
 async def create_note(title: str, content: str) -> str:
@@ -161,18 +176,16 @@ async def create_note(title: str, content: str) -> str:
     print(f"[TOOL] Tool: create_note -> {title}")
     
     # Fix: Clean up excessive blank lines
-    import re
     content = re.sub(r'\n{3,}', '\n\n', content)
     
     # CRITICAL FIX: Convert Markdown -> HTML
-    import markdown
     html_content = markdown.markdown(content, extensions=['fenced_code', 'tables'])
     
     # Fix: Remove empty <p> tags
     html_content = re.sub(r'<p>\s*</p>', '', html_content)
     
     note = await note_service.create_note(title=title, content=html_content)
-    return f"Successfully created note 「{title}」 with ID: {note['id']}"
+    return f"Successfully created note with ID: {note['id']}"
 
 @tool
 async def delete_note(note_id: str) -> str:
@@ -198,7 +211,7 @@ async def list_categories() -> str:
     if not categories:
         return "No categories exist yet. The user can create categories in the sidebar."
     
-    cat_list = "\n".join([f"• {c['name']} → category_id: \"{c['id']}\"" for c in categories])
+    cat_list = "\n".join([f"- {c['name']} -> category_id: \"{c['id']}\"" for c in categories])
     return f"Available Categories (use the category_id value for set_note_category):\n{cat_list}"
 
 @tool
@@ -236,7 +249,7 @@ async def set_note_category(note_id: str, category_id: str) -> str:
     success = await note_service.set_note_category(note_id, category_id)
     if success:
         cat_name = cat_names.get(category_id, "Unknown")
-        return f"Successfully assigned note to category 「{cat_name}」"
+        return f"Successfully assigned note to category: {cat_name}"
     
     return f"Error: Failed to update note {note_id}. Note might not exist or is in trash."
 

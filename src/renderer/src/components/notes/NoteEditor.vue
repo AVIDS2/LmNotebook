@@ -112,28 +112,25 @@
       </div>
 
       <!-- 标题输入 -->
-      <input
-        ref="titleInputRef"
-        :value="localTitle"
-        class="note-editor__title"
-        type="text"
-        placeholder="标题"
-        :readonly="noteStore.currentView === 'trash'"
-        @input="handleTitleInput"
-        @blur="handleTitleBlur"
-      />
+      <div class="note-editor__title-wrapper">
+        <input
+          ref="titleInputRef"
+          :value="localTitle"
+          class="note-editor__title"
+          type="text"
+          placeholder="标题"
+          :readonly="noteStore.currentView === 'trash'"
+          @input="handleTitleInput"
+          @blur="handleTitleBlur"
+        />
+        <span v-if="isDirty" class="note-editor__dirty-indicator" title="未保存">*</span>
+      </div>
 
       <!-- 富文本编辑器 -->
       <div class="note-editor__content allow-select" ref="editorContainerRef">
         <EditorContent :editor="editor" />
         
-        <!-- 图片调整手柄 -->
-        <div 
-          v-if="selectedImage" 
-          class="image-resize-handle"
-          :style="resizeHandleStyle"
-          @mousedown="startResize"
-        ></div>
+        <!-- 图片调整手柄已移除，使用右键菜单调整 -->
       </div>
     </template>
   </div>
@@ -142,16 +139,82 @@
   <div 
     v-if="imageContextMenu.visible" 
     class="image-context-menu"
-    :style="{ left: imageContextMenu.x + 'px', top: imageContextMenu.y + 'px' }"
+    ref="imageMenuRef"
+    :style="imageMenuStyle"
+    @click.stop
   >
-    <div class="menu-item" @click="setImageSize('30%')">小图 (30%)</div>
-    <div class="menu-item" @click="setImageSize('50%')">中图 (50%)</div>
-    <div class="menu-item" @click="setImageSize('70%')">大图 (70%)</div>
-    <div class="menu-item" @click="setImageSize('100%')">全宽 (100%)</div>
-    <div class="menu-divider"></div>
-    <div class="menu-item" @click="setImageAlign('left')">居左对齐</div>
-    <div class="menu-item" @click="setImageAlign('center')">居中对齐</div>
-    <div class="menu-item" @click="setImageAlign('right')">居右对齐</div>
+    <!-- 尺寸分段按钮组 -->
+    <div class="menu-segment-group" v-if="!showCustomInput">
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageWidth === '25%' }"
+        @click="setImageSize('25%')"
+      >25%</button>
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageWidth === '50%' }"
+        @click="setImageSize('50%')"
+      >50%</button>
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageWidth === '100%' }"
+        @click="setImageSize('100%')"
+      >100%</button>
+      <button 
+        class="segment-btn"
+        :class="{ active: isCustomWidth }"
+        @click.stop="showCustomInput = true"
+        title="自定义宽度"
+      >...</button>
+    </div>
+    <!-- 自定义尺寸输入 -->
+    <div class="custom-size-input" v-else>
+      <input 
+        ref="customSizeInputRef"
+        type="number" 
+        v-model="customSizeValue"
+        min="1" 
+        max="100" 
+        placeholder="1-100"
+        @keyup.enter="applyCustomSize"
+        @keyup.esc="showCustomInput = false"
+      />
+      <span class="unit">%</span>
+      <button class="apply-btn" @click="applyCustomSize">确定</button>
+    </div>
+    <!-- 对齐分段按钮组 -->
+    <div class="menu-segment-group">
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageAlign === 'left' }"
+        @click="setImageAlign('left')"
+        title="居左"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 2H13M1 5H9M1 8H13M1 11H7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageAlign === 'center' }"
+        @click="setImageAlign('center')"
+        title="居中"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 2H13M3 5H11M1 8H13M4 11H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button 
+        class="segment-btn" 
+        :class="{ active: currentImageAlign === 'right' }"
+        @click="setImageAlign('right')"
+        title="居右"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 2H13M5 5H13M1 8H13M7 11H13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
     <div class="menu-divider"></div>
     <div class="menu-item danger" @click="deleteImage">删除图片</div>
   </div>
@@ -196,10 +259,43 @@ const registerEditorAction = inject<(fn: (html: string) => void) => void>('regis
 if (registerEditorAction) {
   registerEditorAction((html: string) => {
     if (editor.value) {
-      console.log('🔮 AI Applying new content to editor...')
+      console.log('AI Applying new content to editor...')
       
-      // 使用 chain 命令保留 undo 历史，而不是直接 setContent
-      // setContent 会清空整个编辑器状态，包括 undo 历史
+      // 图片保护：提取当前文档中的所有图片节点及其位置信息
+      interface ProtectedImage {
+        src: string
+        width: string
+        align: string
+        precedingText: string // 图片前面的文本，用于定位
+      }
+      const images: ProtectedImage[] = []
+      let lastTextContent = ''
+      
+      editor.value.state.doc.descendants((node) => {
+        if (node.isText) {
+          lastTextContent = node.text || ''
+        } else if (node.type.name === 'paragraph') {
+          // 重置段落文本
+          lastTextContent = node.textContent.slice(0, 50) // 取前50字符作为定位参考
+        } else if (node.type.name === 'image') {
+          images.push({
+            src: node.attrs.src,
+            width: node.attrs.width || '50%',
+            align: node.attrs.align || 'left',
+            precedingText: lastTextContent.slice(-30) // 取最后30字符
+          })
+        }
+      })
+      
+      console.log(`Found ${images.length} image(s) in current document`)
+      
+      // 检查 AI 返回的内容是否包含实际的图片数据
+      // 只有包含 base64 或 origin-image:// 的才算真正的图片
+      const aiHasRealImages = /src=["'](data:image\/|origin-image:\/\/)/.test(html)
+      
+      console.log(`AI content has real images: ${aiHasRealImages}`)
+      
+      // 使用 chain 命令保留 undo 历史
       const { from } = editor.value.state.selection
       
       editor.value.chain()
@@ -208,6 +304,32 @@ if (registerEditorAction) {
         .insertContent(html)
         .setTextSelection(Math.min(from, editor.value.state.doc.content.size))
         .run()
+      
+      // 图片保护：如果原文档有图片但 AI 内容没有真正的图片数据，则恢复原有图片
+      if (images.length > 0 && !aiHasRealImages) {
+        console.log(`Restoring ${images.length} protected image(s)...`)
+        
+        // 在文档末尾恢复图片
+        images.forEach((img, index) => {
+          console.log(`Restoring image ${index + 1}: ${img.src.substring(0, 50)}...`)
+          editor.value?.chain()
+            .focus('end')
+            .insertContent({
+              type: 'paragraph',
+              content: [{
+                type: 'image',
+                attrs: {
+                  src: img.src,
+                  width: img.width,
+                  align: img.align
+                }
+              }]
+            })
+            .run()
+        })
+        
+        console.log('Image restoration completed')
+      }
     }
   })
 }
@@ -217,40 +339,61 @@ const localTitle = ref('')
 const titleInputRef = ref<HTMLInputElement>()
 const editorContainerRef = ref<HTMLElement>()
 
-// 保存防抖定时器
+// 保存防抖定时器 - 使用 RAF 优化
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let titleSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+// 未保存状态指示
+const isDirty = ref(false)
 
 // 当前正在编辑的笔记ID
 let currentEditingId: string | null = null
 
-// Markdown 渲染切换状态
-let isRenderedMode = false
-let originalMarkdownText = ''
-
-// 图片编辑状态
+// 图片编辑状态（简化版）
 const selectedImage = ref<HTMLImageElement | null>(null)
 const selectedImagePos = ref<number | null>(null)
+const imageMenuRef = ref<HTMLElement | null>(null)
+const customSizeInputRef = ref<HTMLInputElement | null>(null)
+const showCustomInput = ref(false)
+const customSizeValue = ref('')
 const imageContextMenu = reactive({
   visible: false,
   x: 0,
   y: 0
 })
 
-// 调整手柄位置 - 增加对滚动条的处理
-const resizeHandleStyle = computed(() => {
-  if (!selectedImage.value || !editorContainerRef.value) return { display: 'none' }
+// 菜单位置计算，避免超出屏幕
+const imageMenuStyle = computed(() => {
+  const menuWidth = 160
+  const menuHeight = 140
+  const padding = 8
   
-  const img = selectedImage.value
-  const container = editorContainerRef.value
+  let x = imageContextMenu.x
+  let y = imageContextMenu.y
   
-  // 使用 offset 代替 getBoundingClientRect 以应对内部滚动
-  const top = img.offsetTop + img.offsetHeight - 8
-  const left = img.offsetLeft + img.offsetWidth - 8
+  // 检查右边界
+  if (x + menuWidth > window.innerWidth - padding) {
+    x = window.innerWidth - menuWidth - padding
+  }
+  
+  // 检查下边界
+  if (y + menuHeight > window.innerHeight - padding) {
+    y = window.innerHeight - menuHeight - padding
+  }
+  
+  // 检查左边界
+  if (x < padding) {
+    x = padding
+  }
+  
+  // 检查上边界
+  if (y < padding) {
+    y = padding
+  }
   
   return {
-    transform: `translate(${left}px, ${top}px)`,
-    display: 'block'
+    left: x + 'px',
+    top: y + 'px'
   }
 })
 
@@ -293,15 +436,18 @@ const editor = useEditor({
           ...this.parent?.(),
           width: {
             default: '50%',
-            parseHTML: element => element.getAttribute('width') || '50%',
-            renderHTML: attributes => ({
-              width: attributes.width,
-              style: `width: ${attributes.width}; max-width: 100%; height: auto; transition: width 0.1s ease;`
-            }),
+            parseHTML: element => element.getAttribute('width') || element.style.width || '50%',
+            renderHTML: attributes => {
+              const width = attributes.width || '50%'
+              return {
+                width: width,
+                style: `width: ${width}; max-width: 100%; height: auto;`
+              }
+            },
           },
           align: {
-            default: 'center',
-            parseHTML: element => element.getAttribute('data-align') || 'center',
+            default: 'left',
+            parseHTML: element => element.getAttribute('data-align') || 'left',
             renderHTML: attributes => ({
               'data-align': attributes.align,
               class: `image-align-${attributes.align}`
@@ -311,6 +457,7 @@ const editor = useEditor({
       }
     }).configure({
       allowBase64: true,
+      inline: false,
     }),
     Mathematics
   ],
@@ -331,6 +478,12 @@ const editor = useEditor({
   },
   // 拦截粘贴事件，支持图片、表格和纯文本
   editorProps: {
+    // 禁用浏览器拼写检查（避免代码内容显示红色波浪线）
+    attributes: {
+      spellcheck: 'false',
+      autocorrect: 'off',
+      autocapitalize: 'off',
+    },
     handlePaste: (view, event) => {
       const clipboardData = event.clipboardData
       if (!clipboardData) return false
@@ -344,10 +497,12 @@ const editor = useEditor({
           if (file) {
             // 将图片转为 base64
             const reader = new FileReader()
-            reader.onload = (e) => {
+            reader.onload = async (e) => {
               const base64 = e.target?.result as string
               if (base64) {
-                const node = view.state.schema.nodes.image.create({ src: base64 })
+                // 使用图片存储服务（大图片会分离存储）
+                const imageSrc = await window.electronAPI.image.store(base64)
+                const node = view.state.schema.nodes.image.create({ src: imageSrc })
                 const { tr } = view.state
                 view.dispatch(tr.replaceSelectionWith(node))
               }
@@ -380,16 +535,27 @@ const editor = useEditor({
   // 使用 requestAnimationFrame 优化更新
   onUpdate: ({ editor }) => {
     if (noteStore.currentNote && noteStore.currentView !== 'trash') {
-      // 防抖保存 - 增加到 800ms
+      // 防抖保存 - 使用 RAF + setTimeout 组合优化
       if (saveTimer) {
         clearTimeout(saveTimer)
       }
+      
+      // 标记有待保存的内容
+      isDirty.value = true
 
-      saveTimer = setTimeout(async () => {
-        const content = editor.getHTML()
-        // 直接调用 repository 避免触发 store 的重新加载
-        await noteRepository.update(noteStore.currentNote!.id, { content })
-      }, 800)
+      saveTimer = setTimeout(() => {
+        if (!isDirty.value) return
+        
+        // 使用 RAF 确保在下一帧执行，避免阻塞渲染
+        requestAnimationFrame(async () => {
+          if (!isDirty.value || !noteStore.currentNote) return
+          
+          const content = editor.getHTML()
+          // 直接调用 repository 避免触发 store 的重新加载
+          await noteRepository.update(noteStore.currentNote.id, { content })
+          isDirty.value = false
+        })
+      }, 600) // 减少到 600ms，配合 RAF 更流畅
     }
   }
 })
@@ -494,14 +660,16 @@ const textTools = computed(() => [
       const input = document.createElement('input')
       input.type = 'file'
       input.accept = 'image/*'
-      input.onchange = (e) => {
+      input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0]
         if (file) {
           const reader = new FileReader()
-          reader.onload = (event) => {
+          reader.onload = async (event) => {
             const base64 = event.target?.result as string
             if (base64) {
-              editor.value?.chain().focus().setImage({ src: base64 }).run()
+              // 使用图片存储服务（大图片会分离存储）
+              const imageSrc = await window.electronAPI.image.store(base64)
+              editor.value?.chain().focus().setImage({ src: imageSrc }).run()
             }
           }
           reader.readAsDataURL(file)
@@ -524,7 +692,25 @@ const textTools = computed(() => [
   }
 ])
 
-// ========== 图片编辑功能 ==========
+// ========== 图片编辑功能（简化版）==========
+
+// 获取当前图片对齐方式
+const currentImageAlign = computed(() => {
+  if (!selectedImage.value) return 'left'
+  return selectedImage.value.getAttribute('data-align') || 'left'
+})
+
+// 获取当前图片宽度
+const currentImageWidth = computed(() => {
+  if (!selectedImage.value) return '50%'
+  return selectedImage.value.getAttribute('width') || '50%'
+})
+
+// 判断是否为自定义宽度
+const isCustomWidth = computed(() => {
+  const w = currentImageWidth.value
+  return w !== '25%' && w !== '50%' && w !== '100%'
+})
 
 // 设置图片对齐
 function setImageAlign(align: 'left' | 'center' | 'right'): void {
@@ -536,14 +722,11 @@ function setImageAlign(align: 'left' | 'center' | 'right'): void {
     .updateAttributes('image', { align })
     .run()
   
+  // 关闭菜单
   imageContextMenu.visible = false
-  // 强制重新计算手柄位置
-  nextTick(() => {
-    if (selectedImagePos.value !== null) {
-      const dom = editor.value?.view.nodeDOM(selectedImagePos.value) as HTMLImageElement
-      if (dom) selectedImage.value = dom
-    }
-  })
+  showCustomInput.value = false
+  selectedImage.value = null
+  selectedImagePos.value = null
 }
 
 // 设置图片大小
@@ -557,8 +740,19 @@ function setImageSize(size: string): void {
     .run()
   
   imageContextMenu.visible = false
+  showCustomInput.value = false
   selectedImage.value = null
   selectedImagePos.value = null
+}
+
+// 应用自定义尺寸
+function applyCustomSize(): void {
+  const num = parseInt(customSizeValue.value, 10)
+  if (!isNaN(num) && num >= 1 && num <= 100) {
+    setImageSize(`${num}%`)
+  }
+  customSizeValue.value = ''
+  showCustomInput.value = false
 }
 
 // 删除图片
@@ -576,74 +770,8 @@ function deleteImage(): void {
   selectedImagePos.value = null
 }
 
-// 开始拖拽调整大小
-let isResizing = false
-let resizeStartX = 0
-let resizeStartWidth = 0
-
-function startResize(e: MouseEvent): void {
-  if (!selectedImage.value || !editor.value) return
-  
-  e.preventDefault()
-  e.stopPropagation()
-  
-  isResizing = true
-  resizeStartX = e.clientX
-  resizeStartWidth = selectedImage.value.offsetWidth
-  
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-}
-
-function onResize(e: MouseEvent): void {
-  if (!isResizing || !selectedImage.value || !editorContainerRef.value) return
-  
-  const containerWidth = editorContainerRef.value.offsetWidth
-  const delta = e.clientX - resizeStartX
-  const newWidth = Math.max(100, Math.min(resizeStartWidth + delta, containerWidth))
-  const widthPercent = Math.round((newWidth / containerWidth) * 100)
-  
-  selectedImage.value.style.width = widthPercent + '%'
-}
-
-function stopResize(): void {
-  if (!isResizing || !selectedImage.value || !editor.value || selectedImagePos.value === null) {
-    isResizing = false
-    return
-  }
-  
-  isResizing = false
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
-  
-  // 保存新的宽度到编辑器
-  const newWidth = selectedImage.value.style.width || '50%'
-  editor.value.chain()
-    .setNodeSelection(selectedImagePos.value)
-    .updateAttributes('image', { width: newWidth })
-    .run()
-}
-
-// 监听编辑器中的图片点击和右键事件
+// 监听编辑器中的图片右键事件
 const attachImageListeners = (container: HTMLElement) => {
-  // 点击图片选中
-  container.addEventListener('click', (e: MouseEvent) => {
-    const target = e.target as HTMLElement
-    imageContextMenu.visible = false
-    
-    if (target.tagName === 'IMG') {
-      selectedImage.value = target as HTMLImageElement
-      if (editor.value) {
-        const pos = editor.value.view.posAtDOM(target, 0)
-        selectedImagePos.value = pos
-        editor.value.chain().focus().setNodeSelection(pos).run()
-      }
-    } else {
-      selectedImage.value = null
-      selectedImagePos.value = null
-    }
-  })
-  
   // 右键菜单
   container.addEventListener('contextmenu', (e: MouseEvent) => {
     const target = e.target as HTMLElement
@@ -672,78 +800,86 @@ onMounted(() => {
   // 全局点击关闭右键菜单
   document.addEventListener('click', () => {
     imageContextMenu.visible = false
+    showCustomInput.value = false
+    customSizeValue.value = ''
   })
 })
 
-// 渲染/源码 切换
+// Markdown 渲染功能
+// - 有选中文本：只渲染选中部分
+// - 无选中文本：检测是否有 Markdown 语法，有才渲染
 async function handleRenderMarkdown(): Promise<void> {
   if (!editor.value) return
   
   const { from, to, empty } = editor.value.state.selection
   
-  // 检测是否有选中文本（部分渲染不参与切换逻辑）
+  // Markdown 语法检测正则（标题、粗体、列表、表格、公式、代码块等）
+  const markdownSyntaxRegex = /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|```|\$\$?[^$]+\$\$?|^\s*>\s|^\|.+\|$/m
+  
   if (!empty) {
-    // 部分渲染：只渲染选中的文本
+    // === 有选中文本：只渲染选中部分 ===
     const selectedText = editor.value.state.doc.textBetween(from, to, '\n')
-    
     if (!selectedText.trim()) return
     
-    // 检测选中文本是否包含 Markdown 语法 (包括数学公式 $)
-    const hasMarkdownSyntax = /#{1,6}\s|\*\*|\*\s|^\d+\.\s|\|.*\||\$|`/m.test(selectedText)
-    if (!hasMarkdownSyntax) {
-      alert('选中的文本未检测到 Markdown 语法。')
+    // 检测是否有 Markdown 语法
+    if (!markdownSyntaxRegex.test(selectedText)) {
+      alert('选中的文本未检测到 Markdown 语法。\n\n支持：# 标题、**粗体**、- 列表、```代码块、$公式$ 等')
       return
     }
     
     // 渲染选中部分
-    const rawHtml = await marked.parse(selectedText, {
-      gfm: true,
-      breaks: true
+    let processedText = selectedText
+    // 处理数学公式
+    processedText = processedText.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+      return `<div data-math="true" data-latex="${formula.replace(/"/g, '&quot;')}" data-display="true"></div>`
     })
-    const cleanHtml = DOMPurify.sanitize(rawHtml)
+    processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (_, formula) => {
+      return `<span data-math="true" data-latex="${formula.replace(/"/g, '&quot;')}"></span>`
+    })
+    
+    const rawHtml = await marked.parse(processedText, { gfm: true, breaks: true })
+    const cleanHtml = DOMPurify.sanitize(rawHtml, {
+      ADD_ATTR: ['data-math', 'data-latex', 'data-display']
+    })
     
     // 替换选中内容
     editor.value.chain().focus().deleteSelection().insertContent(cleanHtml).run()
     return
   }
   
-  // 整体切换逻辑
-  if (isRenderedMode) {
-    // 当前是渲染态 -> 切换回原始 Markdown
-    if (originalMarkdownText) {
-      // 将纯文本 Markdown 作为文本插入（保留 ## ** 等符号）
-      editor.value.chain()
-        .clearContent()
-        .insertContent(originalMarkdownText)
-        .focus()
-        .run()
-      isRenderedMode = false
-      
-      // 确保编辑器可编辑
-      editor.value.setEditable(true)
-    }
+  // === 无选中文本：检测全文是否有 Markdown 语法 ===
+  const fullText = editor.value.getText({ blockSeparator: '\n' })
+  if (!fullText.trim()) return
+  
+  // 检测是否有 Markdown 语法
+  if (!markdownSyntaxRegex.test(fullText)) {
+    alert('未检测到 Markdown 语法，无需渲染。\n\n提示：可以选中部分文本后点击此按钮进行局部渲染。')
     return
   }
   
-  // 当前是源码态 -> 切换到渲染态
-  const markdownSource = editor.value.getText({ blockSeparator: '\n' })
-  if (!markdownSource.trim()) return
-
-  // 保存原始 Markdown 纯文本
-  originalMarkdownText = markdownSource
-
-  // 1. Pre-process math patterns: Shield them with custom tags that our extension understands
-  let processedText = markdownSource.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
-    // Escape quotes in formula for HTML attribute
-    const escapedFormula = formula.replace(/"/g, '&quot;')
-    return `<div data-math="true" data-latex="${escapedFormula}" data-display="true"></div>`
+  // 图片保护：提取所有图片
+  interface ProtectedImg { src: string; width: string; align: string }
+  const images: ProtectedImg[] = []
+  editor.value.state.doc.descendants((node) => {
+    if (node.type.name === 'image') {
+      images.push({
+        src: node.attrs.src,
+        width: node.attrs.width || '50%',
+        align: node.attrs.align || 'left'
+      })
+    }
   })
-  processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
-    const escapedFormula = formula.replace(/"/g, '&quot;')
-    return `<span data-math="true" data-latex="${escapedFormula}"></span>`
+  
+  // 处理数学公式
+  let processedText = fullText
+  processedText = processedText.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+    return `<div data-math="true" data-latex="${formula.replace(/"/g, '&quot;')}" data-display="true"></div>`
+  })
+  processedText = processedText.replace(/\$([^\$\n]+?)\$/g, (_, formula) => {
+    return `<span data-math="true" data-latex="${formula.replace(/"/g, '&quot;')}"></span>`
   })
 
-  // 2. Configure marked for highlighting
+  // 配置代码高亮
   const renderer = new marked.Renderer()
   renderer.code = function({ text, lang }) {
     const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
@@ -751,19 +887,29 @@ async function handleRenderMarkdown(): Promise<void> {
     return `<pre class="hljs-container"><code class="hljs language-${language}">${highlighted}</code></pre>`
   }
 
-  // 3. Render Markdown
-  // Important: We need to allow our custom tags through
-  let html = (await marked.parse(processedText, { renderer, async: false, breaks: true, gfm: true })) as string
-
-  // 使用 DOMPurify 清洗 HTML 并注入编辑器
-  // 注意：我们需要允许 data-attributes
+  // 渲染 Markdown
+  const html = await marked.parse(processedText, { renderer, gfm: true, breaks: true })
   const cleanHtml = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-math', 'data-latex', 'data-display', 'contenteditable']
   })
   
   editor.value.chain().setContent(cleanHtml, true).focus().run()
-  editor.value.setEditable(true)
-  isRenderedMode = true
+  
+  // 恢复图片
+  if (images.length > 0) {
+    images.forEach((img) => {
+      editor.value?.chain()
+        .focus('end')
+        .insertContent({
+          type: 'paragraph',
+          content: [{
+            type: 'image',
+            attrs: { src: img.src, width: img.width, align: img.align }
+          }]
+        })
+        .run()
+    })
+  }
 }
 
 // 监听当前笔记变化 - 只在切换笔记时更新编辑器
@@ -780,10 +926,7 @@ watch(
     if (noteStore.currentNote) {
       currentEditingId = newId || null
       localTitle.value = noteStore.currentNote.title
-      
-      // 重置渲染状态
-      isRenderedMode = false
-      originalMarkdownText = ''
+      isDirty.value = false  // 切换笔记时重置未保存状态
 
       // 切换笔记时设置内容
       let newContent = noteStore.currentNote.content || ''
@@ -829,6 +972,7 @@ watch(
 function handleTitleInput(event: Event): void {
   const input = event.target as HTMLInputElement
   localTitle.value = input.value
+  isDirty.value = true
 
   // 防抖保存标题
   if (titleSaveTimer) {
@@ -838,6 +982,7 @@ function handleTitleInput(event: Event): void {
   titleSaveTimer = setTimeout(async () => {
     if (noteStore.currentNote) {
       await noteRepository.update(noteStore.currentNote.id, { title: localTitle.value })
+      isDirty.value = false
     }
   }, 500)
 }
@@ -850,6 +995,7 @@ async function handleTitleBlur(): Promise<void> {
   }
   if (noteStore.currentNote && localTitle.value !== noteStore.currentNote.title) {
     await noteStore.updateNote(noteStore.currentNote.id, { title: localTitle.value })
+    isDirty.value = false
   }
 }
 
@@ -913,8 +1059,10 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: $color-bg-card;
+  background: var(--color-bg-card);
   overflow: hidden;
+  // 优化过渡
+  transition: background-color 0.2s ease;
 }
 
 .note-editor__empty {
@@ -923,7 +1071,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
 
   svg {
     margin-bottom: $spacing-md;
@@ -940,9 +1088,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: $spacing-sm $spacing-md;
-  border-bottom: 1px solid $color-border-light;
-  background: $color-bg-primary;
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-primary);
   flex-shrink: 0;
+  transition: background-color 0.2s ease;
 }
 
 .note-editor__tools {
@@ -959,25 +1108,25 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: $radius-sm;
   background: transparent;
-  color: $color-text-secondary;
+  color: var(--color-text-secondary);
   font-size: $font-size-sm;
   cursor: pointer;
   transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
 
   &:hover {
-    background: $color-bg-hover;
-    color: $color-text-primary;
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
   }
 
   &--active {
-    border-color: $color-border-dark;
-    background: $color-bg-card;
-    color: $color-text-primary;
+    border-color: var(--color-border-dark);
+    background: var(--color-bg-card);
+    color: var(--color-text-primary);
   }
 
   &--danger:hover {
-    background: rgba($color-danger, 0.1);
-    color: $color-danger;
+    background: rgba(196, 92, 92, 0.1);
+    color: var(--color-danger);
   }
 }
 
@@ -990,33 +1139,48 @@ onBeforeUnmount(() => {
 .note-editor__category-select {
   select {
     padding: $spacing-xs $spacing-sm;
-    border: 1px solid $color-border;
+    border: 1px solid var(--color-border);
     border-radius: $radius-sm;
-    background: $color-bg-card;
+    background: var(--color-bg-card);
     font-size: $font-size-xs;
-    color: $color-text-secondary;
+    color: var(--color-text-secondary);
     cursor: pointer;
     outline: none;
 
     &:focus {
-      border-color: $color-primary;
+      border-color: var(--color-primary);
     }
   }
 }
 
+.note-editor__title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .note-editor__title {
+  flex: 1;
   padding: $spacing-md $spacing-lg;
   border: none;
   background: transparent;
   font-size: $font-size-2xl;
   font-weight: 600;
-  color: $color-text-primary;
+  color: var(--color-text-primary);
   outline: none;
-  flex-shrink: 0;
 
   &::placeholder {
-    color: $color-text-placeholder;
+    color: var(--color-text-placeholder);
   }
+}
+
+.note-editor__dirty-indicator {
+  font-size: 24px;
+  font-weight: bold;
+  color: var(--color-accent, #3b82f6);
+  padding-right: 16px;
+  line-height: 1;
 }
 
 .note-editor__content {
@@ -1031,7 +1195,7 @@ onBeforeUnmount(() => {
     min-height: 100%;
     font-size: $font-size-md;
     line-height: 1.75;
-    color: $color-text-primary;
+    color: var(--color-text-primary);
 
     p {
       margin-bottom: $spacing-sm;
@@ -1041,7 +1205,7 @@ onBeforeUnmount(() => {
       margin-top: $spacing-lg;
       margin-bottom: $spacing-sm;
       font-weight: 600;
-      color: $color-text-primary;
+      color: var(--color-text-primary);
     }
 
     h1 { font-size: $font-size-2xl; }
@@ -1083,7 +1247,7 @@ onBeforeUnmount(() => {
             width: 16px;
             height: 16px;
             cursor: pointer;
-            accent-color: $color-primary;
+            accent-color: var(--color-primary);
           }
         }
 
@@ -1093,18 +1257,18 @@ onBeforeUnmount(() => {
 
         &[data-checked="true"] > div {
           text-decoration: line-through;
-          color: $color-text-muted;
+          color: var(--color-text-muted);
         }
       }
     }
 
     pre {
-      background: #f6f8fa;
+      background: var(--color-bg-secondary);
       border-radius: $radius-md;
       padding: $spacing-md;
       margin: $spacing-md 0;
       overflow-x: auto;
-      border: 1px solid $color-border;
+      border: 1px solid var(--color-border);
       
       code {
         background: transparent;
@@ -1116,12 +1280,12 @@ onBeforeUnmount(() => {
     }
 
     code {
-      background: $color-bg-secondary;
+      background: var(--color-bg-secondary);
       padding: 2px 6px;
       border-radius: $radius-sm;
       font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
       font-size: 0.9em;
-      color: $color-text-primary;
+      color: var(--color-text-primary);
     }
 
     .math-block {
@@ -1139,10 +1303,10 @@ onBeforeUnmount(() => {
     }
 
     blockquote {
-      border-left: 3px solid $color-border-dark;
+      border-left: 3px solid var(--color-border-dark);
       padding-left: $spacing-md;
       margin: $spacing-md 0;
-      color: $color-text-secondary;
+      color: var(--color-text-secondary);
       font-style: italic;
     }
 
@@ -1152,12 +1316,12 @@ onBeforeUnmount(() => {
       width: 100%;
       margin: $spacing-md 0;
       overflow: hidden;
-      border: 1px solid $color-border;
+      border: 1px solid var(--color-border);
       border-radius: $radius-sm;
 
       td, th {
         min-width: 1em;
-        border: 1px solid $color-border-light;
+        border: 1px solid var(--color-border-light);
         padding: 8px 12px;
         vertical-align: middle;
         box-sizing: border-box;
@@ -1171,17 +1335,17 @@ onBeforeUnmount(() => {
 
       th {
         font-weight: 600;
-        background-color: $color-bg-secondary;
-        color: $color-text-primary;
-        border-bottom: 2px solid $color-border;
+        background-color: var(--color-bg-secondary);
+        color: var(--color-text-primary);
+        border-bottom: 2px solid var(--color-border);
       }
 
       tr:nth-child(even) {
-        background-color: rgba($color-bg-secondary, 0.3);
+        background-color: var(--color-bg-hover);
       }
 
       tr:hover {
-        background-color: rgba($color-primary, 0.05);
+        background-color: var(--color-bg-active);
       }
 
       .selectedCell:after {
@@ -1208,15 +1372,15 @@ onBeforeUnmount(() => {
       max-width: 100%;
       height: auto;
       border-radius: $radius-sm;
-      margin: $spacing-md auto;
+      margin: $spacing-sm 0;
       display: block;
+      cursor: default;
 
       &.ProseMirror-selectednode {
-        outline: 3px solid $color-primary;
-        box-shadow: 0 0 15px rgba($color-primary, 0.3);
+        outline: 2px solid var(--color-primary);
       }
 
-      // 对齐逻辑
+      // 对齐样式
       &.image-align-left {
         margin-left: 0;
         margin-right: auto;
@@ -1238,53 +1402,37 @@ onBeforeUnmount(() => {
       display: inline-block;
       padding: 2px 6px;
       margin: 0 2px;
-      background: rgba($color-primary, 0.08);
+      background: var(--color-bg-hover);
       border-radius: $radius-sm;
       cursor: pointer;
       transition: background $transition-fast;
 
       &:hover {
-        background: rgba($color-primary, 0.15);
+        background: var(--color-bg-active);
       }
 
       &.ProseMirror-selectednode {
-        outline: 2px solid $color-primary;
+        outline: 2px solid var(--color-primary);
         outline-offset: 2px;
       }
     }
 
     .math-placeholder {
-      color: $color-text-muted;
+      color: var(--color-text-muted);
       font-style: italic;
     }
 
     .math-error {
-      color: $color-danger;
+      color: var(--color-danger);
       font-family: monospace;
     }
 
     .is-editor-empty:first-child::before {
       content: attr(data-placeholder);
       float: left;
-      color: $color-text-placeholder;
+      color: var(--color-text-placeholder);
       pointer-events: none;
       height: 0;
-    }
-  }
-  
-  // 图片调整手柄
-  .image-resize-handle {
-    position: absolute;
-    width: 16px;
-    height: 16px;
-    background: $color-primary;
-    border-radius: 50%;
-    cursor: se-resize;
-    z-index: 100;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    
-    &:hover {
-      transform: scale(1.2);
     }
   }
 }
@@ -1292,33 +1440,129 @@ onBeforeUnmount(() => {
 // 图片右键菜单（全局定位）
 .image-context-menu {
   position: fixed;
-  background: $color-bg-secondary;
-  border: 1px solid $color-border;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: $radius-md;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: $spacing-xs 0;
+  box-shadow: var(--shadow-lg);
+  padding: $spacing-sm;
   z-index: 9999;
-  min-width: 120px;
+  min-width: 160px;
   
   .menu-item {
     padding: $spacing-sm $spacing-md;
     cursor: pointer;
     font-size: 13px;
-    color: $color-text-primary;
+    color: var(--color-text-primary);
+    border-radius: $radius-sm;
     
     &:hover {
-      background: $color-bg-hover;
+      background: var(--color-bg-hover);
     }
     
     &.danger {
-      color: $color-danger;
+      color: var(--color-danger);
     }
   }
   
   .menu-divider {
     height: 1px;
-    background: $color-border;
-    margin: $spacing-xs 0;
+    background: var(--color-border);
+    margin: $spacing-sm 0;
+  }
+  
+  // 分段按钮组（通用）
+  .menu-segment-group {
+    display: flex;
+    margin-bottom: $spacing-xs;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-sm;
+    overflow: hidden;
+    
+    .segment-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 4px;
+      border: none;
+      background: var(--color-bg-card);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      font-size: 12px;
+      transition: background-color 0.1s ease, color 0.1s ease;
+      
+      &:not(:last-child) {
+        border-right: 1px solid var(--color-border);
+      }
+      
+      &:hover {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+      }
+      
+      &.active {
+        background: var(--color-accent);
+        color: white;
+      }
+      
+      svg {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  }
+  
+  // 自定义尺寸输入
+  .custom-size-input {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: $spacing-xs;
+    padding: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-sm;
+    background: var(--color-bg-card);
+    
+    input {
+      width: 50px;
+      padding: 4px 6px;
+      border: 1px solid var(--color-border);
+      border-radius: $radius-sm;
+      background: var(--color-bg-primary);
+      color: var(--color-text-primary);
+      font-size: 12px;
+      outline: none;
+      
+      &:focus {
+        border-color: var(--color-primary);
+      }
+      
+      // 隐藏数字输入框的上下箭头
+      &::-webkit-outer-spin-button,
+      &::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+    }
+    
+    .unit {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+    
+    .apply-btn {
+      padding: 4px 8px;
+      border: none;
+      border-radius: $radius-sm;
+      background: var(--color-accent);
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+      
+      &:hover {
+        opacity: 0.9;
+      }
+    }
   }
 }
 </style>

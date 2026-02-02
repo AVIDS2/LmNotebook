@@ -6,6 +6,7 @@ It implements a production-grade ReAct pattern with:
 - Intent-based routing (Fast Chat vs Tool-using Agent)
 - Doom Loop detection (inspired by OpenCode)
 - Streaming support with multiple modes
+- Persistent memory via SQLite checkpointer
 
 Architecture:
     START → router → [fast_chat → END]
@@ -13,15 +14,17 @@ Architecture:
 """
 import json
 import hashlib
+import os
 from typing import Literal, Optional, Callable, Any
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
 from agent.state import NoteAgentState
 from core.llm import get_llm
+from core.config import settings
 
 
 # ============================================================================
@@ -35,12 +38,14 @@ MAX_RECOVER = 2  # Maximum recover attempts before forced end
 # Write operations: success = workflow done
 WRITE_TOOLS = {"delete_note", "create_note", "rename_note", "update_note", "set_note_category"}
 
+# Checkpointer database path (in user data directory)
+CHECKPOINT_DB_PATH = os.path.join(settings.data_directory, "checkpoints.db")
+
 
 # ============================================================================
 # SYSTEM PROMPTS (loaded from files like OpenCode)
 # ============================================================================
 
-import os
 _PROMPT_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 def _load_prompt(name: str) -> str:
@@ -63,35 +68,36 @@ class NoteAgentGraph:
     Key Technical Points (Interview-Ready):
     1. Graph-based State Machine - Explicit node and edge definitions
     2. Conditional Routing - Intent-based dynamic routing
-    3. Checkpointing - Supports breakpoint recovery (MemorySaver)
+    3. Checkpointing - Persistent SQLite storage for cross-session memory
     4. Doom Loop Detection - Prevents infinite tool loops
     5. Multi-mode Streaming - ["messages", "updates", "custom"]
     
     Usage:
         graph = NoteAgentGraph(tools=get_all_agent_tools())
-        compiled = graph.build()
+        compiled = await graph.build()
         async for chunk in compiled.astream(state, stream_mode=["messages", "updates"]):
             ...
     """
     
-    def __init__(self, tools: list, llm=None):
+    def __init__(self, tools: list, llm=None, checkpointer=None):
         """
         Initialize the agent graph.
         
         Args:
             tools: List of LangChain tools to bind to the agent
             llm: Optional LLM instance (defaults to get_llm())
+            checkpointer: Optional checkpointer (defaults to AsyncSqliteSaver)
         """
         self.llm = llm or get_llm()
         self.tools = tools
         self.tool_node = ToolNode(tools)
-        self.checkpointer = MemorySaver()
+        self.checkpointer = checkpointer  # Will be set during build()
         
         # Bind tools to LLM for function calling
         # parallel_tool_calls=False forces sequential execution: chat → tool → chat → tool
         self.model_with_tools = self.llm.bind_tools(tools, parallel_tool_calls=False)
         
-    def build(self) -> StateGraph:
+    async def build(self, checkpointer=None) -> StateGraph:
         """
         Build and compile the StateGraph.
         
@@ -154,7 +160,9 @@ class NoteAgentGraph:
         workflow.add_edge("recover", "agent")
         
         # ====== Compile with Checkpointer ======
-        return workflow.compile(checkpointer=self.checkpointer)
+        # Use provided checkpointer or the one set during init
+        cp = checkpointer or self.checkpointer
+        return workflow.compile(checkpointer=cp)
     
     # ========================================================================
     # NODE IMPLEMENTATIONS
@@ -491,16 +499,17 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
 # FACTORY FUNCTION
 # ============================================================================
 
-def create_note_agent_graph(tools: list, llm=None):
+async def create_note_agent_graph(tools: list, llm=None, checkpointer=None):
     """
     Factory function to create and compile the agent graph.
     
     Args:
         tools: List of LangChain tools
         llm: Optional LLM instance
+        checkpointer: Optional checkpointer for persistence
     
     Returns:
         Compiled StateGraph ready for invocation
     """
     builder = NoteAgentGraph(tools=tools, llm=llm)
-    return builder.build()
+    return await builder.build(checkpointer=checkpointer)

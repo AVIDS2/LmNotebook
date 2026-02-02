@@ -2,21 +2,33 @@
   <div
     class="note-card"
     :class="{
-      'note-card--active': isActive,
+      'note-card--active': isActive && !isSelectionMode,
       'note-card--pinned': note.isPinned,
       'note-card--dragging': isDragging,
-      'note-card--dragover': isDragOver
+      'note-card--dragover': isDragOver,
+      'note-card--selected': isSelected,
+      'note-card--selection-mode': isSelectionMode
     }"
-    draggable="true"
+    :draggable="!isSelectionMode"
     :data-id="note.id"
+    @click="handleClick"
     @dragstart="handleDragStart"
     @dragover.prevent="handleDragOver"
     @dragleave="handleDragLeave"
     @drop="handleDrop"
     @dragend="handleDragEnd"
   >
+    <!-- 选择复选框 -->
+    <div v-if="isSelectionMode" class="note-card__checkbox" @click.stop="emit('toggle-select')">
+      <div class="note-card__checkbox-inner" :class="{ 'note-card__checkbox-inner--checked': isSelected }">
+        <svg v-if="isSelected" width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
     <!-- 置顶标识 -->
-    <div v-if="note.isPinned" class="note-card__pin">
+    <div v-if="note.isPinned && !isSelectionMode" class="note-card__pin">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
         <path d="M6 1L7 4L10 4.5L7.5 7L8 11L6 9.5L4 11L4.5 7L2 4.5L5 4L6 1Z" fill="currentColor"/>
       </svg>
@@ -52,9 +64,13 @@ const props = defineProps<{
   isActive: boolean
   isDragging?: boolean
   isDragOver?: boolean
+  isSelectionMode?: boolean
+  isSelected?: boolean
 }>()
 
 const emit = defineEmits<{
+  click: []
+  'toggle-select': []
   dragstart: [id: string]
   dragover: [id: string]
   dragleave: []
@@ -62,18 +78,26 @@ const emit = defineEmits<{
   dragend: []
 }>()
 
+function handleClick() {
+  emit('click')
+}
+
 function handleDragStart(e: DragEvent) {
+  if (props.isSelectionMode) {
+    e.preventDefault()
+    return
+  }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', props.note.id)
     e.dataTransfer.setData('source/type', 'note')
-    // 注入全局变量以便跨组件访问
     ;(window as any)._draggedNoteId = props.note.id
   }
   emit('dragstart', props.note.id)
 }
 
 function handleDragOver(e: DragEvent) {
+  if (props.isSelectionMode) return
   emit('dragover', props.note.id)
 }
 
@@ -82,6 +106,7 @@ function handleDragLeave() {
 }
 
 function handleDrop(e: DragEvent) {
+  if (props.isSelectionMode) return
   emit('drop', props.note.id)
 }
 
@@ -132,40 +157,103 @@ function formatDate(timestamp: number): string {
 .note-card {
   position: relative;
   padding: $spacing-md;
-  background: $color-bg-card;
+  background: var(--color-bg-card);
   border: 1.5px solid transparent;
   border-radius: $radius-lg;
   margin-bottom: $spacing-sm;
   cursor: pointer;
-  transition: background-color $transition-fast, border-color $transition-fast, color $transition-fast, box-shadow $transition-fast;
+  
+  // 性能优化：使用 GPU 加速的属性
+  transition: background-color 0.15s ease, 
+              border-color 0.15s ease, 
+              opacity 0.15s ease;
+  
+  // 启用硬件加速和内容可见性优化
   content-visibility: auto;
-  contain: layout paint style;
+  contain: layout style paint;
+  contain-intrinsic-size: 0 90px; // 预估高度，减少布局抖动
+  will-change: opacity, background-color;
 
   &:hover {
-    background: $color-bg-hover;
+    background: var(--color-bg-hover);
   }
 
   &--active {
-    border-color: $color-border-dark;
-    background: $color-bg-card;
+    border-color: var(--color-border-dark);
+    background: var(--color-bg-card);
 
     .note-card__title {
-      color: $color-text-primary;
+      color: var(--color-text-primary);
     }
   }
 
   &--pinned {
-    border-left: 3px solid $color-accent;
+    border-left: 3px solid var(--color-accent);
   }
 
   &--dragging {
     opacity: 0.5;
-    background: $color-bg-hover;
+    background: var(--color-bg-hover);
   }
 
   &--dragover {
-    border-top: 2px solid $color-accent;
-    background: $color-bg-active;
+    border-top: 2px solid var(--color-accent);
+    background: var(--color-bg-active);
+  }
+
+  // 选择模式样式
+  &--selection-mode {
+    padding-left: $spacing-md + 28px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+  }
+
+  &--selected {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+
+    &:hover {
+      background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    }
+  }
+}
+
+// 复选框
+.note-card__checkbox {
+  position: absolute;
+  left: $spacing-md;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.note-card__checkbox-inner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-border-dark);
+  border-radius: $radius-sm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-card);
+  transition: background-color 0.1s ease, 
+              border-color 0.1s ease;
+
+  &:hover {
+    border-color: var(--color-accent);
+  }
+
+  &--checked {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
   }
 }
 
@@ -173,7 +261,7 @@ function formatDate(timestamp: number): string {
   position: absolute;
   top: $spacing-sm;
   right: $spacing-sm;
-  color: $color-accent;
+  color: var(--color-accent);
 }
 
 .note-card__title {
@@ -184,12 +272,12 @@ function formatDate(timestamp: number): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-right: 20px;
-  color: $color-text-primary;
+  color: var(--color-text-primary);
 }
 
 .note-card__preview {
   font-size: $font-size-sm;
-  color: $color-text-secondary;
+  color: var(--color-text-secondary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -206,7 +294,7 @@ function formatDate(timestamp: number): string {
 
 .note-card__date {
   font-size: $font-size-xs;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
 }
 
 .note-card__category {

@@ -1,6 +1,77 @@
 @use './variables' as *;
 @use './animations';
 
+// ========== CSS 变量主题系统 ==========
+:root {
+  // 亮色主题（默认）
+  --color-bg-primary: #FAFAF8;
+  --color-bg-secondary: #F5F5F3;
+  --color-bg-card: #FFFFFF;
+  --color-bg-hover: #F0F0EE;
+  --color-bg-active: #EAEAE8;
+  
+  --color-primary: #3D3D3D;
+  --color-primary-light: #5A5A5A;
+  --color-primary-dark: #2A2A2A;
+  
+  --color-accent: #B8A080;
+  
+  --color-text-primary: #2C2C2A;
+  --color-text-secondary: #6B6B68;
+  --color-text-muted: #9C9C98;
+  --color-text-placeholder: #BBBBB8;
+  
+  --color-border: #E0E0DE;
+  --color-border-light: #EAEAE8;
+  --color-border-dark: #D0D0CE;
+  
+  --color-danger: #C45C5C;
+  --color-warning: #C9A456;
+  --color-success: #5C9E5C;
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.06);
+  
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+}
+
+// 暗色主题
+[data-theme="dark"] {
+  --color-bg-primary: #1A1A1C;
+  --color-bg-secondary: #232326;
+  --color-bg-card: #2A2A2E;
+  --color-bg-hover: #333338;
+  --color-bg-active: #3D3D42;
+  
+  --color-primary: #E0E0DE;
+  --color-primary-light: #F0F0EE;
+  --color-primary-dark: #CCCCCA;
+  
+  --color-accent: #D4C4A8;
+  
+  --color-text-primary: #E8E8E6;
+  --color-text-secondary: #A8A8A5;
+  --color-text-muted: #787875;
+  --color-text-placeholder: #585855;
+  
+  --color-border: #3A3A3E;
+  --color-border-light: #333338;
+  --color-border-dark: #4A4A4E;
+  
+  --color-danger: #E07070;
+  --color-warning: #E0B860;
+  --color-success: #70B870;
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -16,11 +87,13 @@ html, body, #app {
 body {
   font-family: $font-family;
   font-size: $font-size-md;
-  color: $color-text-primary;
-  background-color: $color-bg-primary;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
+  // 使用 GPU 加速的属性进行主题切换
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 // 滚动条样式
@@ -34,11 +107,11 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--scrollbar-thumb-hover);
   }
 }
 
@@ -61,31 +134,31 @@ body {
   background: transparent;
 
   &:hover {
-    background: $color-bg-hover;
+    background: var(--color-bg-hover);
   }
 
   &:active {
-    background: $color-bg-active;
+    background: var(--color-bg-active);
   }
 
   &--primary {
-    background: $color-primary;
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-bg-primary);
 
     &:hover {
-      background: $color-primary-light;
+      background: var(--color-primary-light);
     }
 
     &:active {
-      background: $color-primary-dark;
+      background: var(--color-primary-dark);
     }
   }
 
   &--danger {
-    color: $color-danger;
+    color: var(--color-danger);
 
     &:hover {
-      background: rgba($color-danger, 0.1);
+      background: rgba(196, 92, 92, 0.1);
     }
   }
 }
@@ -94,20 +167,20 @@ body {
 .input {
   width: 100%;
   padding: $spacing-sm $spacing-md;
-  border: 1px solid $color-border;
+  border: 1px solid var(--color-border);
   border-radius: $radius-md;
   font-size: $font-size-md;
-  background: $color-bg-card;
-  color: $color-text-primary;
-  transition: border-color $transition-fast;
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  transition: border-color $transition-fast, background-color 0.3s ease;
 
   &:focus {
     outline: none;
-    border-color: $color-primary;
+    border-color: var(--color-primary);
   }
 
   &::placeholder {
-    color: $color-text-placeholder;
+    color: var(--color-text-placeholder);
   }
 }
 
@@ -121,16 +194,16 @@ body {
   border: none;
   border-radius: $radius-sm;
   background: transparent;
-  color: $color-text-secondary;
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast;
 
   &:hover {
-    background: $color-bg-hover;
-    color: $color-text-primary;
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
   }
 
   &:active {
-    background: $color-bg-active;
+    background: var(--color-bg-active);
   }
 }

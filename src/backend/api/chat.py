@@ -159,3 +159,171 @@ async def format_text(request: ChatRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# SESSION HISTORY APIs
+# ============================================================================
+
+async def _get_checkpoint_messages(checkpoint_db: str, thread_id: str):
+    """
+    Get messages from a checkpoint using LangGraph's serialization.
+    """
+    import aiosqlite
+    
+    try:
+        # Use LangGraph's serde to properly deserialize
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        
+        serde = JsonPlusSerializer()
+        
+        async with aiosqlite.connect(checkpoint_db) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT type, checkpoint FROM checkpoints 
+                WHERE thread_id = ? 
+                ORDER BY checkpoint_id DESC 
+                LIMIT 1
+            """, (thread_id,))
+            row = await cursor.fetchone()
+            
+            if not row or not row['checkpoint']:
+                return []
+            
+            # Deserialize using LangGraph's serializer (needs type + data tuple)
+            checkpoint_data = serde.loads_typed((row['type'], row['checkpoint']))
+            channel_values = checkpoint_data.get('channel_values', {})
+            raw_messages = channel_values.get('messages', [])
+            
+            messages = []
+            for msg in raw_messages:
+                role = None
+                content = ""
+                
+                # LangGraph messages are LangChain message objects
+                if hasattr(msg, 'type') and hasattr(msg, 'content'):
+                    if msg.type == 'human':
+                        role = 'user'
+                        content = msg.content
+                    elif msg.type == 'ai':
+                        role = 'assistant'
+                        content = msg.content
+                        # Skip empty AI messages (tool calls only)
+                        if not content and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                            continue
+                
+                if role and content:
+                    messages.append({"role": role, "content": content})
+            
+            return messages
+    except Exception as e:
+        print(f"[API] Error getting checkpoint messages: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
+@router.get("/sessions")
+async def list_sessions():
+    """
+    List all chat sessions with their first message as preview.
+    Returns sessions sorted by last update time.
+    """
+    import aiosqlite
+    from core.config import settings
+    import os
+    
+    checkpoint_db = os.path.join(settings.data_directory, "checkpoints.db")
+    
+    if not os.path.exists(checkpoint_db):
+        return {"sessions": []}
+    
+    sessions = []
+    try:
+        async with aiosqlite.connect(checkpoint_db) as db:
+            db.row_factory = aiosqlite.Row
+            # Get unique thread_ids with their latest checkpoint
+            cursor = await db.execute("""
+                SELECT DISTINCT thread_id, MAX(checkpoint_id) as latest_checkpoint
+                FROM checkpoints
+                GROUP BY thread_id
+                ORDER BY latest_checkpoint DESC
+                LIMIT 50
+            """)
+            rows = await cursor.fetchall()
+        
+        for row in rows:
+            thread_id = row['thread_id']
+            messages = await _get_checkpoint_messages(checkpoint_db, thread_id)
+            
+            if not messages:
+                continue
+            
+            # Use first user message as preview/title
+            preview = "New conversation"
+            for msg in messages:
+                if msg['role'] == 'user':
+                    content = msg['content']
+                    preview = content[:60] + ('...' if len(content) > 60 else '')
+                    break
+            
+            sessions.append({
+                "id": thread_id,
+                "preview": preview,
+                "message_count": len(messages),
+                "updated_at": row['latest_checkpoint']
+            })
+        
+        return {"sessions": sessions}
+    except Exception as e:
+        print(f"[API] Error listing sessions: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"sessions": []}
+
+
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """
+    Get all messages for a specific session.
+    """
+    from core.config import settings
+    import os
+    
+    checkpoint_db = os.path.join(settings.data_directory, "checkpoints.db")
+    
+    if not os.path.exists(checkpoint_db):
+        raise HTTPException(status_code=404, detail="No sessions found")
+    
+    messages = await _get_checkpoint_messages(checkpoint_db, session_id)
+    
+    if not messages:
+        raise HTTPException(status_code=404, detail="Session not found or empty")
+    
+    return {"session_id": session_id, "messages": messages}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """
+    Delete a specific session and its checkpoints.
+    """
+    import aiosqlite
+    from core.config import settings
+    import os
+    
+    checkpoint_db = os.path.join(settings.data_directory, "checkpoints.db")
+    
+    if not os.path.exists(checkpoint_db):
+        raise HTTPException(status_code=404, detail="No sessions found")
+    
+    try:
+        async with aiosqlite.connect(checkpoint_db) as db:
+            await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+            await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+            await db.commit()
+        
+        return {"status": "success", "deleted": session_id}
+    except Exception as e:
+        print(f"[API] Error deleting session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

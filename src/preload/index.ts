@@ -49,6 +49,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('db-import-data', data),
 
     // 获取数据库路径
-    getPath: () => ipcRenderer.invoke('db-get-path')
+    getPath: () => ipcRenderer.invoke('db-get-path'),
+    
+    // 获取数据目录路径
+    getDataPath: () => ipcRenderer.invoke('db-get-data-path'),
+    
+    // 获取默认数据目录
+    getDefaultDataPath: () => ipcRenderer.invoke('db-get-default-data-path'),
+    
+    // 获取数据库统计
+    getStats: () => ipcRenderer.invoke('db-get-stats')
+  },
+
+  // ==================== 配置和备份 API ====================
+  config: {
+    get: () => ipcRenderer.invoke('config-get'),
+    save: (config: Record<string, unknown>) => ipcRenderer.invoke('config-save', config)
+  },
+
+  backup: {
+    create: (customPath?: string) => ipcRenderer.invoke('backup-create', customPath),
+    list: () => ipcRenderer.invoke('backup-list'),
+    restore: (backupPath: string) => ipcRenderer.invoke('backup-restore', backupPath)
+  },
+
+  data: {
+    migrate: (newPath: string) => ipcRenderer.invoke('data-migrate', newPath)
+  },
+
+  dialog: {
+    selectDirectory: (options?: { title?: string; defaultPath?: string }) => 
+      ipcRenderer.invoke('dialog-select-directory', options)
+  },
+
+  shell: {
+    openPath: (path: string) => ipcRenderer.invoke('shell-open-path', path)
+  },
+
+  // ==================== 图片存储 API ====================
+  image: {
+    store: (base64DataUrl: string) => ipcRenderer.invoke('image-store', base64DataUrl),
+    load: (imageRef: string) => ipcRenderer.invoke('image-load', imageRef),
+    delete: (imageRef: string) => ipcRenderer.invoke('image-delete', imageRef),
+    getStats: () => ipcRenderer.invoke('image-stats'),
+    cleanup: (usedImageRefs: string[]) => ipcRenderer.invoke('image-cleanup', usedImageRefs)
   }
 })

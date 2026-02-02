@@ -56,9 +56,17 @@ export const useNoteStore = defineStore('notes', () => {
   const isLoading = ref(false)
   const totalNotesCount = ref(0) // 全部笔记总数（不包括已删除）
 
+  // 批量选择状态
+  const isSelectionMode = ref(false)
+  const selectedNoteIds = ref<Set<string>>(new Set())
+
   // 计算属性
   const noteCount = computed(() => notes.value.length)
   const pinnedNotes = computed(() => notes.value.filter(n => n.isPinned))
+  const selectedCount = computed(() => selectedNoteIds.value.size)
+  const isAllSelected = computed(() => 
+    notes.value.length > 0 && selectedNoteIds.value.size === notes.value.length
+  )
 
   // 更新全部笔记总数（排除空笔记）
   async function updateTotalCount(): Promise<void> {
@@ -316,9 +324,125 @@ export const useNoteStore = defineStore('notes', () => {
 
   // 清空回收站
   async function emptyTrash(): Promise<void> {
+    // 获取所有已删除笔记的内容，用于提取图片引用
+    const deletedNotes = await noteRepository.getDeleted()
+    const imageRefs: string[] = []
+    
+    // 提取所有 origin-image:// 引用
+    for (const note of deletedNotes) {
+      const matches = note.content.match(/origin-image:\/\/[^"'\s]+/g)
+      if (matches) {
+        imageRefs.push(...matches)
+      }
+    }
+    
+    // 清空回收站（会同步清理向量索引）
     await noteRepository.emptyTrash()
     notes.value = []
     currentNote.value = null
+    
+    // 清理未使用的图片
+    if (imageRefs.length > 0 && window.electronAPI?.image?.cleanup) {
+      try {
+        // 获取所有笔记中仍在使用的图片
+        const allNotes = await noteRepository.getAll()
+        const usedRefs: string[] = []
+        for (const note of allNotes) {
+          const matches = note.content.match(/origin-image:\/\/[^"'\s]+/g)
+          if (matches) {
+            usedRefs.push(...matches)
+          }
+        }
+        await window.electronAPI.image.cleanup(usedRefs)
+      } catch (e) {
+        console.warn('Image cleanup failed:', e)
+      }
+    }
+  }
+
+  // ========== 批量操作 ==========
+  
+  // 进入/退出选择模式
+  function toggleSelectionMode(): void {
+    isSelectionMode.value = !isSelectionMode.value
+    if (!isSelectionMode.value) {
+      selectedNoteIds.value.clear()
+    }
+  }
+
+  // 退出选择模式
+  function exitSelectionMode(): void {
+    isSelectionMode.value = false
+    selectedNoteIds.value.clear()
+  }
+
+  // 切换单个笔记选中状态
+  function toggleNoteSelection(id: string): void {
+    if (selectedNoteIds.value.has(id)) {
+      selectedNoteIds.value.delete(id)
+    } else {
+      selectedNoteIds.value.add(id)
+    }
+    // 触发响应式更新
+    selectedNoteIds.value = new Set(selectedNoteIds.value)
+  }
+
+  // 全选/取消全选
+  function toggleSelectAll(): void {
+    if (isAllSelected.value) {
+      selectedNoteIds.value.clear()
+    } else {
+      selectedNoteIds.value = new Set(notes.value.map(n => n.id))
+    }
+  }
+
+  // 批量删除（移到回收站）
+  async function batchDelete(): Promise<void> {
+    const ids = Array.from(selectedNoteIds.value)
+    for (const id of ids) {
+      await noteRepository.softDelete(id)
+    }
+    await loadNotes()
+    selectedNoteIds.value.clear()
+    
+    // 更新当前笔记
+    if (currentNote.value && ids.includes(currentNote.value.id)) {
+      currentNote.value = notes.value[0] || null
+    }
+  }
+
+  // 批量永久删除
+  async function batchPermanentDelete(): Promise<void> {
+    const ids = Array.from(selectedNoteIds.value)
+    for (const id of ids) {
+      await noteRepository.permanentDelete(id)
+    }
+    await loadNotes()
+    selectedNoteIds.value.clear()
+    
+    if (currentNote.value && ids.includes(currentNote.value.id)) {
+      currentNote.value = notes.value[0] || null
+    }
+  }
+
+  // 批量恢复
+  async function batchRestore(): Promise<void> {
+    const ids = Array.from(selectedNoteIds.value)
+    for (const id of ids) {
+      await noteRepository.restore(id)
+    }
+    await loadNotes()
+    selectedNoteIds.value.clear()
+  }
+
+  // 批量移动到分类
+  async function batchMoveToCategory(categoryId: string | null): Promise<void> {
+    const ids = Array.from(selectedNoteIds.value)
+    for (const id of ids) {
+      await noteRepository.update(id, { categoryId })
+    }
+    await loadNotes()
+    selectedNoteIds.value.clear()
   }
 
   // 重新排序（拖拽）
@@ -360,10 +484,14 @@ export const useNoteStore = defineStore('notes', () => {
     searchKeyword,
     isLoading,
     totalNotesCount,
+    isSelectionMode,
+    selectedNoteIds,
 
     // 计算属性
     noteCount,
     pinnedNotes,
+    selectedCount,
+    isAllSelected,
 
     // 方法
     loadNotes,
@@ -379,6 +507,16 @@ export const useNoteStore = defineStore('notes', () => {
     emptyTrash,
     initialize,
     cleanupEmptyCurrentNote,
-    reorderNotes
+    reorderNotes,
+    
+    // 批量操作
+    toggleSelectionMode,
+    exitSelectionMode,
+    toggleNoteSelection,
+    toggleSelectAll,
+    batchDelete,
+    batchPermanentDelete,
+    batchRestore,
+    batchMoveToCategory
   }
 })

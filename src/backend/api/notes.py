@@ -120,3 +120,69 @@ async def reindex_notes():
         return {"status": "success", "indexed_count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{note_id}/vector")
+async def remove_note_vector(note_id: str):
+    """
+    Remove a note from the vector index.
+    Called when permanently deleting a note from trash.
+    """
+    try:
+        service = NoteService()
+        await service.rag_service.remove_document(note_id)
+        return {"status": "success", "note_id": note_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatchDeleteRequest(BaseModel):
+    """Batch delete request for emptying trash."""
+    note_ids: List[str] = Field(..., description="List of note IDs to remove from vector index")
+
+
+@router.post("/vectors/batch-delete")
+async def batch_remove_vectors(request: BatchDeleteRequest):
+    """
+    Remove multiple notes from the vector index.
+    Called when emptying trash.
+    """
+    try:
+        service = NoteService()
+        removed = 0
+        for note_id in request.note_ids:
+            try:
+                await service.rag_service.remove_document(note_id)
+                removed += 1
+            except Exception:
+                pass  # Continue even if one fails
+        return {"status": "success", "removed_count": removed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class VectorSyncRequest(BaseModel):
+    """Vector sync request for frontend note updates."""
+    note_id: str = Field(..., description="Note ID")
+    title: str = Field(..., description="Note title")
+    content: str = Field(default="", description="Note plain text content")
+
+
+@router.post("/vector/sync")
+async def sync_note_vector(request: VectorSyncRequest):
+    """
+    Sync a note's vector index when updated from frontend.
+    Called when user edits title or content directly in the editor.
+    """
+    try:
+        service = NoteService()
+        await service.rag_service.update_document(
+            request.note_id,
+            request.title,
+            request.content
+        )
+        print(f"[API] Vector synced for note: {request.title}")
+        return {"status": "success", "note_id": request.note_id}
+    except Exception as e:
+        print(f"[API] Vector sync error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

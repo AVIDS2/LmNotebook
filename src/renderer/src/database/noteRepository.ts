@@ -82,6 +82,26 @@ export const noteRepository = {
     }
 
     await db.updateNote(id, updateData)
+    
+    // 同步更新向量索引（标题或内容变化时）
+    if (input.title !== undefined || input.content !== undefined) {
+      try {
+        const note = await db.getNoteById(id)
+        if (note) {
+          await fetch('http://127.0.0.1:8765/api/notes/vector/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              note_id: id,
+              title: note.title,
+              content: note.plainText || ''
+            })
+          })
+        }
+      } catch (e) {
+        console.warn('Failed to sync vector index:', e)
+      }
+    }
   },
 
   // 切换置顶状态
@@ -107,13 +127,37 @@ export const noteRepository = {
   // 永久删除
   async permanentDelete(id: string): Promise<void> {
     await db.permanentDeleteNote(id)
+    // 同步清理向量索引
+    try {
+      await fetch('http://127.0.0.1:8765/api/notes/' + id + '/vector', {
+        method: 'DELETE'
+      })
+    } catch (e) {
+      console.warn('Failed to remove vector for note:', id, e)
+    }
   },
 
   // 清空回收站
   async emptyTrash(): Promise<void> {
     const deleted = await db.getDeletedNotes()
+    const noteIds = deleted.map(note => note.id)
+    
+    // 先删除数据库记录
     for (const note of deleted) {
       await db.permanentDeleteNote(note.id)
+    }
+    
+    // 批量清理向量索引
+    if (noteIds.length > 0) {
+      try {
+        await fetch('http://127.0.0.1:8765/api/notes/vectors/batch-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note_ids: noteIds })
+        })
+      } catch (e) {
+        console.warn('Failed to batch remove vectors:', e)
+      }
     }
   },
 

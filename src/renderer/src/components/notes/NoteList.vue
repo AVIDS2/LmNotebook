@@ -5,13 +5,80 @@
 
     <!-- 列表头部 -->
     <div class="note-list__header">
-      <span class="note-list__title">{{ headerTitle }}</span>
-      <span class="note-list__count">{{ noteStore.notes.length }} 篇</span>
+      <div class="note-list__header-left">
+        <!-- 选择模式下的全选复选框 -->
+        <label v-if="noteStore.isSelectionMode" class="note-list__checkbox-wrapper">
+          <input 
+            ref="selectAllCheckbox"
+            type="checkbox" 
+            :checked="noteStore.isAllSelected"
+            @change="noteStore.toggleSelectAll"
+            class="note-list__checkbox"
+          />
+        </label>
+        <span class="note-list__title">{{ headerTitle }}</span>
+        <span class="note-list__count">{{ noteStore.notes.length }} 篇</span>
+      </div>
+      
+      <div class="note-list__header-actions">
+        <!-- 批量管理按钮 -->
+        <button 
+          v-if="noteStore.notes.length > 0"
+          class="note-list__action-btn"
+          :class="{ 'note-list__action-btn--active': noteStore.isSelectionMode }"
+          @click="noteStore.toggleSelectionMode"
+          :title="noteStore.isSelectionMode ? '退出管理' : '批量管理'"
+        >
+          <svg v-if="!noteStore.isSelectionMode" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+          <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 8L7 11L12 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
+
+    <!-- 批量操作工具栏 -->
+    <Transition name="toolbar-slide">
+      <div v-if="noteStore.isSelectionMode && noteStore.selectedCount > 0" class="note-list__toolbar">
+        <span class="note-list__toolbar-count">已选 {{ noteStore.selectedCount }} 项</span>
+        <div class="note-list__toolbar-actions">
+          <!-- 回收站视图：恢复和永久删除 -->
+          <template v-if="noteStore.currentView === 'trash'">
+            <button class="note-list__toolbar-btn note-list__toolbar-btn--restore" @click="handleBatchRestore">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 7C2 4.23858 4.23858 2 7 2C8.85652 2 10.4869 3.00442 11.3912 4.5M12 7C12 9.76142 9.76142 12 7 12C5.14348 12 3.51314 10.9956 2.60876 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <path d="M11 2V5H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              恢复
+            </button>
+            <button class="note-list__toolbar-btn note-list__toolbar-btn--danger" @click="handleBatchPermanentDelete">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 4H12M5 4V3C5 2.44772 5.44772 2 6 2H8C8.55228 2 9 2.44772 9 3V4M11 4V11C11 11.5523 10.5523 12 10 12H4C3.44772 12 3 11.5523 3 11V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              永久删除
+            </button>
+          </template>
+          <!-- 普通视图：删除 -->
+          <template v-else>
+            <button class="note-list__toolbar-btn note-list__toolbar-btn--danger" @click="handleBatchDelete">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 4H12M5 4V3C5 2.44772 5.44772 2 6 2H8C8.55228 2 9 2.44772 9 3V4M11 4V11C11 11.5523 10.5523 12 10 12H4C3.44772 12 3 11.5523 3 11V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              删除
+            </button>
+          </template>
+        </div>
+      </div>
+    </Transition>
 
     <!-- 笔记列表 -->
     <div class="note-list__content">
-      <TransitionGroup name="list">
+      <TransitionGroup name="list" tag="div" :css="true">
         <NoteCard
           v-for="note in noteStore.notes"
           :key="note.id"
@@ -19,7 +86,10 @@
           :is-active="noteStore.currentNote?.id === note.id"
           :is-dragging="draggedNoteId === note.id"
           :is-dragover="dragOverNoteId === note.id"
-          @click="noteStore.selectNote(note)"
+          :is-selection-mode="noteStore.isSelectionMode"
+          :is-selected="noteStore.selectedNoteIds.has(note.id)"
+          @click="handleNoteClick(note)"
+          @toggle-select="noteStore.toggleNoteSelection(note.id)"
           @dragstart="handleDragStart"
           @dragover="handleDragOver"
           @dragleave="handleDragLeave"
@@ -41,22 +111,48 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useNoteStore } from '@/stores/noteStore'
+import type { Note } from '@/database/noteRepository'
 import NoteCard from './NoteCard.vue'
 import SearchBar from '@/components/search/SearchBar.vue'
 
 const noteStore = useNoteStore()
 
+// 全选复选框 ref
+const selectAllCheckbox = ref<HTMLInputElement | null>(null)
+
+// 处理 indeterminate 状态
+watch(
+  () => [noteStore.selectedCount, noteStore.isAllSelected],
+  () => {
+    if (selectAllCheckbox.value) {
+      selectAllCheckbox.value.indeterminate = 
+        noteStore.selectedCount > 0 && !noteStore.isAllSelected
+    }
+  },
+  { flush: 'post' }
+)
+
 // 拖拽相关状态
 const draggedNoteId = ref<string | null>(null)
 const dragOverNoteId = ref<string | null>(null)
 
+function handleNoteClick(note: Note) {
+  if (noteStore.isSelectionMode) {
+    noteStore.toggleNoteSelection(note.id)
+  } else {
+    noteStore.selectNote(note)
+  }
+}
+
 function handleDragStart(id: string) {
+  if (noteStore.isSelectionMode) return
   draggedNoteId.value = id
 }
 
 function handleDragOver(id: string) {
+  if (noteStore.isSelectionMode) return
   if (draggedNoteId.value === id) return
   dragOverNoteId.value = id
 }
@@ -66,6 +162,7 @@ function handleDragLeave() {
 }
 
 async function handleDrop(targetId: string) {
+  if (noteStore.isSelectionMode) return
   if (draggedNoteId.value && draggedNoteId.value !== targetId) {
     await noteStore.reorderNotes(draggedNoteId.value, targetId)
   }
@@ -74,6 +171,23 @@ async function handleDrop(targetId: string) {
 function handleDragEnd() {
   draggedNoteId.value = null
   dragOverNoteId.value = null
+}
+
+// 批量操作处理
+async function handleBatchDelete() {
+  if (confirm(`确定要删除选中的 ${noteStore.selectedCount} 篇笔记吗？`)) {
+    await noteStore.batchDelete()
+  }
+}
+
+async function handleBatchPermanentDelete() {
+  if (confirm(`确定要永久删除选中的 ${noteStore.selectedCount} 篇笔记吗？此操作不可恢复！`)) {
+    await noteStore.batchPermanentDelete()
+  }
+}
+
+async function handleBatchRestore() {
+  await noteStore.batchRestore()
 }
 
 const headerTitle = computed(() => {
@@ -110,9 +224,11 @@ const emptyText = computed(() => {
 .note-list {
   display: flex;
   flex-direction: column;
-  width: $notelist-width;
-  background: $color-bg-primary;
-  border-right: 1px solid $color-border-light;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg-primary);
+  border-right: 1px solid var(--color-border-light);
+  transition: background-color 0.2s ease;
 }
 
 .note-list__header {
@@ -120,18 +236,143 @@ const emptyText = computed(() => {
   align-items: center;
   justify-content: space-between;
   padding: $spacing-sm $spacing-md;
-  border-bottom: 1px solid $color-border-light;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.note-list__header-left {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.note-list__header-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.note-list__checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.note-list__checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.note-list__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  &--active {
+    background: var(--color-accent);
+    color: white;
+
+    &:hover {
+      background: var(--color-accent);
+      opacity: 0.9;
+      color: white;
+    }
+  }
 }
 
 .note-list__title {
   font-size: $font-size-sm;
   font-weight: 500;
-  color: $color-text-primary;
+  color: var(--color-text-primary);
 }
 
 .note-list__count {
   font-size: $font-size-xs;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
+}
+
+// 批量操作工具栏
+.note-list__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-sm $spacing-md;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.note-list__toolbar-count {
+  font-size: $font-size-xs;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.note-list__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.note-list__toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: $radius-sm;
+  font-size: $font-size-xs;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--danger {
+    background: #FEE2E2;
+    color: #DC2626;
+
+    &:hover {
+      background: #FECACA;
+    }
+  }
+
+  &--restore {
+    background: #DCFCE7;
+    color: #16A34A;
+
+    &:hover {
+      background: #BBF7D0;
+    }
+  }
+}
+
+// 工具栏滑入动画
+.toolbar-slide-enter-active,
+.toolbar-slide-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toolbar-slide-enter-from,
+.toolbar-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 .note-list__content {
@@ -146,7 +387,7 @@ const emptyText = computed(() => {
   align-items: center;
   justify-content: center;
   padding: $spacing-xl;
-  color: $color-text-muted;
+  color: var(--color-text-muted);
   text-align: center;
 
   svg {
@@ -157,5 +398,32 @@ const emptyText = computed(() => {
   p {
     font-size: $font-size-sm;
   }
+}
+
+// 列表动画 - 使用 GPU 加速的 transform 和 opacity
+.list-enter-active,
+.list-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.list-enter-from {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.list-leave-to {
+  opacity: 0;
+  transform: translateX(8px);
+}
+
+// 移动动画 - 使用 transform 而非 top/left
+.list-move {
+  transition: transform 0.2s ease;
+}
+
+// 离开时不占位，避免布局抖动
+.list-leave-active {
+  position: absolute;
+  width: calc(100% - #{$spacing-sm * 2});
 }
 </style>

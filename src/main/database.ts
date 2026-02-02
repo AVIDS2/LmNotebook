@@ -1,11 +1,71 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { writeFileSync, readFileSync } from 'fs'
 
-// 数据库文件存储在用户文档目录，便于备份和迁移
-const userDataPath = app.getPath('documents')
-const appDataPath = join(userDataPath, 'OriginNotes')
+// ==================== 配置管理 ====================
+
+interface AppConfig {
+    dataDirectory: string
+    autoBackup: boolean
+    backupDirectory: string
+    maxBackups: number
+}
+
+const CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
+
+// 默认配置
+function getDefaultConfig(): AppConfig {
+    const defaultDataPath = join(app.getPath('documents'), 'OriginNotes')
+    return {
+        dataDirectory: defaultDataPath,
+        autoBackup: true,
+        backupDirectory: join(defaultDataPath, 'backups'),
+        maxBackups: 10
+    }
+}
+
+// 加载配置
+function loadConfig(): AppConfig {
+    try {
+        if (existsSync(CONFIG_FILE)) {
+            const content = readFileSync(CONFIG_FILE, 'utf-8')
+            const saved = JSON.parse(content) as Partial<AppConfig>
+            return { ...getDefaultConfig(), ...saved }
+        }
+    } catch (e) {
+        console.error('Failed to load config:', e)
+    }
+    return getDefaultConfig()
+}
+
+// 保存配置
+export function saveConfig(config: Partial<AppConfig>): AppConfig {
+    const current = loadConfig()
+    const updated = { ...current, ...config }
+    try {
+        writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8')
+    } catch (e) {
+        console.error('Failed to save config:', e)
+    }
+    return updated
+}
+
+// 获取当前配置
+export function getConfig(): AppConfig {
+    return loadConfig()
+}
+
+// 获取默认数据目录
+export function getDefaultDataDirectory(): string {
+    return join(app.getPath('documents'), 'OriginNotes')
+}
+
+// ==================== 数据库初始化 ====================
+
+const config = loadConfig()
+const appDataPath = config.dataDirectory
 
 // 确保目录存在
 if (!existsSync(appDataPath)) {
@@ -18,8 +78,10 @@ console.log('Database path:', dbPath)
 // 创建数据库连接
 const db = new Database(dbPath)
 
-// 启用外键约束
+// 启用外键约束和性能优化
 db.pragma('foreign_keys = ON')
+db.pragma('journal_mode = WAL')  // 写入性能优化
+db.pragma('synchronous = NORMAL')  // 平衡安全和性能
 
 // 初始化表结构
 function initDatabase(): void {
@@ -58,12 +120,14 @@ function initDatabase(): void {
         // 列已经存在
     }
 
-    // 创建索引
+    // 创建索引（优化查询性能）
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_notes_categoryId ON notes(categoryId);
     CREATE INDEX IF NOT EXISTS idx_notes_isPinned ON notes(isPinned);
     CREATE INDEX IF NOT EXISTS idx_notes_isDeleted ON notes(isDeleted);
     CREATE INDEX IF NOT EXISTS idx_notes_updatedAt ON notes(updatedAt);
+    CREATE INDEX IF NOT EXISTS idx_notes_createdAt ON notes(createdAt);
+    CREATE INDEX IF NOT EXISTS idx_notes_order ON notes("order");
   `)
 
     // 初始化默认分类
@@ -327,8 +391,246 @@ export function importData(data: { notes: Note[]; categories: Category[] }): voi
     transaction()
 }
 
+// ==================== 备份功能 ====================
+
+export interface BackupInfo {
+    filename: string
+    path: string
+    size: number
+    createdAt: number
+}
+
+// 创建备份
+export function createBackup(customPath?: string): BackupInfo | null {
+    const cfg = loadConfig()
+    const backupDir = customPath || cfg.backupDirectory
+    
+    // 确保备份目录存在
+    if (!existsSync(backupDir)) {
+        mkdirSync(backupDir, { recursive: true })
+    }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `notes-backup-${timestamp}.db`
+    const backupPath = join(backupDir, filename)
+    
+    try {
+        // 使用 copyFileSync 复制数据库文件（同步方式）
+        // 先执行 checkpoint 确保 WAL 数据写入主文件
+        db.pragma('wal_checkpoint(TRUNCATE)')
+        copyFileSync(dbPath, backupPath)
+        
+        const stats = statSync(backupPath)
+        
+        // 清理旧备份
+        cleanupOldBackups(backupDir, cfg.maxBackups)
+        
+        return {
+            filename,
+            path: backupPath,
+            size: stats.size,
+            createdAt: Date.now()
+        }
+    } catch (e) {
+        console.error('Backup failed:', e)
+        return null
+    }
+}
+
+// 获取备份列表
+export function getBackupList(): BackupInfo[] {
+    const cfg = loadConfig()
+    const backupDir = cfg.backupDirectory
+    
+    if (!existsSync(backupDir)) {
+        return []
+    }
+    
+    try {
+        const files = readdirSync(backupDir)
+            .filter(f => f.startsWith('notes-backup-') && f.endsWith('.db'))
+            .map(filename => {
+                const filePath = join(backupDir, filename)
+                const stats = statSync(filePath)
+                return {
+                    filename,
+                    path: filePath,
+                    size: stats.size,
+                    createdAt: stats.mtimeMs
+                }
+            })
+            .sort((a, b) => b.createdAt - a.createdAt)
+        
+        return files
+    } catch (e) {
+        console.error('Failed to list backups:', e)
+        return []
+    }
+}
+
+// 从备份恢复
+export function restoreFromBackup(backupPath: string): boolean {
+    if (!existsSync(backupPath)) {
+        return false
+    }
+    
+    try {
+        // 先关闭当前数据库连接
+        db.close()
+        
+        // 复制备份文件覆盖当前数据库
+        copyFileSync(backupPath, dbPath)
+        
+        // 重新打开数据库（需要重启应用）
+        return true
+    } catch (e) {
+        console.error('Restore failed:', e)
+        return false
+    }
+}
+
+// 清理旧备份
+function cleanupOldBackups(backupDir: string, maxBackups: number): void {
+    try {
+        const files = readdirSync(backupDir)
+            .filter(f => f.startsWith('notes-backup-') && f.endsWith('.db'))
+            .map(filename => ({
+                filename,
+                path: join(backupDir, filename),
+                mtime: statSync(join(backupDir, filename)).mtimeMs
+            }))
+            .sort((a, b) => b.mtime - a.mtime)
+        
+        // 删除超出数量限制的旧备份
+        if (files.length > maxBackups) {
+            for (let i = maxBackups; i < files.length; i++) {
+                unlinkSync(files[i].path)
+                console.log('Deleted old backup:', files[i].filename)
+            }
+        }
+    } catch (e) {
+        console.error('Failed to cleanup old backups:', e)
+    }
+}
+
+// ==================== 数据目录迁移 ====================
+
+// 递归复制目录
+function copyDirectorySync(src: string, dest: string): void {
+    if (!existsSync(src)) return
+    
+    if (!existsSync(dest)) {
+        mkdirSync(dest, { recursive: true })
+    }
+    
+    const entries = readdirSync(src, { withFileTypes: true })
+    for (const entry of entries) {
+        const srcPath = join(src, entry.name)
+        const destPath = join(dest, entry.name)
+        
+        if (entry.isDirectory()) {
+            copyDirectorySync(srcPath, destPath)
+        } else {
+            copyFileSync(srcPath, destPath)
+        }
+    }
+}
+
+export function migrateDataDirectory(newPath: string): { success: boolean; error?: string } {
+    // 重新读取当前配置，获取实际的源目录
+    const currentConfig = loadConfig()
+    const oldPath = currentConfig.dataDirectory
+    
+    console.log('Migration: from', oldPath, 'to', newPath)
+    
+    if (oldPath === newPath) {
+        return { success: true }
+    }
+    
+    try {
+        // 确保新目录存在
+        if (!existsSync(newPath)) {
+            mkdirSync(newPath, { recursive: true })
+        }
+        
+        // 1. 迁移数据库文件
+        const oldDbPath = join(oldPath, 'notes.db')
+        const newDbPath = join(newPath, 'notes.db')
+        console.log('Copying database:', oldDbPath, '->', newDbPath)
+        if (existsSync(oldDbPath)) {
+            // 先执行 checkpoint 确保数据完整
+            db.pragma('wal_checkpoint(TRUNCATE)')
+            copyFileSync(oldDbPath, newDbPath)
+            console.log('Database copied successfully')
+        } else {
+            console.log('Source database not found:', oldDbPath)
+        }
+        
+        // 2. 迁移向量目录 (RAG 索引)
+        const oldVectorsPath = join(oldPath, 'vectors')
+        const newVectorsPath = join(newPath, 'vectors')
+        console.log('Copying vectors:', oldVectorsPath, '->', newVectorsPath)
+        if (existsSync(oldVectorsPath)) {
+            copyDirectorySync(oldVectorsPath, newVectorsPath)
+            console.log('Vectors copied successfully')
+        } else {
+            console.log('Source vectors not found:', oldVectorsPath)
+        }
+        
+        // 3. 迁移模型配置
+        const oldModelsPath = join(oldPath, 'models.json')
+        const newModelsPath = join(newPath, 'models.json')
+        console.log('Copying models.json:', oldModelsPath, '->', newModelsPath)
+        if (existsSync(oldModelsPath)) {
+            copyFileSync(oldModelsPath, newModelsPath)
+            console.log('Models.json copied successfully')
+        } else {
+            console.log('Source models.json not found:', oldModelsPath)
+        }
+        
+        // 4. 迁移图片目录
+        const oldImagesPath = join(oldPath, 'images')
+        const newImagesPath = join(newPath, 'images')
+        console.log('Copying images:', oldImagesPath, '->', newImagesPath)
+        if (existsSync(oldImagesPath)) {
+            copyDirectorySync(oldImagesPath, newImagesPath)
+            console.log('Images copied successfully')
+        } else {
+            console.log('Source images not found:', oldImagesPath)
+        }
+        
+        // 更新配置
+        saveConfig({ 
+            dataDirectory: newPath,
+            backupDirectory: join(newPath, 'backups')
+        })
+        
+        console.log('Migration completed successfully')
+        return { success: true }
+    } catch (e) {
+        const error = e instanceof Error ? e.message : 'Unknown error'
+        console.error('Migration failed:', error)
+        return { success: false, error }
+    }
+}
+
+// 获取数据库统计信息
+export function getDatabaseStats(): { noteCount: number; categoryCount: number; dbSize: number } {
+    const noteCount = (db.prepare('SELECT COUNT(*) as count FROM notes WHERE isDeleted = 0').get() as { count: number }).count
+    const categoryCount = (db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number }).count
+    
+    let dbSize = 0
+    try {
+        dbSize = statSync(dbPath).size
+    } catch (e) {
+        // ignore
+    }
+    
+    return { noteCount, categoryCount, dbSize }
+}
+
 // 初始化数据库
 initDatabase()
 
 // 导出数据库路径（用于显示给用户）
-export { dbPath }
+export { dbPath, appDataPath }

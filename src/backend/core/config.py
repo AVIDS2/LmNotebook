@@ -2,8 +2,34 @@
 Configuration settings for the Agent Backend.
 """
 import os
+import json
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+
+def get_user_data_directory() -> Path:
+    """Get the user-configured data directory from Electron config."""
+    # Try to read from Electron's config file
+    if os.name == 'nt':  # Windows
+        app_data = os.environ.get('APPDATA', '')
+        config_path = Path(app_data) / 'origin-notes' / 'origin-notes-config.json'
+    else:  # macOS/Linux
+        config_path = Path.home() / '.config' / 'origin-notes' / 'origin-notes-config.json'
+    
+    # Default path
+    default_path = Path.home() / "Documents" / "OriginNotes"
+    
+    try:
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                data_dir = config.get('dataDirectory')
+                if data_dir:
+                    return Path(data_dir)
+    except Exception:
+        pass
+    
+    return default_path
 
 
 class Settings(BaseSettings):
@@ -21,15 +47,18 @@ class Settings(BaseSettings):
     # Server
     PORT: int = 8765
     
-    # Paths
-    NOTES_DB_PATH: str = str(
-        Path.home() / "Documents" / "OriginNotes" / "notes.db"
-    )
+    # Paths - dynamically resolved from user config
+    @property
+    def data_directory(self) -> Path:
+        return get_user_data_directory()
     
-    # Vector store
-    VECTOR_STORE_PATH: str = str(
-        Path.home() / "Documents" / "OriginNotes" / "vectors"
-    )
+    @property
+    def NOTES_DB_PATH(self) -> str:
+        return str(self.data_directory / "notes.db")
+    
+    @property
+    def VECTOR_STORE_PATH(self) -> str:
+        return str(self.data_directory / "vectors")
     
     # Embeddings
     EMBEDDING_MODE: str = os.getenv("EMBEDDING_MODE", "api")

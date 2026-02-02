@@ -67,17 +67,73 @@ SUPERVISOR_PROMPT = """
 # ============================================================================
 
 # Shared graph instance to persist MemorySaver across requests
+# Shared resources for singleton pattern
 _shared_graph = None
+_shared_checkpointer = None
 
-def get_agent_graph():
-    """Return a singleton instance of the compiled graph."""
-    global _shared_graph
+async def get_agent_graph():
+    """Return a singleton instance of the compiled graph with SQLite checkpointer."""
+    global _shared_graph, _shared_checkpointer
+    
     if _shared_graph is None:
-        from agent.graph import create_note_agent_graph
+        from agent.graph import create_note_agent_graph, CHECKPOINT_DB_PATH
         from agent.tools import get_all_agent_tools
-        print("[Agent] Initializing shared singleton graph...")
-        _shared_graph = create_note_agent_graph(tools=get_all_agent_tools())
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        import aiosqlite
+        
+        print(f"[Agent] Initializing graph with SQLite checkpointer: {CHECKPOINT_DB_PATH}")
+        
+        # Create persistent SQLite checkpointer
+        # AsyncSqliteSaver needs to be initialized with a connection
+        conn = await aiosqlite.connect(CHECKPOINT_DB_PATH)
+        _shared_checkpointer = AsyncSqliteSaver(conn)
+        
+        # Setup the checkpointer tables
+        await _shared_checkpointer.setup()
+        
+        # Build graph with checkpointer
+        _shared_graph = await create_note_agent_graph(
+            tools=get_all_agent_tools(),
+            checkpointer=_shared_checkpointer
+        )
+        
+        print("[Agent] Graph initialized with persistent memory")
+    
     return _shared_graph
+
+
+def sanitize_message_history(messages: list) -> list:
+    """
+    Clean up message history to ensure valid tool_calls/tool_message pairs.
+    Removes orphaned tool_calls that don't have corresponding tool responses.
+    """
+    if not messages:
+        return messages
+    
+    # Find all tool_call_ids that have responses
+    responded_ids = set()
+    for msg in messages:
+        if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
+            responded_ids.add(msg.tool_call_id)
+    
+    # Filter messages: remove AIMessages with tool_calls that have no responses
+    sanitized = []
+    for msg in messages:
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            # Check if ALL tool_calls have responses
+            all_responded = all(
+                tc.get('id') in responded_ids 
+                for tc in msg.tool_calls
+            )
+            if not all_responded:
+                # Convert to regular AIMessage without tool_calls
+                from langchain_core.messages import AIMessage
+                sanitized.append(AIMessage(content=msg.content or "[Previous action was interrupted]"))
+                print(f"[Agent] Sanitized orphaned tool_calls message")
+                continue
+        sanitized.append(msg)
+    
+    return sanitized
 
 
 class AgentSupervisor:
@@ -94,12 +150,18 @@ class AgentSupervisor:
         self.tools = get_all_agent_tools()
         self.session_manager = SessionManager()
         
-        # Use the singleton graph instance for persistent memory
-        self.graph = get_agent_graph()
+        # Graph will be initialized lazily in invoke_stream
+        self.graph = None
         
         # Keep model_with_tools for legacy compatibility
         self.model_with_tools = self.llm.bind_tools(self.tools)
         self.tools_map = {tool.name: tool for tool in self.tools}
+    
+    async def _ensure_graph(self):
+        """Lazily initialize the graph with SQLite checkpointer."""
+        if self.graph is None:
+            self.graph = await get_agent_graph()
+        return self.graph
     
     async def invoke_stream(
         self,
@@ -122,7 +184,7 @@ class AgentSupervisor:
         
         Args:
             message: User message
-            session_id: Session ID for state persistence
+            session_id: Session ID for state persistence (persisted to SQLite)
             history: Deprecated, ignored
             note_context: Current note content
             active_note_id: Current note ID
@@ -135,6 +197,9 @@ class AgentSupervisor:
         Yields:
             JSON strings in SSE format (compatible with existing frontend)
         """
+        # Ensure graph is initialized
+        graph = await self._ensure_graph()
+        
         # ================================================================
         # STEP 1: Build context (same as before)
         # ================================================================
@@ -160,8 +225,8 @@ class AgentSupervisor:
                 print(f"[Agent] Failed to load referenced note context: {e}")
         
         # ================================================================
-        # STEP 1: Build initial state for LangGraph
-        # ================================================
+        # STEP 2: Build initial state for LangGraph
+        # ================================================================
         initial_state = create_initial_state(
             session_id=session_id,
             active_note_id=active_note_id,
@@ -178,7 +243,7 @@ class AgentSupervisor:
         initial_state["messages"] = [HumanMessage(content=message)]
         
         # ================================================================
-        # STEP 2: LangGraph config with thread_id for checkpointing
+        # STEP 3: LangGraph config with thread_id for checkpointing
         # ================================================================
         config = {
             "configurable": {
@@ -187,13 +252,13 @@ class AgentSupervisor:
         }
         
         # ================================================================
-        # STEP 3: Stream via LangGraph with SSE adapter
+        # STEP 4: Stream via LangGraph with SSE adapter
         # ================================================================
         try:
             print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
             
             async for sse_chunk in langgraph_stream_to_sse(
-                self.graph,
+                graph,
                 initial_state,
                 config
             ):
@@ -202,10 +267,29 @@ class AgentSupervisor:
             yield json.dumps({"type": "status", "text": ""})  # Clear status
             
         except Exception as e:
+            error_str = str(e)
             print(f"[Agent] LangGraph stream error: {e}")
             import traceback
             traceback.print_exc()
-            yield json.dumps({"error": str(e)})
+            
+            # Check if this is a corrupted checkpoint error (orphaned tool_calls)
+            if "tool_calls" in error_str and "tool_call_id" in error_str:
+                print(f"[Agent] Detected corrupted checkpoint for session {session_id}, clearing...")
+                try:
+                    # Clear the corrupted checkpoint by deleting from SQLite
+                    from agent.graph import CHECKPOINT_DB_PATH
+                    import aiosqlite
+                    async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                        await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+                        await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+                        await db.commit()
+                    print(f"[Agent] Cleared corrupted checkpoint, please retry")
+                    yield json.dumps({"error": "Session history was corrupted and has been cleared. Please try again."})
+                except Exception as cleanup_err:
+                    print(f"[Agent] Failed to clear checkpoint: {cleanup_err}")
+                    yield json.dumps({"error": f"AI service error: {error_str}"})
+            else:
+                yield json.dumps({"error": str(e)})
     
     async def classify_intent(self, query: str) -> str:
         """

@@ -73,6 +73,62 @@ export interface DatabaseAPI {
 
   // 获取数据库路径
   getPath: () => Promise<string>
+  
+  // 获取数据目录路径
+  getDataPath: () => Promise<string>
+  
+  // 获取默认数据目录
+  getDefaultDataPath: () => Promise<string>
+  
+  // 获取数据库统计
+  getStats: () => Promise<{ noteCount: number; categoryCount: number; dbSize: number }>
+}
+
+// 配置类型
+export interface AppConfig {
+  dataDirectory: string
+  autoBackup: boolean
+  backupDirectory: string
+  maxBackups: number
+}
+
+// 备份信息类型
+export interface BackupInfo {
+  filename: string
+  path: string
+  size: number
+  createdAt: number
+}
+
+export interface ConfigAPI {
+  get: () => Promise<AppConfig>
+  save: (config: Partial<AppConfig>) => Promise<AppConfig>
+}
+
+export interface BackupAPI {
+  create: (customPath?: string) => Promise<BackupInfo | null>
+  list: () => Promise<BackupInfo[]>
+  restore: (backupPath: string) => Promise<boolean>
+}
+
+export interface DataAPI {
+  migrate: (newPath: string) => Promise<{ success: boolean; error?: string }>
+}
+
+export interface DialogAPI {
+  selectDirectory: (options?: { title?: string; defaultPath?: string }) => Promise<{ success: boolean; path?: string }>
+}
+
+export interface ShellAPI {
+  openPath: (path: string) => Promise<string>
+}
+
+export interface ImageAPI {
+  store: (base64DataUrl: string) => Promise<string>
+  load: (imageRef: string) => Promise<string | null>
+  delete: (imageRef: string) => Promise<boolean>
+  getStats: () => Promise<{ count: number; totalSize: number }>
+  cleanup: (usedImageRefs: string[]) => Promise<number>
 }
 
 export interface IElectronAPI {
@@ -84,6 +140,12 @@ export interface IElectronAPI {
   importFile: (options: ImportOptions) => Promise<ImportResult>
   platform: string
   db: DatabaseAPI
+  config: ConfigAPI
+  backup: BackupAPI
+  data: DataAPI
+  dialog: DialogAPI
+  shell: ShellAPI
+  image: ImageAPI
 }
 
 declare global {
