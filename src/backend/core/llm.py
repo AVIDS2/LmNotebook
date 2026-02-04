@@ -11,6 +11,15 @@ from core.config import settings
 from core.model_manager import model_manager
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 # Global client instance
 _llm: ChatOpenAI = None
 
@@ -65,7 +74,7 @@ def get_llm(model: Optional[str] = None) -> ChatOpenAI:
     if model is None:
         _llm = llm
         
-    print(f"[OK] LLM configured ({active_provider['name'] if active_provider else 'Default'}): {target_model}")
+    safe_print(f"[OK] LLM configured ({active_provider['name'] if active_provider else 'Default'}): {target_model}")
     return llm
 
 

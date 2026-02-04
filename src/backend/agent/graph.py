@@ -27,13 +27,21 @@ from core.llm import get_llm
 from core.config import settings
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 # ============================================================================
 # CONSTANTS
 # ============================================================================
 
-MAX_TOOL_CALLS = 10  # Maximum tool execution rounds (increased for complex tasks)
+MAX_TOOL_CALLS = 25  # Maximum tool execution rounds (supports complex multi-step tasks)
 DOOM_LOOP_THRESHOLD = 3  # Same tool+input triggers safety stop (OpenCode style)
-MAX_RECOVER = 2  # Maximum recover attempts before forced end
 
 # Write operations: success = workflow done
 WRITE_TOOLS = {"delete_note", "create_note", "rename_note", "update_note", "set_note_category"}
@@ -120,8 +128,6 @@ class NoteAgentGraph:
         workflow.add_node("run_one_tool", self._run_one_tool_node)
         workflow.add_node("status", self._status_node)
         
-        workflow.add_node("recover", self._recover_node)
-        
         # ====== Add Edges ======
         # Entry point
         workflow.add_edge(START, "router")
@@ -139,25 +145,20 @@ class NoteAgentGraph:
         # Fast chat → End
         workflow.add_edge("fast_chat", END)
         
-        # Agent → 3-way branch (continue/recover/end)
+        # Agent → 2-way branch (continue/end)
         workflow.add_conditional_edges(
             "agent",
             self._should_continue,
             {
-                "continue": "pick_one_tool",  # Changed: go to pick_one first
-                "recover": "recover",
+                "continue": "pick_one_tool",
                 "end": END
             }
         )
         
-        # NEW: chat-tool-chat pipeline
         # pick_one_tool → run_one_tool → status → agent (loop)
         workflow.add_edge("pick_one_tool", "run_one_tool")
         workflow.add_edge("run_one_tool", "status")
         workflow.add_edge("status", "agent")
-        
-        # Recover → Agent (retry with prompt)
-        workflow.add_edge("recover", "agent")
         
         # ====== Compile with Checkpointer ======
         # Use provided checkpointer or the one set during init
@@ -217,10 +218,10 @@ class NoteAgentGraph:
                 HumanMessage(content=classification_prompt.format(context=context_summary))
             ])
             intent = resp.content.strip().upper()
-            print(f"[ROUTER] Context-aware intent: {intent}")
+            safe_print(f"[ROUTER] Context-aware intent: {intent}")
             return {"intent": "TASK" if "TASK" in intent else "CHAT"}
         except Exception as e:
-            print(f"[ROUTER] Error in classification: {e}")
+            safe_print(f"[ROUTER] Error in classification: {e}")
             return {"intent": "TASK"} # Default to TASK to be safe
     
     def _route_by_intent(self, state: NoteAgentState) -> Literal["CHAT", "TASK"]:
@@ -257,7 +258,7 @@ class NoteAgentGraph:
         
         # ========== Current Note Context ==========
         if state.get("active_note_id"):
-            context_parts.append("📝 CURRENT NOTE:")
+            context_parts.append("CURRENT NOTE:")
             context_parts.append(f"  - ID: {state['active_note_id']}")
             if state.get("active_note_title"):
                 context_parts.append(f"  - Title: {state['active_note_title']}")
@@ -267,7 +268,7 @@ class NoteAgentGraph:
         
         # ========== Referenced Note (if different from active) ==========
         if state.get("context_note_id") and state.get("context_note_id") != state.get("active_note_id"):
-            context_parts.append("\n📎 REFERENCED NOTE:")
+            context_parts.append("\nREFERENCED NOTE:")
             context_parts.append(f"  - ID: {state['context_note_id']}")
             if state.get("context_note_title"):
                 context_parts.append(f"  - Title: {state['context_note_title']}")
@@ -275,22 +276,22 @@ class NoteAgentGraph:
         # ========== Content Preview ==========
         if state.get("note_content"):
             content_preview = state["note_content"][:300]
-            context_parts.append(f"\n📄 CONTENT PREVIEW:\n{content_preview}...")
+            context_parts.append(f"\nCONTENT PREVIEW:\n{content_preview}...")
         
         # ========== Selected Text ==========
         if state.get("selected_text"):
-            context_parts.append(f"\n✨ SELECTED TEXT:\n{state['selected_text']}")
+            context_parts.append(f"\nSELECTED TEXT:\n{state['selected_text']}")
 
         # ========== Knowledge Search Flag (@) ==========
         if state.get("use_knowledge"):
-            context_parts.append("\n⚠️ CRITICAL INSTRUCTION:")
+            context_parts.append("\n[CRITICAL INSTRUCTION]")
             context_parts.append("  - The user explicitly requested to search the KNOWLEDGE BASE.")
             context_parts.append("  - You MUST call `search_knowledge` BEFORE answering.")
             context_parts.append("  - Use the user's query as the search term.")
         
         # ========== Note Structure Explanation ==========
         context_parts.append("""
-📘 NOTE STRUCTURE:
+NOTE STRUCTURE:
 A note has two distinct parts:
 - title: The note's name (modify with rename_note)
 - content: The note's body text (modify with update_note)
@@ -412,17 +413,17 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
         """
         last_tool_name = state.get("last_tool_name", "")
         
-        # Status message templates
+        # Status message templates (no emoji for Windows GBK encoding safety)
         STATUS_TEMPLATES = {
-            "delete_note": "✅ 删除完成，继续下一步...",
-            "create_note": "✅ 笔记创建成功！",
-            "rename_note": "✅ 标题已更新，继续下一步...",
-            "update_note": "✅ 笔记内容已更新！",
-            "set_note_category": "✅ 分类已设置！",
-            "list_recent_notes": "📄 已获取笔记列表，继续处理...",
-            "search_knowledge": "🔍 搜索完成，分析结果中...",
-            "read_note_content": "📖 已读取笔记内容，继续处理...",
-            "list_categories": "📁 已获取分类列表...",
+            "delete_note": "[Done] Note deleted",
+            "create_note": "[Done] Note created",
+            "rename_note": "[Done] Title updated",
+            "update_note": "[Done] Content updated",
+            "set_note_category": "[Done] Category set",
+            "list_recent_notes": "[Done] Notes listed",
+            "search_knowledge": "[Done] Search complete",
+            "read_note_content": "[Done] Content loaded",
+            "list_categories": "[Done] Categories loaded",
         }
         
         status_text = STATUS_TEMPLATES.get(last_tool_name, f"✓ {last_tool_name} 执行完成")
@@ -433,18 +434,17 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
             additional_kwargs={"type": "status_message"}
         )
         
-        print(f"[STATUS] Generating marked status message: {status_text}")
+        safe_print(f"[STATUS] Generating marked status message: {status_text}")
         
         return {"messages": [status_message]}
     
-    def _should_continue(self, state: NoteAgentState) -> Literal["continue", "recover", "end"]:
+    def _should_continue(self, state: NoteAgentState) -> Literal["continue", "end"]:
         """
-        Workflow state machine: determine whether to continue, recover, or end.
+        Workflow state machine: determine whether to continue or end.
         
-        3-way branching:
+        2-way branching:
         - "continue": has tool_calls → execute tools
-        - "recover": no tool_calls + workflow not done + has executed tools → retry
-        - "end": workflow done OR first response is text-only OR recover exhausted
+        - "end": no tool_calls OR max turns reached
         """
         messages = state.get("messages", [])
         if not messages:
@@ -458,41 +458,8 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
                 return "end"
             return "continue"
         
-        # 2. Workflow already done (write operation succeeded) → end
-        if state.get("workflow_done", False):
-            return "end"
-        
-        # 3. [REMOVED] Aggressive recovery caused double-generation. 
-        # If the agent outputs text without tool calls, we assume it's the final answer.
-        # This prevents the "Double Summary" bug.
-        
-        # 4. Otherwise → end (response is text-only, task complete)
+        # 2. No tool_calls → task complete, end
         return "end"
-    
-    def _recover_node(self, state: NoteAgentState) -> dict:
-        """
-        Recovery node: when model output text but no tool_calls, prompt to continue or finish.
-        Uses SystemMessage to ensure high priority.
-        """
-        recover_count = state.get("recover_count", 0)
-        last_tool_name = state.get("last_tool_name", "")
-        
-        recover_prompt = f"""[SYSTEM] 上一步执行了工具 {last_tool_name}。
-
-如果任务还没完成，请继续调用下一个工具。
-如果所有工作已完成，请给出简短的完成确认（不要调用工具）。
-
-直接行动，不要解释。"""
-
-        messages = list(state.get("messages", []))
-        messages.append(SystemMessage(content=recover_prompt))
-        
-        response = self.model_with_tools.invoke(messages)
-        
-        return {
-            "messages": [response],
-            "recover_count": recover_count + 1
-        }
 
 
 # ============================================================================

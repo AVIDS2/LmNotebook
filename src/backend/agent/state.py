@@ -59,9 +59,8 @@ class NoteAgentState(TypedDict, total=False):
     # Feature flags
     use_knowledge: bool
     
-    # Workflow state machine (robust multi-step task handling)
+    # Workflow state machine
     workflow_done: bool       # System-level task completion flag
-    recover_count: int        # Prevent infinite recover loops
     next_tool_call: Optional[dict]  # Single tool to execute (for chat-tool-chat pattern)
 
 
@@ -92,6 +91,5 @@ def create_initial_state(
         session_id=session_id,
         use_knowledge=use_knowledge,
         workflow_done=False,
-        recover_count=0,
         next_tool_call=None,
     )

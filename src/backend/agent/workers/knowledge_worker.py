@@ -9,6 +9,15 @@ from core.config import settings
 from services.rag_service import RAGService
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 # Enterprise Knowledge Worker Prompt
 KNOWLEDGE_SYSTEM_PROMPT = """<system>
 你是知识检索专家。你的任务是在用户的笔记库中找到最相关的信息。
@@ -52,17 +61,17 @@ def create_knowledge_worker(llm) -> Callable:
                 "tool_calls": ["search_notes"],
             }
         
-        print(f"[SEARCH] Knowledge Agent processing: {query}")
+        safe_print(f"[SEARCH] Knowledge Agent processing: {query}")
         
         # Enterprise Pattern: LLM decides the strategy (Search vs List vs Recent)
         plan = await _plan_knowledge_action(llm, query)
-        print(f"[PLAN] Knowledge Plan: {plan}")
+        safe_print(f"[PLAN] Knowledge Plan: {plan}")
         
         if plan['action'] == 'list_recent':
-            return await _list_notes(rag_service, llm, query, title_prefix="🕒 **最近的笔记**", limit=plan.get('limit', 8), require_summary=plan.get('require_summary', False))
+            return await _list_notes(rag_service, llm, query, title_prefix="**Recent Notes**", limit=plan.get('limit', 8), require_summary=plan.get('require_summary', False))
             
         elif plan['action'] == 'list_all':
-            return await _list_notes(rag_service, llm, query, title_prefix="📚 **你的笔记列表**", limit=plan.get('limit', 10), require_summary=plan.get('require_summary', False))
+            return await _list_notes(rag_service, llm, query, title_prefix="**Your Notes**", limit=plan.get('limit', 10), require_summary=plan.get('require_summary', False))
             
         elif plan['action'] == 'search':
             # Execute semantic search
@@ -76,7 +85,7 @@ def create_knowledge_worker(llm) -> Callable:
             title_match = re.search(r'[「《](.*?)[」》]', query)
             if title_match:
                 specific_title = title_match.group(1)
-                print(f"[READ] Detected specific note title: {specific_title}, fetching full content...")
+                safe_print(f"[READ] Detected specific note title: {specific_title}, fetching full content...")
                 from services.note_service import NoteService
                 note_svc = NoteService()
                 # We need a method to find by title, for now let's iterate or rely on search result ID if available
@@ -168,11 +177,11 @@ Plan:"""
         plan = json.loads(content)
         return plan
     except Exception as e:
-        print(f"[WARN] Planning failed, defaulting to search: {e}")
+        safe_print(f"[WARN] Planning failed, defaulting to search: {e}")
         return {"action": "search", "query": query}
 
 
-async def _list_notes(rag_service: RAGService, llm, query: str, title_prefix="📚 **你的笔记**", limit=8, require_summary=False) -> Dict[str, Any]:
+async def _list_notes(rag_service: RAGService, llm, query: str, title_prefix="**Your Notes**", limit=8, require_summary=False) -> Dict[str, Any]:
     """List notes, optionally summarizing them if requested by Planner."""
     notes = await rag_service.list_all_notes(limit=limit)
     
@@ -185,13 +194,13 @@ async def _list_notes(rag_service: RAGService, llm, query: str, title_prefix="�
     # SIMPLE LIST MODE
     if not require_summary:
         note_list = "\n".join([f"• **「{n['title']}」**" for n in notes])
-        response = f"{title_prefix}（共 {len(notes)} 篇）\n\n{note_list}\n\n💡 你可以直接问我关于这些笔记的具体问题。"
+        response = f"{title_prefix} ({len(notes)} total)\n\n{note_list}\n\nYou can ask me about any of these notes."
         return {"response": response, "tool_calls": ["search_notes"]}
 
     # DEEP SUMMARY MODE
     # If user wants summary/outline, we must fetch CONTENT.
     # To avoid context explosion, we limit to top 5 notes for summary or just read first 500 chars
-    print("[THINK] Generating deep summary for notes listing...")
+    safe_print("[THINK] Generating deep summary for notes listing...")
     
     # Fetch content (RAGService list_all_notes usually returns content="" for perf, so we might need re-fetch or use what we have)
     # The current list_all_notes implementation (based on previous edits) might return empty content.
@@ -222,7 +231,7 @@ async def _list_notes(rag_service: RAGService, llm, query: str, title_prefix="�
 用户指令：{query}
 
 输出格式：
-### 📚 知识库概览
+### Knowledge Overview
 - **[标题]**: 核心内容一句话总结...
 ...
 """
@@ -253,4 +262,4 @@ async def _synthesize_response(llm, query: str, results: list) -> str:
         return response.content
     except Exception as e:
         # Fallback: just show the results
-        return f"📚 **参考笔记**\n\n{context}"
+        return f"**Reference Notes**\n\n{context}"

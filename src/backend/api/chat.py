@@ -11,6 +11,16 @@ from agent.supervisor import AgentSupervisor
 router = APIRouter()
 
 
+# Safe print for Windows GBK encoding (removes emoji that can't be encoded)
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        # Replace unencodable characters
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 class ChatMessage(BaseModel):
     """A single chat message."""
     role: str = Field(..., description="Role: 'user' or 'assistant'")
@@ -66,7 +76,7 @@ async def invoke_agent(request: ChatRequest):
         )
     except Exception as e:
         import traceback
-        print(f"❌ Chat API Error: {e}")
+        safe_print(f"[ERR] Chat API Error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -85,7 +95,7 @@ async def stream_agent(request: ChatRequest):
         start_time = time.time()
         try:
             supervisor = AgentSupervisor()
-            print(f">> Starting stream for: {request.message[:50]}... (Session: {request.session_id})")
+            safe_print(f">> Starting stream for: {request.message[:50]}... (Session: {request.session_id})")
             async for chunk in supervisor.invoke_stream(
                 message=request.message,
                 session_id=request.session_id,
@@ -100,7 +110,7 @@ async def stream_agent(request: ChatRequest):
             ):
                 chunk_count += 1
                 elapsed = time.time() - start_time
-                print(f">> Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
+                safe_print(f">> Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
                 
                 # Check if chunk is already a JSON message (status, tool_call, or text)
                 if isinstance(chunk, str) and chunk.startswith('{'):
@@ -109,10 +119,10 @@ async def stream_agent(request: ChatRequest):
                     # Fallback for any raw text (shouldn't happen now)
                     encoded = json.dumps({"text": chunk})
                     yield f"data: {encoded}\n\n"
-            print(f">> Stream complete: {chunk_count} chunks in {time.time() - start_time:.2f}s")
+            safe_print(f">> Stream complete: {chunk_count} chunks in {time.time() - start_time:.2f}s")
             yield "data: [DONE]\n\n"
         except Exception as e:
-            print(f"X Stream error: {e}")
+            safe_print(f"[ERR] Stream error: {e}")
             error_msg = json.dumps({"error": str(e)})
             yield f"data: {error_msg}\n\n"
     
@@ -217,7 +227,7 @@ async def _get_checkpoint_messages(checkpoint_db: str, thread_id: str):
             
             return messages
     except Exception as e:
-        print(f"[API] Error getting checkpoint messages: {e}")
+        safe_print(f"[API] Error getting checkpoint messages: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -276,7 +286,7 @@ async def list_sessions():
         
         return {"sessions": sessions}
     except Exception as e:
-        print(f"[API] Error listing sessions: {e}")
+        safe_print(f"[API] Error listing sessions: {e}")
         import traceback
         traceback.print_exc()
         return {"sessions": []}
@@ -325,5 +335,5 @@ async def delete_session(session_id: str):
         
         return {"status": "success", "deleted": session_id}
     except Exception as e:
-        print(f"[API] Error deleting session: {e}")
+        safe_print(f"[API] Error deleting session: {e}")
         raise HTTPException(status_code=500, detail=str(e))

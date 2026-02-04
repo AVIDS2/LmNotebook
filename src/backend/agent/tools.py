@@ -10,6 +10,14 @@ import json
 import re
 import markdown
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
 # Instantiate services
 note_service = NoteService()
 rag_service = RAGService()
@@ -21,7 +29,7 @@ async def search_knowledge(query: str) -> str:
     Use this when the user asks a question about their knowledge base, 
     asks 'what do I have on X', or needs to find related information.
     """
-    print(f"[TOOL] Tool: search_knowledge -> {query}")
+    safe_print(f"[TOOL] Tool: search_knowledge -> {query}")
     results = await rag_service.search(query, top_k=5)
     if not results:
         return "No relevant notes found for this query."
@@ -38,7 +46,7 @@ async def read_note_content(note_id: str) -> str:
     Read the full, detailed content of a specific note by its ID.
     Use this when you need the exact text of 'the current note' or a specific note found via search.
     """
-    print(f"[TOOL] Tool: read_note_content -> {note_id}")
+    safe_print(f"[TOOL] Tool: read_note_content -> {note_id}")
     note = await note_service.get_note(note_id)
     if not note:
         return f"Error: Note with ID {note_id} not found."
@@ -58,7 +66,7 @@ async def rename_note(note_id: str, new_title: str) -> str:
     NOTE: This changes the note's TITLE, not its content. 
     To modify content, use update_note instead.
     """
-    print(f"[TOOL] Tool: rename_note -> ID: {note_id}, New Title: {new_title}")
+    safe_print(f"[TOOL] Tool: rename_note -> ID: {note_id}, New Title: {new_title}")
     
     note = await note_service.get_note(note_id)
     if not note:
@@ -75,7 +83,7 @@ async def list_recent_notes(limit: int = 8) -> str:
     List the most recently updated or created notes.
     Use this when the user asks 'what did I write recently' or 'show all my notes'.
     """
-    print(f"[TOOL] Tool: list_recent_notes -> limit={limit}")
+    safe_print(f"[TOOL] Tool: list_recent_notes -> limit={limit}")
     notes = await rag_service.list_all_notes(limit=limit)
     if not notes:
         return "There are no notes in the database yet."
@@ -90,8 +98,16 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
     - note_id: The ID of the note to update.
     - instruction: Precise editing instructions (e.g., 'Add a paragraph', 'Fix typo').
     - force_rewrite: Set to True ONLY if the user wants to start over with a new topic.
+    
+    SPECIAL CASE - FORMAT/ORGANIZE INSTRUCTIONS:
+    When the instruction contains words like "整理格式", "format", "organize", "排版":
+    - DO NOT change any original text content
+    - DO NOT add, remove, or modify any words
+    - ONLY adjust: headings, bullet points, spacing, code blocks, emphasis
+    - Create clear visual hierarchy with proper Markdown structure
+    - Preserve ALL original information exactly as written
     """
-    print(f"[TOOL] Tool: update_note -> ID: {note_id}, Instr: {instruction}")
+    safe_print(f"[TOOL] Tool: update_note -> ID: {note_id}, Instr: {instruction}")
     
     # 1. Fetch current content
     note = await note_service.get_note(note_id)
@@ -105,7 +121,7 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
     image_pattern = r'<img[^>]+>'
     existing_img_tags = re.findall(image_pattern, html_content_original)
     if existing_img_tags:
-        print(f"[TOOL] Found {len(existing_img_tags)} existing image(s) to preserve")
+        safe_print(f"[TOOL] Found {len(existing_img_tags)} existing image(s) to preserve")
     
     # 2. Heuristic check for "Clear" intent
     destructive_keywords = ["clear all", "empty content"]
@@ -132,12 +148,21 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
         user_prompt = f"Writing request: {instruction}"
     else:
         sys_prompt = """You are a precise text editing assistant.
-Rules:
+
+RULES:
 1. Output ONLY the final edited Markdown content.
 2. NO explanations, greetings, or summaries.
 3. If asked to clear/delete, output empty string.
 4. Preserve Markdown formatting.
-5. Do NOT handle images - they are preserved automatically."""
+5. Do NOT handle images - they are preserved automatically.
+
+SPECIAL RULE FOR FORMAT/ORGANIZE REQUESTS:
+If the user asks to "format", "organize", "tidy up", "整理格式", "排版", or similar:
+- DO NOT change any text content (no adding, removing, or rephrasing words)
+- ONLY adjust structure: headings, lists, code blocks, emphasis, spacing
+- Create clear visual hierarchy
+- The output must contain the EXACT same words as input
+- IMPORTANT: If you see repeating patterns that look like table data (e.g., header words followed by corresponding values in groups), reconstruct them as Markdown tables using | syntax"""
         user_prompt = f"Original content:\n---\n{current_content}\n---\nEdit instruction: {instruction}\n\nOutput the edited content directly:"
 
     response = await llm.ainvoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
@@ -158,7 +183,7 @@ Rules:
     
     # IMAGE PRESERVATION: Append existing images at the end
     if existing_img_tags:
-        print(f"[TOOL] Preserving {len(existing_img_tags)} image(s) in updated content")
+        safe_print(f"[TOOL] Preserving {len(existing_img_tags)} image(s) in updated content")
         for img_tag in existing_img_tags:
             html_content += f"\n<p>{img_tag}</p>"
     
@@ -173,7 +198,7 @@ async def create_note(title: str, content: str) -> str:
     - title: Clear, concise title for the note.
     - content: Full note body in Markdown. (Only create content the user asked for).
     """
-    print(f"[TOOL] Tool: create_note -> {title}")
+    safe_print(f"[TOOL] Tool: create_note -> {title}")
     
     # Fix: Clean up excessive blank lines
     content = re.sub(r'\n{3,}', '\n\n', content)
@@ -193,7 +218,7 @@ async def delete_note(note_id: str) -> str:
     Delete a specific note by its ID.
     Use this ONLY when the user explicitly asks to 'delete', 'remove', or 'trash' a note.
     """
-    print(f"[TOOL] Tool: delete_note -> {note_id}")
+    safe_print(f"[TOOL] Tool: delete_note -> {note_id}")
     success = await note_service.delete_note(note_id)
     if success:
         return f"Successfully deleted note {note_id}."
@@ -206,7 +231,7 @@ async def list_categories() -> str:
     Use this when you need to know what categories exist, or when the user asks about their categories.
     IMPORTANT: When using set_note_category, you MUST use the exact category_id returned here.
     """
-    print(f"[TOOL] Tool: list_categories")
+    safe_print(f"[TOOL] Tool: list_categories")
     categories = await note_service.get_all_categories()
     if not categories:
         return "No categories exist yet. The user can create categories in the sidebar."
@@ -222,13 +247,13 @@ async def set_note_category(note_id: str, category_id: str) -> str:
     - category_id: The exact ID of the category to assign. Use list_categories first.
     - TO REMOVE A CATEGORY: Pass an empty string "" as the category_id.
     """
-    print(f"[TOOL] Tool: set_note_category -> Note: {note_id}, Category: '{category_id}'")
+    safe_print(f"[TOOL] Tool: set_note_category -> Note: {note_id}, Category: '{category_id}'")
     
     # Handle 'clear category' intent
     if not category_id or category_id.lower() in ["none", "null", "undefined"]:
         success = await note_service.set_note_category(note_id, None)
         if success:
-            print("[TOOL] Successfully cleared category (set to Uncategorized)")
+            safe_print("[TOOL] Successfully cleared category (set to Uncategorized)")
             return "Successfully removed category from note (it is now Uncategorized)."
         return f"Error: Failed to update note {note_id}."
 

@@ -9,6 +9,15 @@ from langchain_core.prompts import ChatPromptTemplate
 from services.note_service import NoteService
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 NOTE_SYSTEM_PROMPT = """你是笔记管理专家。你可以帮助用户创建、编辑和管理他们的笔记。
 
 ## 你可以执行的操作：
@@ -37,7 +46,7 @@ def create_note_worker(llm) -> Callable:
         
         # Parse the intent from worker input with history
         intent = await _parse_note_intent(llm, worker_input, messages)
-        print(f"[NOTE] Note Worker Intent: {intent}")
+        safe_print(f"[NOTE] Note Worker Intent: {intent}")
         
         import json
         
@@ -84,7 +93,7 @@ def create_note_worker(llm) -> Callable:
                 
                 # HEURISTIC REMOVED: Now relying on LLM's "force_rewrite" flag
                 if intent.get("force_rewrite", False):
-                    print(f"[WARN] Force Overwrite triggered by LLM intent.")
+                    safe_print(f"[WARN] Force Overwrite triggered by LLM intent.")
                     note_context = "" # FORCE EMPTY CONTEXT
             
                 if note_context and len(note_context) > 10:
@@ -156,10 +165,10 @@ def create_note_worker(llm) -> Callable:
                 response = json.dumps({
                     "tool_call": "note_summarized",
                     "content": summary,
-                    "message": f"📋 **内容摘要**：\n\n{summary}"
+                    "message": f"**Summary**:\n\n{summary}"
                 })
             else:
-                response = "🤔 我需要知道你想总结哪篇笔记。请先打开一篇笔记，或者告诉我笔记的标题。"
+                response = "I need to know which note you want to summarize. Please open a note first, or tell me the title."
         else:
             response = "请告诉我你想对笔记做什么操作：创建、修改、删除或总结？"
         

@@ -5,6 +5,15 @@ from typing import Dict, Any, Callable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 # Enterprise Format Worker Prompt
 FORMAT_SYSTEM_PROMPT = """<system>
 你是文本美化专家。将混乱的文本转化为清晰、专业的 Markdown 格式。
@@ -55,7 +64,7 @@ def create_format_worker(llm) -> Callable:
                 "tool_calls": ["format_text"],
             }
         
-        print(f"[FMT] Formatting text ({len(text_to_format)} chars)")
+        safe_print(f"[FMT] Formatting text ({len(text_to_format)} chars)")
         
         try:
             response = llm.invoke([
@@ -66,12 +75,12 @@ def create_format_worker(llm) -> Callable:
             formatted = response.content.strip()
             
             return {
-                "response": f"✨ **格式化完成**\n\n{formatted}",
+                "response": f"**Format Complete**\n\n{formatted}",
                 "formatted_text": formatted,
                 "tool_calls": ["format_text"],
             }
         except Exception as e:
-            print(f"[ERR] Format error: {e}")
+            safe_print(f"[ERR] Format error: {e}")
             return {
                 "response": "格式化时出现问题，请稍后再试。",
                 "tool_calls": ["format_text"],

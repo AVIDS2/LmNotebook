@@ -4,6 +4,15 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from core.config import settings
 
+
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
 class ModelProvider:
     def __init__(self, id: str, name: str, baseUrl: str, apiKey: str, modelName: str, isActive: bool = False):
         self.id = id
@@ -61,7 +70,7 @@ class ModelManager:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     self.providers = json.load(f)
             except Exception as e:
-                print(f"[ERROR] Failed to load models.json: {e}")
+                safe_print(f"[ERROR] Failed to load models.json: {e}")
                 self.providers = []
 
     def _save_config(self):
@@ -70,7 +79,7 @@ class ModelManager:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(self.providers, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[ERROR] Failed to save models.json: {e}")
+            safe_print(f"[ERROR] Failed to save models.json: {e}")
 
     def get_providers(self) -> List[Dict[str, Any]]:
         return self.providers

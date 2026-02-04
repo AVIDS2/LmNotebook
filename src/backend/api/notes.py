@@ -10,6 +10,15 @@ from services.note_service import NoteService
 router = APIRouter()
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 class NoteCreate(BaseModel):
     """Note creation payload."""
     title: str = Field(..., description="Note title")
@@ -181,8 +190,8 @@ async def sync_note_vector(request: VectorSyncRequest):
             request.title,
             request.content
         )
-        print(f"[API] Vector synced for note: {request.title}")
+        safe_print(f"[API] Vector synced for note: {request.title}")
         return {"status": "success", "note_id": request.note_id}
     except Exception as e:
-        print(f"[API] Vector sync error: {e}")
+        safe_print(f"[API] Vector sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

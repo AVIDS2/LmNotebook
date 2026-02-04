@@ -6,7 +6,15 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('core', 'core'), ('agent', 'agent'), ('services', 'services'), ('api', 'api')],
-    hiddenimports=['uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on', 'engineio.async_drivers.aiohttp'],
+    hiddenimports=[
+        'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 
+        'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 
+        'uvicorn.lifespan', 'uvicorn.lifespan.on', 
+        'engineio.async_drivers.aiohttp',
+        'langgraph.checkpoint.sqlite',
+        'langgraph.checkpoint.sqlite.aio',
+        'aiosqlite'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -21,7 +29,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='origin-backend',
+    name='origin_backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -40,5 +48,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='origin-backend',
+    name='origin_backend',
 )

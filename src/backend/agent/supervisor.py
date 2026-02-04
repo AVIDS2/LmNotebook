@@ -28,38 +28,20 @@ from agent.state import NoteAgentState, create_initial_state
 from agent.graph import create_note_agent_graph, NoteAgentGraph
 from agent.stream_adapter import langgraph_stream_to_sse
 
+
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
 # Import session manager for state persistence
 from core.session_manager import SessionManager
 
 
-# ============================================================================
-# LEGACY PROMPTS (kept for reference and fast_chat fallback)
-# ============================================================================
-
-SUPERVISOR_PROMPT = """
-你是一个拥有自主性、思考能力的企业级知识助手 "Origin"。
-你的工作模式是基于 **ReAct (Reasoning and Acting)** 框架的。
-
-### 核心准则：
-1. **工具决策自理**：当用户提出问题，你首先分析：我是否需要查阅现有的笔记？还是这属于"通用百科知识"？
-2. **拒绝无意义搜索**：
-   - 如果问题属于**通用知识**（Python 语法、历史事件、科学常识），**直接回答**，禁止调用工具。
-   - 如果问题需要用户**个人笔记/数据**，再调用 `search_knowledge` 或 `read_note_content`。
-3. **工具失败时不要重复**：如果工具返回"未找到"、"无结果"，**不要再调用同一工具**，直接告知用户。
-4. **诚实第一**：当无法回答时，坦诚告知用户，而非编造信息。
-
-### 重要：操作当前笔记
-当用户提到"这篇笔记"、"当前笔记"、"这个"等指代词时：
-- 首先检查是否有 `active_note_id` 上下文
-- 如果需要读取内容，先调用 `read_note_content` 工具
-- 如果需要修改，使用 `update_note` 工具
-
-### ⚠️ 分类操作规则（严格遵守）：
-- 笔记的**分类/标签**只能通过 `set_note_category` 工具操作
-- **绝对禁止**通过 `update_note` 修改笔记内容来添加分类信息
-- 用户说"归类到 X"、"打标签"、"分类为"时 → 使用 `set_note_category`
-- 用户说"修改内容"、"编辑正文" → 使用 `update_note`
-"""
+# Note: Prompts are now loaded from prompts/*.txt files in graph.py
 
 
 # ============================================================================
@@ -81,7 +63,7 @@ async def get_agent_graph():
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         import aiosqlite
         
-        print(f"[Agent] Initializing graph with SQLite checkpointer: {CHECKPOINT_DB_PATH}")
+        safe_print(f"[Agent] Initializing graph with SQLite checkpointer: {CHECKPOINT_DB_PATH}")
         
         # Create persistent SQLite checkpointer
         # AsyncSqliteSaver needs to be initialized with a connection
@@ -97,7 +79,7 @@ async def get_agent_graph():
             checkpointer=_shared_checkpointer
         )
         
-        print("[Agent] Graph initialized with persistent memory")
+        safe_print("[Agent] Graph initialized with persistent memory")
     
     return _shared_graph
 
@@ -129,7 +111,7 @@ def sanitize_message_history(messages: list) -> list:
                 # Convert to regular AIMessage without tool_calls
                 from langchain_core.messages import AIMessage
                 sanitized.append(AIMessage(content=msg.content or "[Previous action was interrupted]"))
-                print(f"[Agent] Sanitized orphaned tool_calls message")
+                safe_print(f"[Agent] Sanitized orphaned tool_calls message")
                 continue
         sanitized.append(msg)
     
@@ -220,9 +202,9 @@ class AgentSupervisor:
                     title = context_note_title or note.get('title', 'Referenced Note')
                     content = note.get('content') or note.get('plainText') or "(Empty)"
                     context_notes_info += f"\n[EXPLICITLY REFERENCED NOTE (@)]\nTitle: {title}\nID: {context_note_id}\nContent:\n{content}\n---\n"
-                    print(f"[Agent] Loaded explicit context: {title}")
+                    safe_print(f"[Agent] Loaded explicit context: {title}")
             except Exception as e:
-                print(f"[Agent] Failed to load referenced note context: {e}")
+                safe_print(f"[Agent] Failed to load referenced note context: {e}")
         
         # ================================================================
         # STEP 2: Build initial state for LangGraph
@@ -255,7 +237,7 @@ class AgentSupervisor:
         # STEP 4: Stream via LangGraph with SSE adapter
         # ================================================================
         try:
-            print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
+            safe_print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
             
             # Pre-check: Validate checkpoint state before streaming
             # This prevents the "tool_calls must be followed by tool messages" error
@@ -283,14 +265,14 @@ class AgentSupervisor:
                                 last_msg = messages[-1]
                                 if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
                                     # Last message has tool_calls - this is a corrupted state
-                                    print(f"[Agent] Detected incomplete tool_calls in checkpoint, cleaning up...")
+                                    safe_print(f"[Agent] Detected incomplete tool_calls in checkpoint, cleaning up...")
                                     await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
                                     await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
                                     await db.commit()
-                                    print(f"[Agent] Cleaned up corrupted checkpoint for session {session_id}")
+                                    safe_print(f"[Agent] Cleaned up corrupted checkpoint for session {session_id}")
                                     yield json.dumps({"type": "status", "text": "\\u2714 Session recovered"})
             except Exception as check_err:
-                print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
+                safe_print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
             
             async for sse_chunk in langgraph_stream_to_sse(
                 graph,
@@ -303,13 +285,13 @@ class AgentSupervisor:
             
         except Exception as e:
             error_str = str(e)
-            print(f"[Agent] LangGraph stream error: {e}")
+            safe_print(f"[Agent] LangGraph stream error: {e}")
             import traceback
             traceback.print_exc()
             
             # Check if this is a corrupted checkpoint error (orphaned tool_calls)
             if "tool_calls" in error_str and "tool_call_id" in error_str:
-                print(f"[Agent] Detected corrupted checkpoint for session {session_id}, clearing...")
+                safe_print(f"[Agent] Detected corrupted checkpoint for session {session_id}, clearing...")
                 try:
                     # Clear the corrupted checkpoint by deleting from SQLite
                     from agent.graph import CHECKPOINT_DB_PATH
@@ -318,10 +300,10 @@ class AgentSupervisor:
                         await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
                         await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
                         await db.commit()
-                    print(f"[Agent] Cleared corrupted checkpoint, please retry")
+                    safe_print(f"[Agent] Cleared corrupted checkpoint, please retry")
                     yield json.dumps({"error": "Session history was corrupted and has been cleared. Please try again."})
                 except Exception as cleanup_err:
-                    print(f"[Agent] Failed to clear checkpoint: {cleanup_err}")
+                    safe_print(f"[Agent] Failed to clear checkpoint: {cleanup_err}")
                     yield json.dumps({"error": f"AI service error: {error_str}"})
             else:
                 yield json.dumps({"error": str(e)})
@@ -376,21 +358,23 @@ class AgentSupervisor:
         
         This is a simple direct LLM call, doesn't need the full graph.
         """
-        format_prompt = f"""
-        请将以下文本进行格式化和优化，保持原意并提升可读性。
-        使用 Markdown 格式输出。
+        # Build context section separately to avoid f-string backslash issues
+        context_section = ""
+        if context:
+            context_section = "Context:\n" + context + "\n\n"
         
-        {"上下文:\n" + context if context else ""}
-        
-        需要格式化的文本:
-        {text}
-        
-        格式化后的文本:
-        """
+        format_prompt = f"""Please format and optimize the following text while preserving its meaning.
+Output in Markdown format.
+
+{context_section}Text to format:
+{text}
+
+Formatted text:
+"""
         
         try:
             resp = await self.llm.ainvoke([HumanMessage(content=format_prompt)])
             return resp.content.strip()
         except Exception as e:
-            print(f"[Agent] Format error: {e}")
+            safe_print(f"[Agent] Format error: {e}")
             return text

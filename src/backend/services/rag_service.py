@@ -15,6 +15,15 @@ import aiosqlite
 from core.config import settings
 
 
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 class RAGService:
     """
     RAG service using FAISS for high-performance, stable semantic vector search.
@@ -54,7 +63,7 @@ class RAGService:
     def _get_embedding_fn(self):
         """Proxy-bypass Qwen Embedding Client."""
         if self.emb_fn is None:
-            print(f"[NET] Connecting to Cloud Embedding: {settings.EMBEDDING_MODEL}")
+            safe_print(f"[NET] Connecting to Cloud Embedding: {settings.EMBEDDING_MODEL}")
             
             class ProxyBypassEmbedder:
                 def __init__(self, api_key, api_base, model_name):
@@ -87,16 +96,16 @@ class RAGService:
                 return
 
             if self.index_file.exists() and self.meta_file.exists():
-                print("[IO] Loading FAISS index from disk...")
+                safe_print("[IO] Loading FAISS index from disk...")
                 try:
                     self.index = faiss.read_index(str(self.index_file))
                     with open(self.meta_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         self.metadata = data.get("metadata", [])
                         self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
-                    print(f"[OK] FAISS Ready. {len(self.metadata)} items loaded.")
+                    safe_print(f"[OK] FAISS Ready. {len(self.metadata)} items loaded.")
                 except Exception as e:
-                    print(f"[WARN] FAISS Load failed: {e}. Starting fresh.")
+                    safe_print(f"[WARN] FAISS Load failed: {e}. Starting fresh.")
                     self._create_empty_index()
             else:
                 self._create_empty_index()
@@ -107,37 +116,38 @@ class RAGService:
         self.index = faiss.IndexFlatIP(dimension) # Inner Product is better for normalized embeddings
         self.metadata = []
         self.id_to_idx = {}
-        print("[OK] Created fresh FAISS index.")
+        safe_print("[OK] Created fresh FAISS index.")
 
     async def _ensure_loaded(self):
         if self.index is None:
             await self._init_resources()
             
-        # Auto-Hydration: Check if we are empty but DB is not
-        if self.index.ntotal == 0:
-            try:
-                # Direct check on DB to identify desync
-                db_path = settings.NOTES_DB_PATH
-                if os.path.exists(db_path):
+        # Auto-Hydration: Check if FAISS is out of sync with DB
+        # This handles both empty index AND stale index scenarios
+        try:
+            db_path = settings.NOTES_DB_PATH
+            if os.path.exists(db_path):
+                async with aiosqlite.connect(db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    cursor = await db.execute("SELECT count(*) as count FROM notes WHERE isDeleted = 0")
+                    row = await cursor.fetchone()
+                    db_count = row['count'] if row else 0
+                
+                # Sync if: FAISS is empty but DB has notes, OR counts don't match
+                faiss_count = self.index.ntotal if self.index else 0
+                if db_count > 0 and (faiss_count == 0 or abs(faiss_count - db_count) > 0):
+                    safe_print(f"[WARN] Index Desync: FAISS={faiss_count}, DB={db_count}. Auto-syncing...")
+                    # Fetch all notes manually to avoid circular dependency
                     async with aiosqlite.connect(db_path) as db:
                         db.row_factory = aiosqlite.Row
-                        cursor = await db.execute("SELECT count(*) as count FROM notes WHERE isDeleted = 0")
-                        row = await cursor.fetchone()
-                        db_count = row['count'] if row else 0
-                        
-                    if db_count > 0:
-                        print(f"[WARN] Desync Detected: FAISS=0, DB={db_count}. Starting Auto-Hydration...")
-                        # Fetch all notes manually to avoid circular dependency
-                        async with aiosqlite.connect(db_path) as db:
-                            db.row_factory = aiosqlite.Row
-                            cursor = await db.execute("SELECT id, title, content, plainText FROM notes WHERE isDeleted = 0")
-                            rows = await cursor.fetchall()
-                            notes = [dict(r) for r in rows]
-                        
-                        # Trigger Vectorization
-                        await self.reindex_from_db(notes)
-            except Exception as e:
-                print(f"[ERR] Auto-Hydration check failed: {e}")
+                        cursor = await db.execute("SELECT id, title, content, plainText FROM notes WHERE isDeleted = 0")
+                        rows = await cursor.fetchall()
+                        notes = [dict(r) for r in rows]
+                    
+                    # Trigger Vectorization
+                    await self.reindex_from_db(notes)
+        except Exception as e:
+            safe_print(f"[ERR] Auto-Hydration check failed: {e}")
                 
         self._loaded_initial = True
 
@@ -167,12 +177,17 @@ class RAGService:
         return arr
 
     async def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Semantic search using FAISS."""
+        """Semantic search using FAISS with keyword fallback."""
         await self._ensure_loaded()
-        if not query.strip() or self.index.ntotal == 0:
+        if not query.strip():
             return []
+        
+        # If index is empty, try keyword search as fallback
+        if self.index.ntotal == 0:
+            safe_print(f"[SEARCH] FAISS empty, trying keyword fallback for: \"{query}\"")
+            return await self._keyword_search(query, top_k)
             
-        print(f"[SEARCH] FAISS Search: \"{query}\"")
+        safe_print(f"[SEARCH] FAISS Search: \"{query}\"")
         try:
             query_vec = await self._vectorize(query)
             # D = distances (scores), I = indices
@@ -188,7 +203,7 @@ class RAGService:
                     rows = await cursor.fetchall()
                     valid_ids = {str(row[0]) for row in rows}
             except Exception as e:
-                print(f"[WARN] Could not fetch valid IDs: {e}")
+                safe_print(f"[WARN] Could not fetch valid IDs: {e}")
             
             output = []
             for i, idx in enumerate(I[0]):
@@ -196,7 +211,7 @@ class RAGService:
                 meta = self.metadata[idx]
                 # Filter out deleted notes
                 if valid_ids and meta['id'] not in valid_ids:
-                    print(f"[SEARCH] Skipping deleted note: {meta['id']}")
+                    safe_print(f"[SEARCH] Skipping deleted note: {meta['id']}")
                     continue
                 output.append({
                     "id": meta['id'],
@@ -206,9 +221,49 @@ class RAGService:
                 })
                 if len(output) >= top_k:
                     break
-            return sorted(output, key=lambda x: x["score"], reverse=True)
+            
+            results = sorted(output, key=lambda x: x["score"], reverse=True)
+            
+            # If semantic search found nothing, try keyword fallback
+            if not results:
+                safe_print(f"[SEARCH] Semantic search empty, trying keyword fallback")
+                results = await self._keyword_search(query, top_k)
+            
+            return results
         except Exception as e:
-            print(f"[ERR] FAISS Search Error: {e}")
+            safe_print(f"[ERR] FAISS Search Error: {e}")
+            # Fallback to keyword search on error
+            return await self._keyword_search(query, top_k)
+    
+    async def _keyword_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Fallback keyword search directly on database."""
+        try:
+            db_path = settings.NOTES_DB_PATH
+            async with aiosqlite.connect(db_path) as db:
+                db.row_factory = aiosqlite.Row
+                # Search in title and plainText using LIKE
+                search_term = f"%{query}%"
+                cursor = await db.execute("""
+                    SELECT id, title, plainText as content 
+                    FROM notes 
+                    WHERE isDeleted = 0 
+                      AND (title LIKE ? OR plainText LIKE ?)
+                    ORDER BY updatedAt DESC
+                    LIMIT ?
+                """, (search_term, search_term, top_k))
+                rows = await cursor.fetchall()
+                results = []
+                for r in rows:
+                    results.append({
+                        "id": str(r['id']),
+                        "title": r['title'],
+                        "content": r['content'][:500] if r['content'] else "",
+                        "score": 0.5  # Keyword match score
+                    })
+                safe_print(f"[SEARCH] Keyword fallback found {len(results)} results")
+                return results
+        except Exception as e:
+            safe_print(f"[ERR] Keyword search failed: {e}")
             return []
 
     async def list_all_notes(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -228,7 +283,7 @@ class RAGService:
                  rows = await cursor.fetchall()
                  return [{"id": str(r['id']), "title": r['title'], "content": ""} for r in rows]
         except Exception as e:
-            print(f"[ERR] SQL List Error: {e}")
+            safe_print(f"[ERR] SQL List Error: {e}")
             # Fallback to FAISS metadata only if DB fails
             items = self.metadata[-limit:]
             if items:
@@ -249,7 +304,7 @@ class RAGService:
             
             # Dynamic Dimension Check
             if self.index.d != embedding.shape[1]:
-                print(f"[WARN] Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
+                safe_print(f"[WARN] Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
                 # If dimension changed (e.g. model switch), we must rebuild index or error
                 # For safety, let's error on add, but ideally reindex_all should be called
                 # Here we will re-init index with new dimension for this item (clearing old)
@@ -267,10 +322,10 @@ class RAGService:
             
             # Save change
             await self._save_to_disk()
-            print(f"[OK] Added to FAISS: {title}")
+            safe_print(f"[OK] Added to FAISS: {title}")
         except Exception as e:
             import traceback
-            print(f"[ERR] FAISS Add Error: {e}")
+            safe_print(f"[ERR] FAISS Add Error: {e}")
             traceback.print_exc()
 
     async def remove_document(self, doc_id: str) -> None:
@@ -280,7 +335,7 @@ class RAGService:
         """
         if doc_id not in self.id_to_idx: return
         
-        print(f"[DEL] Removing from FAISS: {doc_id}")
+        safe_print(f"[DEL] Removing from FAISS: {doc_id}")
         self.metadata = [m for m in self.metadata if m['id'] != doc_id]
         # Rebuild index
         if not self.metadata:
@@ -305,7 +360,7 @@ class RAGService:
             with open(self.meta_file, 'w', encoding='utf-8') as f:
                 json.dump({"metadata": self.metadata}, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[ERR] FAISS Save failed: {e}")
+            safe_print(f"[ERR] FAISS Save failed: {e}")
 
     async def reload(self) -> int:
         await self._init_resources()
@@ -322,17 +377,17 @@ class RAGService:
                 valid_notes = [n for n in notes if n.get('title') or n.get('plainText') or n.get('content')]
                 if not valid_notes: return 0
                 
-                print(f"[SYNC] Re-indexing {len(valid_notes)} notes into FAISS...")
+                safe_print(f"[SYNC] Re-indexing {len(valid_notes)} notes into FAISS...")
                 
                 documents = []
                 new_metadata = []
                 for n in valid_notes:
                     text = n.get('plainText') or n.get('content') or ""
-                    if not text.strip(): text = f"Title: {n.get('title', '无标题')}"
+                    if not text.strip(): text = f"Title: {n.get('title', 'Untitled')}"
                     documents.append(text)
                     new_metadata.append({
                         "id": n['id'],
-                        "title": n.get('title', '无标题'),
+                        "title": n.get('title', 'Untitled'),
                         "content": text
                     })
                 
@@ -345,14 +400,14 @@ class RAGService:
                 else:
                     dimension = 1536 # Default fallback
                 
-                print(f"[INFO] Detected Embedding Dimension: {dimension}")
+                safe_print(f"[INFO] Detected Embedding Dimension: {dimension}")
                 
                 # Update memory state
                 self.index = faiss.IndexFlatIP(dimension)
                 
                 # Ensure embeddings are correct shape/type for FAISS
                 if embeddings.ndim != 2 or embeddings.shape[1] != dimension:
-                    print(f"[ERR] Embedding Shape Error: Expected (N, {dimension}), got {embeddings.shape}")
+                    safe_print(f"[ERR] Embedding Shape Error: Expected (N, {dimension}), got {embeddings.shape}")
                     return 0
                 
                 self.index.add(embeddings)
@@ -360,11 +415,11 @@ class RAGService:
                 self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
                 
                 await self._save_to_disk()
-                print(f"[OK] FAISS Re-sync Complete. Count: {self.index.ntotal}")
+                safe_print(f"[OK] FAISS Re-sync Complete. Count: {self.index.ntotal}")
                 return len(self.metadata)
             except Exception as e:
                 import traceback
-                print(f"[ERR] FAISS Re-sync Error: {e}")
+                safe_print(f"[ERR] FAISS Re-sync Error: {e}")
                 traceback.print_exc()
                 return 0
             finally:

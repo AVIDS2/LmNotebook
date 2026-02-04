@@ -801,7 +801,8 @@ onUnmounted(() => {
 const suggestions = [
   '@笔记知识库 查找关于...',
   '帮我写一篇关于...的笔记',
-  '总结一下这篇笔记的要点'
+  '总结一下这篇笔记的要点',
+  '整理一下当前笔记的格式'
 ]
 
 // Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)

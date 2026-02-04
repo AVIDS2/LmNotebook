@@ -87,8 +87,8 @@
     "extraResources": [
       "build/icon.ico",
       {
-        "from": "src/backend/dist/origin_backend.exe",
-        "to": "backend/origin_backend.exe",
+        "from": "src/backend/dist/origin_backend",
+        "to": "backend",
         "filter": [
           "**/*"
         ]

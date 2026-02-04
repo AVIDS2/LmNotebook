@@ -7,6 +7,16 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
+
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
+
+
 # CRITICAL: Load .env before importing anything that uses config
 if getattr(sys, 'frozen', False):
     # PyInstaller mode: .env is in temp folder
@@ -14,9 +24,9 @@ if getattr(sys, 'frozen', False):
     env_path = os.path.join(base_path, ".env")
     if os.path.exists(env_path):
         load_dotenv(env_path)
-        print(f"[ENV] Loaded from bundled: {env_path}")
+        safe_print(f"[ENV] Loaded from bundled: {env_path}")
     else:
-        print(f"[ENV] Warning: Bundled .env not found at {env_path}")
+        safe_print(f"[ENV] Warning: Bundled .env not found at {env_path}")
 else:
     # Dev mode
     load_dotenv()
@@ -43,9 +53,9 @@ from api.routes import router as api_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Deeply simplified lifecycle."""
-    print(f">> Origin Notes Backend Ready on port {settings.PORT}")
+    safe_print(f">> Origin Notes Backend Ready on port {settings.PORT}")
     yield
-    print(">> Shutdown complete.")
+    safe_print(">> Shutdown complete.")
 
 
 app = FastAPI(

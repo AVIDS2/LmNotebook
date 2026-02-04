@@ -7,7 +7,7 @@ to the existing SSE (Server-Sent Events) format used by the frontend.
 This ensures BACKWARD COMPATIBILITY - the frontend requires NO changes.
 
 Frontend expects these formats:
-- {"type": "status", "text": "🧠 思考中..."}
+- {"type": "status", "text": "Thinking..."}
 - {"tool_call": "note_created", "note_id": "xxx"}
 - {"text": "AI response content..."}
 - {"error": "Error message"}
@@ -18,6 +18,15 @@ import asyncio
 import httpx
 from typing import AsyncGenerator, Any, Dict
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+
+
+# Safe print for Windows GBK encoding
+def safe_print(msg: str):
+    """Print message safely on Windows by handling encoding errors."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
 
 
 
@@ -120,10 +129,9 @@ async def langgraph_stream_to_sse(
                 # Get the node that generated this message
                 langgraph_node = metadata.get("langgraph_node", "") if isinstance(metadata, dict) else ""
                 
-                # CRITICAL: Stream content from 'agent' and 'status' nodes.
-                # 'status' node provides the "workflow" feel (e.g., "已获取列表").
-                # Deduplication hashes will handle preventing repeats in the final output.
-                if langgraph_node not in ["agent", "status"]:
+                # CRITICAL: Only stream content from 'agent' node.
+                # 'status' node messages are internal workflow markers, NOT user-facing content.
+                if langgraph_node != "agent":
                     continue
                 
                 # Only process AIMessage/AIMessageChunk content
@@ -174,7 +182,7 @@ async def langgraph_stream_to_sse(
                     if node_name == "router":
                         if not has_started:
                             # Part-Based: status is still a separate event type
-                            yield json.dumps({"type": "status", "text": "🧠 思考中..."})
+                            yield json.dumps({"type": "status", "text": "Thinking..."})
                             has_started = True
                     
                     # ========== Agent Node (tool calls) ==========
@@ -256,20 +264,20 @@ async def langgraph_stream_to_sse(
     
     except asyncio.CancelledError:
         # Handle stream cancellation gracefully (prevents Event loop is closed errors)
-        print("[Stream] Stream cancelled by client")
+        safe_print("[Stream] Stream cancelled by client")
         pass
     except httpx.TimeoutException as e:
-        print(f"[Stream] Timeout error: {e}")
-        yield json.dumps({"error": "请求超时，请稍后重试"})
+        safe_print(f"[Stream] Timeout error: {e}")
+        yield json.dumps({"error": "Request timeout, please retry"})
     except httpx.ConnectError as e:
-        print(f"[Stream] Connection error: {e}")
-        yield json.dumps({"error": "无法连接到 AI 服务，请检查网络连接"})
+        safe_print(f"[Stream] Connection error: {e}")
+        yield json.dumps({"error": "Cannot connect to AI service, please check network"})
     except Exception as e:
         import traceback
-        print(f"[Stream] Unexpected error: {type(e).__name__}: {e}")
+        safe_print(f"[Stream] Unexpected error: {type(e).__name__}: {e}")
         traceback.print_exc()
         error_msg = str(e) if str(e) else type(e).__name__
-        yield json.dumps({"error": f"AI 服务错误: {error_msg}"})
+        yield json.dumps({"error": f"AI service error: {error_msg}"})
     finally:
         # Flush any remaining text in buffer at stream end
         if text_buffer:
@@ -353,7 +361,7 @@ async def invoke_and_stream(
     
     This is a simpler adapter for cases where full streaming isn't needed.
     """
-    yield json.dumps({"type": "status", "text": "🧠 思考中..."})
+    yield json.dumps({"type": "status", "text": "Thinking..."})
     
     try:
         result = await graph.ainvoke(input_state, config)

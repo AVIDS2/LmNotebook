@@ -193,6 +193,15 @@ export const useNoteStore = defineStore('notes', () => {
     currentView.value = view
     currentCategoryId.value = categoryId || null
     searchKeyword.value = ''
+    
+    // 保存当前视图位置到 localStorage
+    localStorage.setItem('lastView', view)
+    if (categoryId) {
+      localStorage.setItem('lastCategoryId', categoryId)
+    } else {
+      localStorage.removeItem('lastCategoryId')
+    }
+    
     await loadNotes()
 
     // 选中第一个笔记
@@ -469,6 +478,17 @@ export const useNoteStore = defineStore('notes', () => {
 
   // 初始化
   async function initialize(): Promise<void> {
+    // 恢复上次的视图位置
+    const lastView = localStorage.getItem('lastView') as ViewType | null
+    const lastCategoryId = localStorage.getItem('lastCategoryId')
+    
+    if (lastView) {
+      currentView.value = lastView
+      if (lastView === 'category' && lastCategoryId) {
+        currentCategoryId.value = lastCategoryId
+      }
+    }
+    
     await loadNotes()
     if (notes.value.length > 0) {
       currentNote.value = notes.value[0]
