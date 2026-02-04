@@ -123,7 +123,7 @@ class RAGService:
             await self._init_resources()
             
         # Auto-Hydration: Check if FAISS is out of sync with DB
-        # This handles both empty index AND stale index scenarios
+        # This handles: empty index, count mismatch, AND stale content
         try:
             db_path = settings.NOTES_DB_PATH
             if os.path.exists(db_path):
@@ -133,10 +133,42 @@ class RAGService:
                     row = await cursor.fetchone()
                     db_count = row['count'] if row else 0
                 
-                # Sync if: FAISS is empty but DB has notes, OR counts don't match
                 faiss_count = self.index.ntotal if self.index else 0
-                if db_count > 0 and (faiss_count == 0 or abs(faiss_count - db_count) > 0):
-                    safe_print(f"[WARN] Index Desync: FAISS={faiss_count}, DB={db_count}. Auto-syncing...")
+                needs_sync = False
+                sync_reason = ""
+                
+                # Check 1: Count mismatch
+                if db_count > 0 and (faiss_count == 0 or faiss_count != db_count):
+                    needs_sync = True
+                    sync_reason = f"Count mismatch: FAISS={faiss_count}, DB={db_count}"
+                
+                # Check 2: Content freshness (compare latest updatedAt with index sync time)
+                if not needs_sync and db_count > 0 and faiss_count > 0:
+                    # Get latest note update time from DB (Unix timestamp in ms)
+                    async with aiosqlite.connect(db_path) as db:
+                        db.row_factory = aiosqlite.Row
+                        cursor = await db.execute("SELECT MAX(updatedAt) as latest FROM notes WHERE isDeleted = 0")
+                        row = await cursor.fetchone()
+                        db_latest = row['latest'] if row else None
+                    
+                    # Get last sync time from metadata file (stored as Unix timestamp)
+                    last_sync_time = None
+                    if self.meta_file.exists():
+                        try:
+                            with open(self.meta_file, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                last_sync_time = data.get("last_sync_time")
+                        except:
+                            pass
+                    
+                    # If DB has newer content than our last sync, we need to resync
+                    # Both are now Unix timestamps (int), safe to compare
+                    if db_latest and (not last_sync_time or db_latest > last_sync_time):
+                        needs_sync = True
+                        sync_reason = f"Stale content: DB updated at {db_latest}, last sync at {last_sync_time}"
+                
+                if needs_sync:
+                    safe_print(f"[WARN] Index Desync: {sync_reason}. Auto-syncing...")
                     # Fetch all notes manually to avoid circular dependency
                     async with aiosqlite.connect(db_path) as db:
                         db.row_factory = aiosqlite.Row
@@ -354,11 +386,15 @@ class RAGService:
         await self.add_document(doc_id, title, content)
 
     async def _save_to_disk(self):
-        """Persist FAISS index and metadata."""
+        """Persist FAISS index and metadata with sync timestamp."""
         try:
+            import time
             faiss.write_index(self.index, str(self.index_file))
             with open(self.meta_file, 'w', encoding='utf-8') as f:
-                json.dump({"metadata": self.metadata}, f, ensure_ascii=False, indent=2)
+                json.dump({
+                    "metadata": self.metadata,
+                    "last_sync_time": int(time.time() * 1000)  # Unix timestamp in ms (same as DB)
+                }, f, ensure_ascii=False, indent=2)
         except Exception as e:
             safe_print(f"[ERR] FAISS Save failed: {e}")
 

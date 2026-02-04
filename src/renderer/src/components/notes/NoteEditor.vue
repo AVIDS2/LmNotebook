@@ -11,19 +11,204 @@
 
     <!-- 编辑器 -->
     <template v-else>
-      <!-- 工具栏 -->
+      <!-- 新版专业工具栏 -->
       <div class="note-editor__toolbar">
         <div class="note-editor__tools">
-          <button
-            v-for="tool in textTools"
-            :key="tool.name"
-            class="note-editor__tool"
-            :class="{ 'note-editor__tool--active': tool.isActive?.() }"
-            :title="tool.title"
-            @click="tool.action"
-          >
-            <span v-html="tool.icon"></span>
+          <!-- 字体大小下拉 -->
+          <div class="toolbar-dropdown" ref="fontSizeDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger"
+              :class="{ 'toolbar-dropdown__trigger--active': fontSizeDropdownOpen }"
+              @click.stop="toggleFontSizeDropdown"
+              title="字体大小"
+            >
+              <span class="toolbar-dropdown__label">{{ currentFontSizeLabel }}</span>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="fontSizeDropdownOpen" class="toolbar-dropdown__menu">
+              <button 
+                v-for="size in fontSizes" 
+                :key="size.value"
+                class="toolbar-dropdown__item"
+                :class="{ 'toolbar-dropdown__item--active': currentFontSize === size.value }"
+                @click="setFontSize(size.value)"
+              >{{ size.label }}</button>
+            </div>
+          </div>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- 基础格式：加粗、斜体、下划线 -->
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('bold') }" title="加粗" @click="editor?.chain().focus().toggleBold().run()">
+            <strong>B</strong>
           </button>
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('italic') }" title="斜体" @click="editor?.chain().focus().toggleItalic().run()">
+            <em>I</em>
+          </button>
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('underline') }" title="下划线" @click="editor?.chain().focus().toggleUnderline().run()">
+            <u>U</u>
+          </button>
+          <!-- 删除线 - 小屏幕隐藏 -->
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('strike') }" title="删除线" @click="editor?.chain().focus().toggleStrike().run()">
+            <s>S</s>
+          </button>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- 文字颜色下拉 -->
+          <div class="toolbar-dropdown" ref="textColorDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger toolbar-dropdown__trigger--color"
+              @click.stop="toggleTextColorDropdown"
+              title="文字颜色"
+            >
+              <span class="color-icon" :style="{ '--underline-color': currentTextColor }">A</span>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="textColorDropdownOpen" class="toolbar-dropdown__menu toolbar-dropdown__menu--colors">
+              <button 
+                v-for="color in textColors" 
+                :key="color.value"
+                class="color-swatch"
+                :style="{ backgroundColor: color.value }"
+                :title="color.label"
+                @click="setTextColor(color.value)"
+              ></button>
+              <button class="color-swatch color-swatch--clear" title="清除颜色" @click="clearTextColor">
+                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 背景高亮下拉 - 小屏幕隐藏 -->
+          <div class="toolbar-dropdown toolbar-hide-sm" ref="highlightDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger toolbar-dropdown__trigger--color"
+              @click.stop="toggleHighlightDropdown"
+              title="背景高亮"
+            >
+              <span class="highlight-icon" :style="{ '--bg-color': currentHighlightColor }">
+                <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 10L5 3H9L12 10H9L8 8H6L5 10H2Z" fill="currentColor"/></svg>
+              </span>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="highlightDropdownOpen" class="toolbar-dropdown__menu toolbar-dropdown__menu--colors">
+              <button 
+                v-for="color in highlightColors" 
+                :key="color.value"
+                class="color-swatch"
+                :style="{ backgroundColor: color.value }"
+                :title="color.label"
+                @click="setHighlight(color.value)"
+              ></button>
+              <button class="color-swatch color-swatch--clear" title="清除高亮" @click="clearHighlight">
+                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="toolbar-divider toolbar-hide-sm"></div>
+
+          <!-- 标题下拉 -->
+          <div class="toolbar-dropdown" ref="headingDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger"
+              @click.stop="toggleHeadingDropdown"
+              title="标题"
+            >
+              <span class="toolbar-dropdown__label">{{ currentHeadingLabel }}</span>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="headingDropdownOpen" class="toolbar-dropdown__menu">
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': !editor?.isActive('heading') }" @click="setParagraph">正文</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 1 }) }" @click="setHeading(1)">标题 1</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 2 }) }" @click="setHeading(2)">标题 2</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 3 }) }" @click="setHeading(3)">标题 3</button>
+            </div>
+          </div>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- 列表下拉 -->
+          <div class="toolbar-dropdown" ref="listDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger"
+              :class="{ 'toolbar-dropdown__trigger--active': editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList') }"
+              @click.stop="toggleListDropdown"
+              title="列表"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="3" cy="4" r="1.5" fill="currentColor"/><circle cx="3" cy="8" r="1.5" fill="currentColor"/><circle cx="3" cy="12" r="1.5" fill="currentColor"/><line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="listDropdownOpen" class="toolbar-dropdown__menu">
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('bulletList') }" @click="toggleBulletList">
+                <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="2" cy="3" r="1.2" fill="currentColor"/><circle cx="2" cy="7" r="1.2" fill="currentColor"/><circle cx="2" cy="11" r="1.2" fill="currentColor"/><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
+                无序列表
+              </button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('orderedList') }" @click="toggleOrderedList">
+                <svg width="14" height="14" viewBox="0 0 14 14"><text x="1" y="5" font-size="5" fill="currentColor">1</text><text x="1" y="9" font-size="5" fill="currentColor">2</text><text x="1" y="13" font-size="5" fill="currentColor">3</text><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
+                有序列表
+              </button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('taskList') }" @click="toggleTaskList">
+                <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><path d="M2 3L2.8 3.8L4.2 2.2" stroke="currentColor" stroke-width="0.8"/><rect x="1" y="5" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><rect x="1" y="9" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><line x1="7" y1="3" x2="13" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="11" x2="13" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
+                任务列表
+              </button>
+            </div>
+          </div>
+
+          <!-- 引用 - 小屏幕隐藏 -->
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('blockquote') }" title="引用" @click="editor?.chain().focus().toggleBlockquote().run()">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 4C2.5 4 2 5 2 6.5C2 8 2.5 9 4 9C5.5 9 6 8 6 6.5C6 4 4 11 4 11" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M11 4C9.5 4 9 5 9 6.5C9 8 9.5 9 11 9C12.5 9 13 8 13 6.5C13 4 11 11 11 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+          </button>
+
+          <!-- 代码 - 小屏幕隐藏 -->
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('code') }" title="行内代码" @click="editor?.chain().focus().toggleCode().run()">
+            &lt;/&gt;
+          </button>
+
+          <div class="toolbar-divider toolbar-hide-sm"></div>
+
+          <!-- 插入下拉 -->
+          <div class="toolbar-dropdown" ref="insertDropdownRef">
+            <button 
+              class="toolbar-dropdown__trigger"
+              @click.stop="toggleInsertDropdown"
+              title="插入"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16"><line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="1.5"/></svg>
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            </button>
+            <div v-show="insertDropdownOpen" class="toolbar-dropdown__menu">
+              <button class="toolbar-dropdown__item" @click="insertTable">
+                <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="1" y1="5" x2="13" y2="5" stroke="currentColor"/><line x1="5" y1="1" x2="5" y2="13" stroke="currentColor"/></svg>
+                表格
+              </button>
+              <button class="toolbar-dropdown__item" @click="insertImage">
+                <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="2" width="12" height="10" rx="1" stroke="currentColor" fill="none"/><circle cx="4" cy="5" r="1.2" fill="currentColor"/><path d="M1 10L4 7L7 10L10 6L13 9" stroke="currentColor" stroke-width="1" fill="none"/></svg>
+                图片
+              </button>
+              <button class="toolbar-dropdown__item" @click="insertMath">
+                <svg width="14" height="14" viewBox="0 0 14 14"><text x="1" y="11" font-size="9" font-style="italic" fill="currentColor">∑</text><text x="8" y="7" font-size="5" fill="currentColor">x²</text></svg>
+                公式
+              </button>
+              <button class="toolbar-dropdown__item" @click="deleteTable" v-if="editor?.isActive('table')">
+                <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="1" y1="5" x2="13" y2="5" stroke="currentColor"/><line x1="5" y1="1" x2="5" y2="13" stroke="currentColor"/><line x1="3" y1="3" x2="11" y2="11" stroke="#e74c3c" stroke-width="1.5"/><line x1="11" y1="3" x2="3" y2="11" stroke="#e74c3c" stroke-width="1.5"/></svg>
+                删除表格
+              </button>
+              <!-- 小屏幕下显示更多格式选项 -->
+              <div class="toolbar-dropdown__divider toolbar-show-sm"></div>
+              <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('strike') }" @click="editor?.chain().focus().toggleStrike().run(); insertDropdownOpen = false">
+                <s>S</s> 删除线
+              </button>
+              <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('blockquote') }" @click="editor?.chain().focus().toggleBlockquote().run(); insertDropdownOpen = false">
+                <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3C1.8 3 1.5 3.8 1.5 5C1.5 6.2 1.8 7 3 7C4.2 7 4.5 6.2 4.5 5C4.5 3 3 9 3 9" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 3C7.8 3 7.5 3.8 7.5 5C7.5 6.2 7.8 7 9 7C10.2 7 10.5 6.2 10.5 5C10.5 3 9 9 9 9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+                引用
+              </button>
+              <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('code') }" @click="editor?.chain().focus().toggleCode().run(); insertDropdownOpen = false">
+                &lt;/&gt; 代码
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="note-editor__actions">
@@ -235,6 +420,9 @@ import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import Image from '@tiptap/extension-image'
+import TextStyle from '@tiptap/extension-text-style'
+import Color from '@tiptap/extension-color'
+import Highlight from '@tiptap/extension-highlight'
 import { Mathematics } from '@/extensions/Mathematics'
 import 'katex/dist/katex.min.css'
 import katex from 'katex'
@@ -248,6 +436,40 @@ import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { noteRepository } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
+import { Extension } from '@tiptap/core'
+
+// 自定义字体大小扩展
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() {
+    return { types: ['textStyle'] }
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
+          renderHTML: attributes => {
+            if (!attributes.fontSize) return {}
+            return { style: `font-size: ${attributes.fontSize}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setFontSize: (fontSize: string) => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize }).run()
+      },
+      unsetFontSize: () => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run()
+      },
+    }
+  },
+})
 
 const lowlight = createLowlight(common)
 
@@ -339,6 +561,236 @@ const localTitle = ref('')
 const titleInputRef = ref<HTMLInputElement>()
 const editorContainerRef = ref<HTMLElement>()
 
+// ========== 新版工具栏状态 ==========
+// 下拉菜单 refs
+const fontSizeDropdownRef = ref<HTMLElement>()
+const textColorDropdownRef = ref<HTMLElement>()
+const highlightDropdownRef = ref<HTMLElement>()
+const headingDropdownRef = ref<HTMLElement>()
+const listDropdownRef = ref<HTMLElement>()
+const insertDropdownRef = ref<HTMLElement>()
+
+// 下拉菜单开关状态
+const fontSizeDropdownOpen = ref(false)
+const textColorDropdownOpen = ref(false)
+const highlightDropdownOpen = ref(false)
+const headingDropdownOpen = ref(false)
+const listDropdownOpen = ref(false)
+const insertDropdownOpen = ref(false)
+
+// 字体大小选项
+const fontSizes = [
+  { label: '12', value: '12px' },
+  { label: '14', value: '14px' },
+  { label: '16', value: '16px' },
+  { label: '18', value: '18px' },
+  { label: '20', value: '20px' },
+  { label: '24', value: '24px' },
+  { label: '28', value: '28px' },
+  { label: '32', value: '32px' },
+]
+
+// 文字颜色选项（现代化配色）
+const textColors = [
+  { label: '黑色', value: '#1a1a1a' },
+  { label: '深灰', value: '#666666' },
+  { label: '红色', value: '#e53935' },
+  { label: '橙色', value: '#fb8c00' },
+  { label: '黄色', value: '#fdd835' },
+  { label: '绿色', value: '#43a047' },
+  { label: '蓝色', value: '#1e88e5' },
+  { label: '紫色', value: '#8e24aa' },
+]
+
+// 高亮颜色选项（柔和背景色）
+const highlightColors = [
+  { label: '黄色', value: '#fff59d' },
+  { label: '绿色', value: '#c8e6c9' },
+  { label: '蓝色', value: '#bbdefb' },
+  { label: '粉色', value: '#f8bbd9' },
+  { label: '紫色', value: '#e1bee7' },
+  { label: '橙色', value: '#ffe0b2' },
+]
+
+// 当前字体大小
+const currentFontSize = computed(() => {
+  if (!editor.value) return '16px'
+  const attrs = editor.value.getAttributes('textStyle')
+  return attrs.fontSize || '16px'
+})
+
+const currentFontSizeLabel = computed(() => {
+  const size = currentFontSize.value.replace('px', '')
+  return size || '16'
+})
+
+// 当前文字颜色
+const currentTextColor = computed(() => {
+  if (!editor.value) return '#1a1a1a'
+  const attrs = editor.value.getAttributes('textStyle')
+  return attrs.color || '#1a1a1a'
+})
+
+// 当前高亮颜色
+const currentHighlightColor = computed(() => {
+  if (!editor.value) return 'transparent'
+  const attrs = editor.value.getAttributes('highlight')
+  return attrs.color || 'transparent'
+})
+
+// 当前标题级别
+const currentHeadingLabel = computed(() => {
+  if (!editor.value) return '正文'
+  if (editor.value.isActive('heading', { level: 1 })) return 'H1'
+  if (editor.value.isActive('heading', { level: 2 })) return 'H2'
+  if (editor.value.isActive('heading', { level: 3 })) return 'H3'
+  return '正文'
+})
+
+// 关闭所有下拉菜单
+function closeAllDropdowns() {
+  fontSizeDropdownOpen.value = false
+  textColorDropdownOpen.value = false
+  highlightDropdownOpen.value = false
+  headingDropdownOpen.value = false
+  listDropdownOpen.value = false
+  insertDropdownOpen.value = false
+}
+
+// 切换下拉菜单
+function toggleFontSizeDropdown() {
+  const wasOpen = fontSizeDropdownOpen.value
+  closeAllDropdowns()
+  fontSizeDropdownOpen.value = !wasOpen
+}
+
+function toggleTextColorDropdown() {
+  const wasOpen = textColorDropdownOpen.value
+  closeAllDropdowns()
+  textColorDropdownOpen.value = !wasOpen
+}
+
+function toggleHighlightDropdown() {
+  const wasOpen = highlightDropdownOpen.value
+  closeAllDropdowns()
+  highlightDropdownOpen.value = !wasOpen
+}
+
+function toggleHeadingDropdown() {
+  const wasOpen = headingDropdownOpen.value
+  closeAllDropdowns()
+  headingDropdownOpen.value = !wasOpen
+}
+
+function toggleListDropdown() {
+  const wasOpen = listDropdownOpen.value
+  closeAllDropdowns()
+  listDropdownOpen.value = !wasOpen
+}
+
+function toggleInsertDropdown() {
+  const wasOpen = insertDropdownOpen.value
+  closeAllDropdowns()
+  insertDropdownOpen.value = !wasOpen
+}
+
+// 设置字体大小
+function setFontSize(size: string) {
+  editor.value?.chain().focus().setMark('textStyle', { fontSize: size }).run()
+  fontSizeDropdownOpen.value = false
+}
+
+// 设置文字颜色
+function setTextColor(color: string) {
+  editor.value?.chain().focus().setColor(color).run()
+  textColorDropdownOpen.value = false
+}
+
+function clearTextColor() {
+  editor.value?.chain().focus().unsetColor().run()
+  textColorDropdownOpen.value = false
+}
+
+// 设置高亮
+function setHighlight(color: string) {
+  editor.value?.chain().focus().toggleHighlight({ color }).run()
+  highlightDropdownOpen.value = false
+}
+
+function clearHighlight() {
+  editor.value?.chain().focus().unsetHighlight().run()
+  highlightDropdownOpen.value = false
+}
+
+// 设置标题
+function setHeading(level: 1 | 2 | 3) {
+  editor.value?.chain().focus().toggleHeading({ level }).run()
+  headingDropdownOpen.value = false
+}
+
+function setParagraph() {
+  editor.value?.chain().focus().setParagraph().run()
+  headingDropdownOpen.value = false
+}
+
+// 列表操作
+function toggleBulletList() {
+  editor.value?.chain().focus().toggleBulletList().run()
+  listDropdownOpen.value = false
+}
+
+function toggleOrderedList() {
+  editor.value?.chain().focus().toggleOrderedList().run()
+  listDropdownOpen.value = false
+}
+
+function toggleTaskList() {
+  editor.value?.chain().focus().toggleTaskList().run()
+  listDropdownOpen.value = false
+}
+
+// 插入操作
+function insertTable() {
+  editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+  insertDropdownOpen.value = false
+}
+
+function deleteTable() {
+  editor.value?.chain().focus().deleteTable().run()
+  insertDropdownOpen.value = false
+}
+
+function insertImage() {
+  insertDropdownOpen.value = false
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = async (event) => {
+        const base64 = event.target?.result as string
+        if (base64) {
+          const imageSrc = await window.electronAPI.image.store(base64)
+          editor.value?.chain().focus().setImage({ src: imageSrc }).run()
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+  input.click()
+}
+
+function insertMath() {
+  insertDropdownOpen.value = false
+  const latex = prompt('输入 LaTeX 公式:', 'E=mc^2')
+  if (latex !== null) {
+    const isBlock = confirm('是否作为独立行(Block)显示？')
+    editor.value?.chain().focus().insertMath(latex, isBlock).run()
+  }
+}
+
 // 保存防抖定时器 - 使用 RAF 优化
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let titleSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -424,6 +876,13 @@ const editor = useEditor({
       nested: true
     }),
     Underline,
+    // 文字样式扩展（颜色、字体大小的基础）
+    TextStyle,
+    Color,
+    Highlight.configure({
+      multicolor: true,
+    }),
+    FontSize,
     Table.configure({
       resizable: true,
     }),
@@ -560,138 +1019,6 @@ const editor = useEditor({
   }
 })
 
-// 工具栏按钮 - 使用 shallowRef 减少响应式开销
-const textTools = computed(() => [
-  {
-    name: 'bold',
-    title: '加粗',
-    icon: '<strong>B</strong>',
-    isActive: () => editor.value?.isActive('bold'),
-    action: () => editor.value?.chain().focus().toggleBold().run()
-  },
-  {
-    name: 'italic',
-    title: '斜体',
-    icon: '<em>I</em>',
-    isActive: () => editor.value?.isActive('italic'),
-    action: () => editor.value?.chain().focus().toggleItalic().run()
-  },
-  {
-    name: 'underline',
-    title: '下划线',
-    icon: '<u>U</u>',
-    isActive: () => editor.value?.isActive('underline'),
-    action: () => editor.value?.chain().focus().toggleUnderline().run()
-  },
-  {
-    name: 'strike',
-    title: '删除线',
-    icon: '<s>S</s>',
-    isActive: () => editor.value?.isActive('strike'),
-    action: () => editor.value?.chain().focus().toggleStrike().run()
-  },
-  {
-    name: 'h1',
-    title: '标题1',
-    icon: 'H1',
-    isActive: () => editor.value?.isActive('heading', { level: 1 }),
-    action: () => editor.value?.chain().focus().toggleHeading({ level: 1 }).run()
-  },
-  {
-    name: 'h2',
-    title: '标题2',
-    icon: 'H2',
-    isActive: () => editor.value?.isActive('heading', { level: 2 }),
-    action: () => editor.value?.chain().focus().toggleHeading({ level: 2 }).run()
-  },
-  {
-    name: 'bulletList',
-    title: '无序列表',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="3" cy="4" r="1.5" fill="currentColor"/><circle cx="3" cy="8" r="1.5" fill="currentColor"/><circle cx="3" cy="12" r="1.5" fill="currentColor"/><line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>',
-    isActive: () => editor.value?.isActive('bulletList'),
-    action: () => editor.value?.chain().focus().toggleBulletList().run()
-  },
-  {
-    name: 'orderedList',
-    title: '有序列表',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><text x="1" y="6" font-size="6" fill="currentColor">1</text><text x="1" y="10" font-size="6" fill="currentColor">2</text><text x="1" y="14" font-size="6" fill="currentColor">3</text><line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>',
-    isActive: () => editor.value?.isActive('orderedList'),
-    action: () => editor.value?.chain().focus().toggleOrderedList().run()
-  },
-  {
-    name: 'taskList',
-    title: '任务列表',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="2" width="5" height="5" rx="1" stroke="currentColor" fill="none"/><path d="M2.5 4.5L3.5 5.5L5.5 3" stroke="currentColor" stroke-width="1"/><rect x="1" y="9" width="5" height="5" rx="1" stroke="currentColor" fill="none"/><line x1="8" y1="4.5" x2="14" y2="4.5" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="11.5" x2="14" y2="11.5" stroke="currentColor" stroke-width="1.5"/></svg>',
-    isActive: () => editor.value?.isActive('taskList'),
-    action: () => editor.value?.chain().focus().toggleTaskList().run()
-  },
-  {
-    name: 'code',
-    title: '代码',
-    icon: '&lt;/&gt;',
-    isActive: () => editor.value?.isActive('code'),
-    action: () => editor.value?.chain().focus().toggleCode().run()
-  },
-  {
-    name: 'blockquote',
-    title: '引用',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 4C2.5 4 2 5 2 6.5C2 8 2.5 9 4 9C5.5 9 6 8 6 6.5C6 4 4 11 4 11" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M11 4C9.5 4 9 5 9 6.5C9 8 9.5 9 11 9C12.5 9 13 8 13 6.5C13 4 11 11 11 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>',
-    isActive: () => editor.value?.isActive('blockquote'),
-    action: () => editor.value?.chain().focus().toggleBlockquote().run()
-  },
-  {
-    name: 'table',
-    title: '插入表格',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="2" y1="7" x2="14" y2="7" stroke="currentColor"/><line x1="7" y1="2" x2="7" y2="14" stroke="currentColor"/></svg>',
-    action: () => editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-  },
-  {
-    name: 'deleteTable',
-    title: '删除表格',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="2" y1="7" x2="14" y2="7" stroke="currentColor"/><line x1="7" y1="2" x2="7" y2="14" stroke="currentColor"/><line x1="4" y1="4" x2="12" y2="12" stroke="#e74c3c" stroke-width="1.5"/><line x1="12" y1="4" x2="4" y2="12" stroke="#e74c3c" stroke-width="1.5"/></svg>',
-    action: () => editor.value?.chain().focus().deleteTable().run()
-  },
-  {
-    name: 'image',
-    title: '插入图片',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" fill="none"/><circle cx="5" cy="6" r="1.5" fill="currentColor"/><path d="M2 11L5 8L8 11L11 7L14 10" stroke="currentColor" stroke-width="1" fill="none"/></svg>',
-    action: () => {
-      // 创建隐藏的文件输入
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'image/*'
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0]
-        if (file) {
-          const reader = new FileReader()
-          reader.onload = async (event) => {
-            const base64 = event.target?.result as string
-            if (base64) {
-              // 使用图片存储服务（大图片会分离存储）
-              const imageSrc = await window.electronAPI.image.store(base64)
-              editor.value?.chain().focus().setImage({ src: imageSrc }).run()
-            }
-          }
-          reader.readAsDataURL(file)
-        }
-      }
-      input.click()
-    }
-  },
-  {
-    name: 'math',
-    title: '插入公式 (LaTeX)',
-    icon: '<svg width="16" height="16" viewBox="0 0 16 16"><text x="2" y="12" font-size="10" font-style="italic" fill="currentColor">∑</text><text x="9" y="8" font-size="6" fill="currentColor">x²</text></svg>',
-    action: () => {
-      const latex = prompt('输入 LaTeX 公式:', 'E=mc^2')
-      if (latex !== null) {
-        const isBlock = confirm('是否作为独立行(Block)显示？')
-        editor.value?.chain().focus().insertMath(latex, isBlock).run()
-      }
-    }
-  }
-])
-
 // ========== 图片编辑功能（简化版）==========
 
 // 获取当前图片对齐方式
@@ -797,11 +1124,18 @@ watch(editorContainerRef, (newVal) => {
 })
 
 onMounted(() => {
-  // 全局点击关闭右键菜单
-  document.addEventListener('click', () => {
+  // 全局点击关闭右键菜单和工具栏下拉
+  document.addEventListener('click', (e) => {
+    // 关闭图片右键菜单
     imageContextMenu.visible = false
     showCustomInput.value = false
     customSizeValue.value = ''
+    
+    // 关闭工具栏下拉菜单（如果点击不在下拉区域内）
+    const target = e.target as HTMLElement
+    if (!target.closest('.toolbar-dropdown')) {
+      closeAllDropdowns()
+    }
   })
 })
 
@@ -1092,11 +1426,159 @@ onBeforeUnmount(() => {
   background: var(--color-bg-primary);
   flex-shrink: 0;
   transition: background-color 0.2s ease;
+  gap: $spacing-sm;
 }
 
 .note-editor__tools {
   display: flex;
+  align-items: center;
   gap: 2px;
+  flex-wrap: wrap;
+}
+
+// 工具栏分隔线
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 6px;
+}
+
+// 下拉菜单组件
+.toolbar-dropdown {
+  position: relative;
+  
+  &__trigger {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: $font-size-sm;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-width: 40px;
+    height: 32px;
+    
+    &:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+    
+    &--active {
+      background: var(--color-bg-hover);
+      border-color: var(--color-border);
+    }
+    
+    &--color {
+      padding: 4px 6px;
+      min-width: 36px;
+    }
+  }
+  
+  &__label {
+    font-weight: 500;
+    min-width: 20px;
+    text-align: center;
+  }
+  
+  &__menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    min-width: 100px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: $radius-md;
+    box-shadow: var(--shadow-lg);
+    z-index: 100;
+    padding: 4px;
+    
+    &--colors {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      min-width: 120px;
+      padding: 8px;
+    }
+  }
+  
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: $font-size-sm;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background-color 0.1s ease;
+    
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+    
+    &--active {
+      background: var(--color-bg-active);
+      font-weight: 500;
+    }
+    
+    svg {
+      flex-shrink: 0;
+    }
+  }
+}
+
+// 颜色选择器
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-sm;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  
+  &:hover {
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+  
+  &--clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg-secondary);
+    color: var(--color-text-muted);
+  }
+}
+
+// 文字颜色图标
+.color-icon {
+  font-weight: bold;
+  font-size: 14px;
+  border-bottom: 3px solid var(--underline-color, #1a1a1a);
+  line-height: 1;
+  padding-bottom: 2px;
+}
+
+// 高亮图标
+.highlight-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--bg-color, transparent);
 }
 
 .note-editor__tool {
@@ -1134,6 +1616,63 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: $spacing-sm;
+  flex-shrink: 0;
+}
+
+// 响应式工具栏 - 小屏幕隐藏/显示
+.toolbar-hide-sm {
+  display: flex;
+}
+
+.toolbar-show-sm {
+  display: none !important;
+}
+
+// 下拉菜单分隔线
+.toolbar-dropdown__divider {
+  height: 1px;
+  background: var(--color-border-light);
+  margin: 4px 0;
+}
+
+// 使用容器查询实现真正的响应式
+.note-editor {
+  container-type: inline-size;
+  container-name: editor;
+}
+
+// 当编辑器宽度 < 550px 时隐藏次要工具
+@container editor (max-width: 550px) {
+  .toolbar-hide-sm {
+    display: none !important;
+  }
+  
+  .toolbar-show-sm {
+    display: flex !important;
+  }
+  
+  .note-editor__toolbar {
+    padding: 6px 8px;
+  }
+  
+  .toolbar-divider {
+    margin: 0 3px;
+  }
+  
+  .toolbar-dropdown__trigger {
+    padding: 3px 5px;
+    min-width: 28px;
+  }
+  
+  .note-editor__tool {
+    width: 26px;
+    height: 26px;
+  }
+  
+  .note-editor__category-select select {
+    max-width: 60px;
+    font-size: 11px;
+  }
 }
 
 .note-editor__category-select {

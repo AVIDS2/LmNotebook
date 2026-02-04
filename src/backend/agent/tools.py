@@ -28,6 +28,9 @@ async def search_knowledge(query: str) -> str:
     Search across all user notes using semantic search.
     Use this when the user asks a question about their knowledge base, 
     asks 'what do I have on X', or needs to find related information.
+    
+    Returns note previews with content. For simple Q&A, the preview may be enough.
+    Only call read_note_content if you need the COMPLETE content for detailed analysis.
     """
     safe_print(f"[TOOL] Tool: search_knowledge -> {query}")
     results = await rag_service.search(query, top_k=5)
@@ -36,9 +39,12 @@ async def search_knowledge(query: str) -> str:
     
     formatted = []
     for r in results:
-        formatted.append(f"Title: {r['title']}\nID: {r.get('id', 'N/A')}\nSnippet: {r['content'][:300]}...")
+        # Return more content (1500 chars) to reduce need for read_note_content
+        content_preview = r['content'][:1500] + "..." if len(r['content']) > 1500 else r['content']
+        formatted.append(f"Title: {r['title']}\nID: {r.get('id', 'N/A')}\nContent: {content_preview}")
     
-    return "\n\n---\n\n".join(formatted)
+    result_text = "\n\n---\n\n".join(formatted)
+    return f"{result_text}\n\n[NOTE: If content is truncated (...), use read_note_content(note_id) for full text.]"
 
 @tool
 async def read_note_content(note_id: str) -> str:

@@ -273,10 +273,14 @@ class NoteAgentGraph:
             if state.get("context_note_title"):
                 context_parts.append(f"  - Title: {state['context_note_title']}")
         
-        # ========== Content Preview ==========
+        # ========== Full Note Content ==========
+        # CRITICAL: Pass FULL content for summarization/analysis tasks
         if state.get("note_content"):
-            content_preview = state["note_content"][:300]
-            context_parts.append(f"\nCONTENT PREVIEW:\n{content_preview}...")
+            note_content = state["note_content"]
+            # Limit to 8000 chars to avoid token overflow, but much more than 300
+            if len(note_content) > 8000:
+                note_content = note_content[:8000] + "\n...[Content truncated due to length]"
+            context_parts.append(f"\nFULL NOTE CONTENT:\n{note_content}")
         
         # ========== Selected Text ==========
         if state.get("selected_text"):

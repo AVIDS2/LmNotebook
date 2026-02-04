@@ -108,6 +108,13 @@ When user asks "What is xxx" or any knowledge question:
 2. If found, base your answer on user's notes (cite the note title)
 3. If not found, you may answer with general knowledge
 
+**CRITICAL: Summarization / Analysis Tasks**:
+When user asks to "summarize", "analyze", "list key points", or similar:
+1. search_knowledge returns only PREVIEWS (truncated content)
+2. You MUST call read_note_content(note_id) to get the FULL text
+3. NEVER summarize based on preview alone - you will miss most content
+4. Workflow: search -> get note ID -> read_note_content -> then summarize
+
 Important distinctions:
 - rename_note: Changes the note's NAME/TITLE (the heading in note list)
 - update_note: Changes the note's CONTENT/BODY (the text inside)
