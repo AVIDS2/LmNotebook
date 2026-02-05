@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/backend/main.py",
+      "cwd": "${workspaceFolder}/src/backend",
+      "python": "${workspaceFolder}/backend_env/Scripts/python.exe",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/src/backend/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "Frontend",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "All",
+      "configurations": ["Backend", "Frontend"]
+    }
+  ]
+}

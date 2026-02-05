@@ -5,6 +5,9 @@ node_modules/
 out/
 dist/
 release/
+build/
+src/backend/build/
+src/backend/dist/
 
 # Electron/Vite cache
 node_modules/.vite/
@@ -15,6 +18,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+debug.log
+error_log.txt
+logs/
 
 # OS
 .DS_Store
@@ -23,9 +29,12 @@ Thumbs.db
 # Env
 .env
 .env.*
+!.env.example
 
 # Editor
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 
@@ -33,19 +42,46 @@ Thumbs.db
 *.sqlite
 *.db
 *.bak
+notes.db
+sessions.db
 
-# Claude local
+# Claude/Kiro local
 .claude/
+.kiro/
+.agent/
 
 # Windows temp
 nul
 
-# Python local environments
+# Python
 backend_env/
 venv/
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# PyInstaller
+*.spec
+!origin-backend.spec
+
+# Vector store data
+vector_store/
+faiss_v1_qwen/
 
 # References
 .for_look/
+
+# Images (if not needed in repo)
+image/
+
+# Skills (if local only)
+skills/
