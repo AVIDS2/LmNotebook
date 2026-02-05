@@ -10,6 +10,7 @@ export interface Note {
     markdownSource: string | null
     categoryId: string | null
     isPinned: boolean | number
+    isLocked: boolean | number
     isDeleted: boolean | number
     deletedAt: number | null
     createdAt: number
@@ -30,6 +31,7 @@ function convertNote(note: Note): Note {
     return {
         ...note,
         isPinned: Boolean(note.isPinned),
+        isLocked: Boolean(note.isLocked),
         isDeleted: Boolean(note.isDeleted)
     }
 }

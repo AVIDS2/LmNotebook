@@ -337,3 +337,61 @@ async def delete_session(session_id: str):
     except Exception as e:
         safe_print(f"[API] Error deleting session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LIGHTWEIGHT TEXT PROCESSING API (for selection-based AI operations)
+# ============================================================================
+
+class TextProcessRequest(BaseModel):
+    """Request for lightweight text processing."""
+    text: str = Field(..., description="Selected text to process")
+    action: str = Field(..., description="Action: translate, explain, polish, summarize, expand")
+    target_lang: Optional[str] = Field("zh", description="Target language for translation")
+
+
+@router.post("/process-text")
+async def process_text(request: TextProcessRequest):
+    """
+    Lightweight text processing for selected text.
+    Does NOT go through the full agent - direct LLM call for speed.
+    Returns processed text that can be used to replace selection.
+    """
+    from core.llm import get_llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+    
+    action_prompts = {
+        "translate": f"Translate the following text to {request.target_lang}. Output ONLY the translation, no explanations:\n\n{request.text}",
+        "explain": f"Explain the following text in simple terms. Be concise:\n\n{request.text}",
+        "polish": f"Polish and improve the following text. Keep the same meaning but make it clearer and more professional. Output ONLY the improved text:\n\n{request.text}",
+        "summarize": f"Summarize the following text in 1-2 sentences. Output ONLY the summary:\n\n{request.text}",
+        "expand": f"Expand on the following text with more details and examples. Keep the same style:\n\n{request.text}",
+        "fix_grammar": f"Fix any grammar or spelling errors in the following text. Output ONLY the corrected text:\n\n{request.text}",
+    }
+    
+    prompt = action_prompts.get(request.action)
+    if not prompt:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
+    
+    try:
+        llm = get_llm()
+        response = await llm.ainvoke([
+            SystemMessage(content="You are a helpful text processing assistant. Follow instructions precisely. Do NOT use emoji in your output."),
+            HumanMessage(content=prompt)
+        ])
+        
+        result = response.content.strip()
+        
+        # Clean up any markdown code blocks if present
+        if result.startswith("```"):
+            lines = result.split("\n")
+            result = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
+        
+        return {
+            "original": request.text,
+            "processed": result,
+            "action": request.action
+        }
+    except Exception as e:
+        safe_print(f"[API] Text process error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

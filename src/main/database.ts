@@ -120,6 +120,13 @@ function initDatabase(): void {
         // 列已经存在
     }
 
+    // 为旧数据库添加 isLocked 列
+    try {
+        db.exec('ALTER TABLE notes ADD COLUMN isLocked INTEGER NOT NULL DEFAULT 0')
+    } catch (e) {
+        // 列已经存在
+    }
+
     // 创建索引（优化查询性能）
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_notes_categoryId ON notes(categoryId);
@@ -153,6 +160,7 @@ export interface Note {
     markdownSource: string | null
     categoryId: string | null
     isPinned: number  // SQLite 用 0/1 表示布尔
+    isLocked: number  // 加锁状态
     isDeleted: number
     deletedAt: number | null
     createdAt: number
@@ -239,6 +247,10 @@ export function updateNote(id: string, updates: Partial<Note>): Note | undefined
     if (updates.isPinned !== undefined) {
         fields.push('isPinned = ?')
         values.push(updates.isPinned ? 1 : 0)
+    }
+    if (updates.isLocked !== undefined) {
+        fields.push('isLocked = ?')
+        values.push(updates.isLocked ? 1 : 0)
     }
     if (updates.isDeleted !== undefined) {
         fields.push('isDeleted = ?')

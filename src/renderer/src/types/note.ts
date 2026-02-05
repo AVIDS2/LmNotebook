@@ -6,6 +6,7 @@ export interface Note {
   plainText: string     // 纯文本 (搜索用)
   categoryId: string | null
   isPinned: boolean
+  isLocked: boolean     // 加锁状态
   isDeleted: boolean
   deletedAt: number | null
   createdAt: number
@@ -34,4 +35,5 @@ export interface UpdateNoteInput {
   plainText?: string
   categoryId?: string | null
   isPinned?: boolean
+  isLocked?: boolean
 }

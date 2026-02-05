@@ -238,6 +238,47 @@ ipcMain.handle('import-file', async (_event, options: { filters: { name: string;
   return { success: false }
 })
 
+// 导出 PDF
+ipcMain.handle('export-pdf', async (_event, htmlContent: string) => {
+  // 创建隐藏窗口用于渲染 HTML
+  const pdfWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  try {
+    // 加载 HTML 内容
+    await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`)
+    
+    // 等待页面渲染完成
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // 生成 PDF
+    const pdfData = await pdfWindow.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: {
+        top: 0.5,
+        bottom: 0.5,
+        left: 0.5,
+        right: 0.5
+      }
+    })
+    
+    return pdfData
+  } catch (error) {
+    console.error('PDF export error:', error)
+    return null
+  } finally {
+    pdfWindow.destroy()
+  }
+})
+
 // ==================== SQLite 数据库 IPC ====================
 
 // 笔记操作

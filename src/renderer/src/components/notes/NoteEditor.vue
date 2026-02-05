@@ -229,20 +229,6 @@
             </select>
           </div>
 
-          <!-- 导出 Markdown -->
-          <button
-            v-if="noteStore.currentView !== 'trash'"
-            class="note-editor__tool"
-            title="导出为 Markdown"
-            @click="handleExportCurrentMarkdown"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M4 3H11L14 6V15H4V3Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M11 3V6H14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              <path d="M6 9H12M6 12H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-            </svg>
-          </button>
- 
           <!-- Markdown 渲染按钮 -->
           <button
             v-if="noteStore.currentView !== 'trash'"
@@ -269,30 +255,82 @@
             </svg>
           </button>
 
-          <!-- 删除/恢复按钮 -->
-          <button
-            v-if="noteStore.currentView === 'trash'"
-            class="note-editor__tool"
-            title="恢复"
-            @click="handleRestore"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M3 9C3 5.68629 5.68629 3 9 3C11.2091 3 13.1204 4.26324 14.0583 6.10811" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              <path d="M15 9C15 12.3137 12.3137 15 9 15C6.79086 15 4.87961 13.7368 3.94173 11.8919" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              <path d="M14 3V6H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M4 15V12H7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-
-          <button
-            class="note-editor__tool note-editor__tool--danger"
-            :title="noteStore.currentView === 'trash' ? '永久删除' : '删除'"
-            @click="handleDelete"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M3 5H15M6 5V4C6 3.44772 6.44772 3 7 3H11C11.5523 3 12 3.44772 12 4V5M14 5V14C14 14.5523 13.5523 15 13 15H5C4.44772 15 4 14.5523 4 14V5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-            </svg>
-          </button>
+          <!-- 更多操作菜单 -->
+          <div class="toolbar-dropdown" ref="moreMenuRef">
+            <button 
+              class="note-editor__tool"
+              @click.stop="toggleMoreMenu"
+              title="更多操作"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <circle cx="9" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="9" cy="9" r="1.5" fill="currentColor"/>
+                <circle cx="9" cy="14" r="1.5" fill="currentColor"/>
+              </svg>
+            </button>
+            <div v-show="moreMenuOpen" class="toolbar-dropdown__menu toolbar-dropdown__menu--right">
+              <!-- 正常视图的操作 -->
+              <template v-if="noteStore.currentView !== 'trash'">
+                <button class="toolbar-dropdown__item" @click="handleDelete">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  </svg>
+                  删除
+                </button>
+                <button class="toolbar-dropdown__item" @click="handleToggleLock">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                    <path d="M5 7V5C5 3.34 6.34 2 8 2C9.66 2 11 3.34 11 5V7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <circle cx="8" cy="10.5" r="1" fill="currentColor"/>
+                  </svg>
+                  {{ noteStore.currentNote.isLocked ? '解锁' : '加锁' }}
+                </button>
+                <div class="toolbar-dropdown__divider"></div>
+                <div class="toolbar-dropdown__submenu">
+                  <button class="toolbar-dropdown__item toolbar-dropdown__item--has-arrow" @click.stop="toggleExportSubmenu">
+                    <svg class="arrow-left" width="10" height="10" viewBox="0 0 10 10"><path d="M6 2L3 5L6 8" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 3H10L13 6V13H3V3Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                      <path d="M10 3V6H13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                    导出
+                  </button>
+                  <div v-show="exportSubmenuOpen" class="toolbar-dropdown__submenu-panel">
+                    <button class="toolbar-dropdown__item" @click="handleExport('markdown')">导出为 Markdown</button>
+                    <button class="toolbar-dropdown__item" @click="handleExport('txt')">导出为纯文本</button>
+                    <button class="toolbar-dropdown__item" @click="handleExport('html')">导出为 HTML</button>
+                    <button class="toolbar-dropdown__item" @click="handleExport('docx')">导出为 Word</button>
+                    <button class="toolbar-dropdown__item" @click="handleExport('pdf')">导出为 PDF</button>
+                  </div>
+                </div>
+                <div class="toolbar-dropdown__divider"></div>
+                <button class="toolbar-dropdown__item" @click="showNoteInfo">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
+                    <path d="M8 5V5.5M8 7V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  </svg>
+                  笔记信息
+                </button>
+              </template>
+              <!-- 回收站视图的操作 -->
+              <template v-else>
+                <button class="toolbar-dropdown__item" @click="handleRestore">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 8C2 4.69 4.69 2 8 2C9.96 2 11.68 3.01 12.65 4.54" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <path d="M14 8C14 11.31 11.31 14 8 14C6.04 14 4.32 12.99 3.35 11.46" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <path d="M12 2V5H9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  恢复
+                </button>
+                <button class="toolbar-dropdown__item toolbar-dropdown__item--danger" @click="handleDelete">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                  </svg>
+                  永久删除
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -402,6 +440,134 @@
     </div>
     <div class="menu-divider"></div>
     <div class="menu-item danger" @click="deleteImage">删除图片</div>
+  </div>
+
+  <!-- AI 选中文本浮动菜单 -->
+  <div 
+    v-if="selectionMenu.visible && !aiResult.visible" 
+    class="selection-ai-menu"
+    :style="selectionMenuStyle"
+    @mousedown.prevent
+  >
+    <div class="selection-ai-menu__actions">
+      <button 
+        class="selection-ai-menu__btn" 
+        @click="handleAIAction('polish')"
+        :disabled="aiProcessing"
+        title="润色"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1L8.5 4.5L12 5.5L9 8L10 12L7 10L4 12L5 8L2 5.5L5.5 4.5L7 1Z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+        </svg>
+        润色
+      </button>
+      <button 
+        class="selection-ai-menu__btn" 
+        @click="handleAIAction('translate')"
+        :disabled="aiProcessing"
+        title="翻译"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M2 3H8M5 3V11M8 7L11 11M11 7L8 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        翻译
+      </button>
+      <button 
+        class="selection-ai-menu__btn" 
+        @click="handleAIAction('explain')"
+        :disabled="aiProcessing"
+        title="解释"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.2" fill="none"/>
+          <path d="M7 4V8M7 10V10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        解释
+      </button>
+      <button 
+        class="selection-ai-menu__btn" 
+        @click="handleAIAction('summarize')"
+        :disabled="aiProcessing"
+        title="总结"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M3 3H11M3 6H9M3 9H7M3 12H5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        总结
+      </button>
+      <button 
+        class="selection-ai-menu__btn" 
+        @click="handleAIAction('expand')"
+        :disabled="aiProcessing"
+        title="扩写"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        扩写
+      </button>
+    </div>
+    <div v-if="aiProcessing" class="selection-ai-menu__loading">
+      <span class="loading-dot"></span>
+      处理中...
+    </div>
+  </div>
+
+  <!-- AI 结果预览面板 -->
+  <div 
+    v-if="aiResult.visible" 
+    class="ai-result-panel"
+    :style="aiResultStyle"
+    @mousedown.prevent
+  >
+    <div class="ai-result-panel__header">
+      <span class="ai-result-panel__action-label">{{ aiResult.actionLabel }}</span>
+      <button class="ai-result-panel__close" @click="closeAIResult" title="关闭">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+    </div>
+    <div class="ai-result-panel__content">
+      {{ aiResult.text }}
+    </div>
+    <div class="ai-result-panel__actions">
+      <button class="ai-result-panel__btn ai-result-panel__btn--primary" @click="applyAIResult('insert')">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        确认插入
+      </button>
+      <button class="ai-result-panel__btn" @click="applyAIResult('replace')">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6H10M6 2V10" stroke="currentColor" stroke-width="1.5"/></svg>
+        替换选中
+      </button>
+      <button class="ai-result-panel__btn ai-result-panel__btn--secondary" @click="closeAIResult">
+        取消
+      </button>
+    </div>
+  </div>
+
+  <!-- 笔记信息弹窗 -->
+  <div v-if="noteInfoVisible" class="note-info-modal" @click.self="noteInfoVisible = false">
+    <div class="note-info-modal__content">
+      <h3 class="note-info-modal__title">笔记信息</h3>
+      <div class="note-info-modal__body">
+        <div class="note-info-modal__row">
+          <span class="note-info-modal__label">所属分类：</span>
+          <span class="note-info-modal__value">{{ noteInfoData.category }}</span>
+        </div>
+        <div class="note-info-modal__row">
+          <span class="note-info-modal__label">创建时间：</span>
+          <span class="note-info-modal__value">{{ noteInfoData.createdAt }}</span>
+        </div>
+        <div class="note-info-modal__row">
+          <span class="note-info-modal__label">修改时间：</span>
+          <span class="note-info-modal__value">{{ noteInfoData.updatedAt }}</span>
+        </div>
+        <div class="note-info-modal__row">
+          <span class="note-info-modal__label">笔记字数：</span>
+          <span class="note-info-modal__value">{{ noteInfoData.wordCount }}</span>
+        </div>
+      </div>
+      <button class="note-info-modal__btn" @click="noteInfoVisible = false">知道了</button>
+    </div>
   </div>
 </template>
 
@@ -569,6 +735,7 @@ const highlightDropdownRef = ref<HTMLElement>()
 const headingDropdownRef = ref<HTMLElement>()
 const listDropdownRef = ref<HTMLElement>()
 const insertDropdownRef = ref<HTMLElement>()
+const moreMenuRef = ref<HTMLElement>()
 
 // 下拉菜单开关状态
 const fontSizeDropdownOpen = ref(false)
@@ -577,6 +744,17 @@ const highlightDropdownOpen = ref(false)
 const headingDropdownOpen = ref(false)
 const listDropdownOpen = ref(false)
 const insertDropdownOpen = ref(false)
+const moreMenuOpen = ref(false)
+const exportSubmenuOpen = ref(false)
+
+// 笔记信息弹窗
+const noteInfoVisible = ref(false)
+const noteInfoData = reactive({
+  category: '',
+  createdAt: '',
+  updatedAt: '',
+  wordCount: 0
+})
 
 // 字体大小选项
 const fontSizes = [
@@ -655,6 +833,8 @@ function closeAllDropdowns() {
   headingDropdownOpen.value = false
   listDropdownOpen.value = false
   insertDropdownOpen.value = false
+  moreMenuOpen.value = false
+  exportSubmenuOpen.value = false
 }
 
 // 切换下拉菜单
@@ -692,6 +872,16 @@ function toggleInsertDropdown() {
   const wasOpen = insertDropdownOpen.value
   closeAllDropdowns()
   insertDropdownOpen.value = !wasOpen
+}
+
+function toggleMoreMenu() {
+  const wasOpen = moreMenuOpen.value
+  closeAllDropdowns()
+  moreMenuOpen.value = !wasOpen
+}
+
+function toggleExportSubmenu() {
+  exportSubmenuOpen.value = !exportSubmenuOpen.value
 }
 
 // 设置字体大小
@@ -812,6 +1002,78 @@ const imageContextMenu = reactive({
   visible: false,
   x: 0,
   y: 0
+})
+
+// ========== AI 选中文本菜单状态 ==========
+const selectionMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  selectedText: '',
+  selectionFrom: 0,
+  selectionTo: 0
+})
+const aiProcessing = ref(false)
+
+// AI 结果预览状态
+const aiResult = reactive({
+  visible: false,
+  text: '',
+  action: '',
+  actionLabel: '',
+  x: 0,
+  y: 0
+})
+
+// 操作标签映射
+const actionLabels: Record<string, string> = {
+  polish: '润色后',
+  translate: '翻译结果',
+  explain: '解释',
+  summarize: '总结',
+  expand: '扩写后'
+}
+
+// 选中菜单位置计算
+const selectionMenuStyle = computed(() => {
+  const menuWidth = 280
+  const menuHeight = 50
+  const padding = 8
+  
+  let x = selectionMenu.x - menuWidth / 2 // 居中显示
+  let y = selectionMenu.y - menuHeight - 10 // 显示在选区上方
+  
+  // 边界检查
+  if (x + menuWidth > window.innerWidth - padding) {
+    x = window.innerWidth - menuWidth - padding
+  }
+  if (x < padding) x = padding
+  if (y < padding) y = selectionMenu.y + 25 // 如果上方空间不够，显示在下方
+  
+  return {
+    left: x + 'px',
+    top: y + 'px'
+  }
+})
+
+// AI 结果面板位置计算
+const aiResultStyle = computed(() => {
+  const panelWidth = 320
+  const padding = 8
+  
+  let x = aiResult.x - panelWidth / 2
+  let y = aiResult.y + 5 // 显示在选区下方
+  
+  // 边界检查
+  if (x + panelWidth > window.innerWidth - padding) {
+    x = window.innerWidth - panelWidth - padding
+  }
+  if (x < padding) x = padding
+  
+  return {
+    left: x + 'px',
+    top: y + 'px'
+  }
 })
 
 // 菜单位置计算，避免超出屏幕
@@ -1136,8 +1398,140 @@ onMounted(() => {
     if (!target.closest('.toolbar-dropdown')) {
       closeAllDropdowns()
     }
+    
+    // 关闭 AI 选中菜单（如果点击不在菜单内）
+    if (!target.closest('.selection-ai-menu') && !target.closest('.ai-result-panel')) {
+      selectionMenu.visible = false
+      closeAIResult()
+    }
+  })
+  
+  // 监听选中变化，显示 AI 菜单
+  document.addEventListener('mouseup', handleSelectionChange)
+  document.addEventListener('keyup', (e) => {
+    // Shift + 方向键选中时也触发
+    if (e.shiftKey) handleSelectionChange()
   })
 })
+
+// 处理选中变化
+function handleSelectionChange(): void {
+  // 延迟执行，确保选区已更新
+  setTimeout(() => {
+    if (!editor.value || noteStore.currentView === 'trash') {
+      selectionMenu.visible = false
+      return
+    }
+    
+    const { from, to, empty } = editor.value.state.selection
+    
+    // 没有选中或选中的是图片节点，不显示菜单
+    if (empty || from === to) {
+      selectionMenu.visible = false
+      return
+    }
+    
+    // 获取选中的纯文本
+    const selectedText = editor.value.state.doc.textBetween(from, to, ' ')
+    
+    // 选中内容太短（少于3个字符）不显示
+    if (selectedText.trim().length < 3) {
+      selectionMenu.visible = false
+      return
+    }
+    
+    // 获取选区的屏幕坐标
+    const view = editor.value.view
+    const coords = view.coordsAtPos(from)
+    const endCoords = view.coordsAtPos(to)
+    
+    // 计算菜单位置（选区中间上方）
+    selectionMenu.x = (coords.left + endCoords.right) / 2
+    selectionMenu.y = coords.top
+    selectionMenu.selectedText = selectedText
+    selectionMenu.selectionFrom = from
+    selectionMenu.selectionTo = to
+    selectionMenu.visible = true
+  }, 10)
+}
+
+// 处理 AI 操作 - 显示预览而不是直接替换
+async function handleAIAction(action: string): Promise<void> {
+  if (!editor.value || !selectionMenu.selectedText || aiProcessing.value) return
+  
+  aiProcessing.value = true
+  
+  try {
+    const response = await fetch('http://127.0.0.1:8765/api/chat/process-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: selectionMenu.selectedText,
+        action: action,
+        target_lang: action === 'translate' ? 'zh' : undefined
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error('AI processing failed')
+    }
+    
+    const result = await response.json()
+    
+    if (result.processed) {
+      // 获取选区结束位置的坐标，用于显示结果面板
+      const view = editor.value.view
+      const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
+      
+      // 显示结果预览面板
+      aiResult.text = result.processed
+      aiResult.action = action
+      aiResult.actionLabel = actionLabels[action] || action
+      aiResult.x = (selectionMenu.x + endCoords.right) / 2
+      aiResult.y = endCoords.bottom
+      aiResult.visible = true
+      
+      // 隐藏选中菜单
+      selectionMenu.visible = false
+    }
+  } catch (error) {
+    console.error('AI action failed:', error)
+    alert('AI 处理失败，请检查后端服务是否运行')
+  } finally {
+    aiProcessing.value = false
+  }
+}
+
+// 应用 AI 结果
+function applyAIResult(mode: 'insert' | 'replace'): void {
+  if (!editor.value || !aiResult.text) return
+  
+  if (mode === 'replace') {
+    // 替换选中文本
+    editor.value.chain()
+      .focus()
+      .setTextSelection({ from: selectionMenu.selectionFrom, to: selectionMenu.selectionTo })
+      .deleteSelection()
+      .insertContent(aiResult.text)
+      .run()
+  } else {
+    // 在选区后插入（保留原文）
+    editor.value.chain()
+      .focus()
+      .setTextSelection(selectionMenu.selectionTo)
+      .insertContent('\n\n' + aiResult.text)
+      .run()
+  }
+  
+  closeAIResult()
+}
+
+// 关闭 AI 结果面板
+function closeAIResult(): void {
+  aiResult.visible = false
+  aiResult.text = ''
+  aiResult.action = ''
+}
 
 // Markdown 渲染功能
 // - 有选中文本：只渲染选中部分
@@ -1370,11 +1764,134 @@ function handleRestore(): void {
   }
 }
 
-// 导出当前笔记为 Markdown
-async function handleExportCurrentMarkdown(): Promise<void> {
-  if (noteStore.currentNote) {
+// 导出当前笔记
+async function handleExport(format: 'markdown' | 'txt' | 'html' | 'docx' | 'pdf'): Promise<void> {
+  if (!noteStore.currentNote) return
+  closeAllDropdowns()
+  
+  const title = noteStore.currentNote.title || 'note'
+  const content = noteStore.currentNote.content || ''
+  const plainText = noteStore.currentNote.plainText || ''
+  
+  if (format === 'markdown') {
     await exportService.exportNoteAsMarkdown(noteStore.currentNote)
+  } else if (format === 'txt') {
+    // 导出纯文本
+    const blob = new Blob([plainText], { type: 'text/plain;charset=utf-8' })
+    downloadBlob(blob, `${title}.txt`)
+  } else if (format === 'html') {
+    // 导出 HTML
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <style>body{font-family:system-ui,-apple-system,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1,h2,h3{margin-top:1.5em;}code{background:#f4f4f4;padding:2px 6px;border-radius:3px;}pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto;}blockquote{border-left:3px solid #ddd;margin:0;padding-left:16px;color:#666;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #ddd;padding:8px 12px;}img{max-width:100%;}</style>
+</head>
+<body>
+  <h1>${title}</h1>
+  ${content}
+</body>
+</html>`
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    downloadBlob(blob, `${title}.html`)
+  } else if (format === 'docx') {
+    // 导出 Word
+    try {
+      const { asBlob } = await import('html-docx-js-typescript')
+      const htmlForDocx = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+  <h1>${title}</h1>
+  ${content}
+</body>
+</html>`
+      const blob = await asBlob(htmlForDocx) as Blob
+      downloadBlob(blob, `${title}.docx`)
+    } catch (e) {
+      console.error('Word export failed:', e)
+      alert('Word 导出失败')
+    }
+  } else if (format === 'pdf') {
+    // 导出 PDF - 使用 Electron 的打印功能
+    try {
+      const htmlForPdf = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;max-width:100%;padding:20px 40px;line-height:1.8;color:#333;font-size:14px;}
+    h1{font-size:24px;margin-bottom:20px;}
+    h2{font-size:20px;}
+    h3{font-size:16px;}
+    code{background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:13px;}
+    pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto;font-size:13px;}
+    blockquote{border-left:3px solid #ddd;margin:16px 0;padding-left:16px;color:#666;}
+    table{border-collapse:collapse;width:100%;margin:16px 0;}
+    td,th{border:1px solid #ddd;padding:8px 12px;}
+    img{max-width:100%;}
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  ${content}
+</body>
+</html>`
+      const pdfData = await window.electronAPI.exportPdf(htmlForPdf)
+      if (pdfData) {
+        const blob = new Blob([pdfData], { type: 'application/pdf' })
+        downloadBlob(blob, `${title}.pdf`)
+      }
+    } catch (e) {
+      console.error('PDF export failed:', e)
+      alert('PDF 导出失败')
+    }
   }
+}
+
+// 下载 Blob 文件
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 切换加锁状态
+async function handleToggleLock(): Promise<void> {
+  if (!noteStore.currentNote) return
+  closeAllDropdowns()
+  
+  const newLockState = !noteStore.currentNote.isLocked
+  await noteStore.updateNote(noteStore.currentNote.id, { isLocked: newLockState })
+}
+
+// 显示笔记信息
+function showNoteInfo(): void {
+  if (!noteStore.currentNote) return
+  closeAllDropdowns()
+  
+  // 获取分类名称
+  const category = categoryStore.categories.find(c => c.id === noteStore.currentNote?.categoryId)
+  noteInfoData.category = category?.name || '无分类'
+  
+  // 格式化时间
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp)
+    return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  }
+  
+  noteInfoData.createdAt = formatDate(noteStore.currentNote.createdAt)
+  noteInfoData.updatedAt = formatDate(noteStore.currentNote.updatedAt)
+  
+  // 计算字数
+  const plainText = noteStore.currentNote.plainText || ''
+  noteInfoData.wordCount = plainText.replace(/\s/g, '').length
+  
+  noteInfoVisible.value = true
 }
 
 onBeforeUnmount(() => {
@@ -1427,13 +1944,17 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   transition: background-color 0.2s ease;
   gap: $spacing-sm;
+  position: relative;
+  z-index: 10;
 }
 
 .note-editor__tools {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 // 工具栏分隔线
@@ -1532,9 +2053,43 @@ onBeforeUnmount(() => {
       font-weight: 500;
     }
     
+    &--danger {
+      color: var(--color-danger);
+    }
+    
+    &--has-arrow {
+      .arrow-left {
+        opacity: 0.5;
+        flex-shrink: 0;
+      }
+    }
+    
     svg {
       flex-shrink: 0;
     }
+  }
+  
+  &__submenu {
+    position: relative;
+  }
+  
+  &__submenu-panel {
+    position: absolute;
+    right: 100%;
+    top: 0;
+    margin-right: 4px;
+    min-width: 140px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: $radius-md;
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    z-index: 101;
+  }
+  
+  &__menu--right {
+    left: auto;
+    right: 0;
   }
 }
 
@@ -2101,6 +2656,303 @@ onBeforeUnmount(() => {
       &:hover {
         opacity: 0.9;
       }
+    }
+  }
+}
+
+// AI 选中文本浮动菜单
+.selection-ai-menu {
+  position: fixed;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-lg;
+  box-shadow: var(--shadow-lg);
+  padding: 6px 8px;
+  z-index: 9999;
+  animation: fadeInUp 0.15s ease;
+  
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  &__actions {
+    display: flex;
+    gap: 2px;
+  }
+  
+  &__btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border: none;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    
+    &:hover:not(:disabled) {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+    
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    svg {
+      flex-shrink: 0;
+    }
+  }
+  
+  &__loading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    border-top: 1px solid var(--color-border-light);
+    margin-top: 4px;
+    
+    .loading-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+  }
+}
+
+// AI 结果预览面板
+.ai-result-panel {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-lg;
+  box-shadow: var(--shadow-xl);
+  z-index: 10000;
+  animation: fadeInDown 0.2s ease;
+  overflow: hidden;
+  
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border-light);
+  }
+  
+  &__action-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+  
+  &__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    
+    &:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+  }
+  
+  &__content {
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fffbeb; // 淡黄色背景，类似 vivo
+    
+    // 暗色模式
+    :root[data-theme="dark"] & {
+      background: rgba(255, 251, 235, 0.08);
+    }
+  }
+  
+  &__actions {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--color-border-light);
+    background: var(--color-bg-primary);
+  }
+  
+  &__btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-sm;
+    background: var(--color-bg-card);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    
+    &:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+    
+    &--primary {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: white;
+      
+      &:hover {
+        opacity: 0.9;
+        background: var(--color-accent);
+        color: white;
+      }
+    }
+    
+    &--secondary {
+      border-color: transparent;
+      background: transparent;
+      
+      &:hover {
+        background: var(--color-bg-hover);
+      }
+    }
+    
+    svg {
+      flex-shrink: 0;
+    }
+  }
+}
+
+// 笔记信息弹窗
+.note-info-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  animation: fadeIn 0.15s ease;
+  
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  &__content {
+    background: var(--color-bg-card);
+    border-radius: $radius-lg;
+    box-shadow: var(--shadow-xl);
+    width: 300px;
+    max-width: calc(100vw - 40px);
+    animation: scaleIn 0.2s ease;
+    
+    @keyframes scaleIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+  }
+  
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    padding: 20px 20px 16px;
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+  
+  &__body {
+    padding: 0 20px 20px;
+  }
+  
+  &__row {
+    display: flex;
+    padding: 8px 0;
+    font-size: 14px;
+    
+    &:not(:last-child) {
+      border-bottom: 1px solid var(--color-border-light);
+    }
+  }
+  
+  &__label {
+    color: var(--color-text-secondary);
+    min-width: 80px;
+  }
+  
+  &__value {
+    color: var(--color-text-primary);
+    flex: 1;
+  }
+  
+  &__btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-top: 1px solid var(--color-border-light);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: 15px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    border-radius: 0 0 $radius-lg $radius-lg;
+    
+    &:hover {
+      background: var(--color-bg-hover);
     }
   }
 }

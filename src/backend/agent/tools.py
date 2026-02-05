@@ -230,6 +230,59 @@ async def delete_note(note_id: str) -> str:
         return f"Successfully deleted note {note_id}."
     return f"Error: Failed to delete note {note_id}. It might not exist."
 
+
+@tool
+async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
+    """
+    Replace specific text in a note using search & replace (diff-style editing).
+    This is more efficient than update_note for small, targeted changes.
+    
+    - note_id: The ID of the note to patch
+    - old_text: The EXACT text to find and replace (must match exactly, including whitespace)
+    - new_text: The replacement text
+    
+    Use this for:
+    - Fixing typos
+    - Replacing specific words or phrases
+    - Small targeted edits
+    
+    For large rewrites or formatting changes, use update_note instead.
+    """
+    safe_print(f"[TOOL] Tool: patch_note -> ID: {note_id}, Replace: '{old_text[:30]}...' with '{new_text[:30]}...'")
+    
+    note = await note_service.get_note(note_id)
+    if not note:
+        return f"Error: Note {note_id} not found."
+    
+    # Get both HTML content and plain text
+    html_content = note.get('content') or ""
+    plain_text = note.get('plainText') or ""
+    
+    # Try to find in plain text first (more reliable for user-visible text)
+    if old_text not in plain_text and old_text not in html_content:
+        # Fuzzy match attempt: try with normalized whitespace
+        import re
+        normalized_old = re.sub(r'\s+', ' ', old_text.strip())
+        normalized_plain = re.sub(r'\s+', ' ', plain_text)
+        
+        if normalized_old not in normalized_plain:
+            return f"Error: Could not find the text '{old_text[:50]}...' in the note. Make sure it matches exactly."
+    
+    # Replace in HTML content (preserves formatting)
+    if old_text in html_content:
+        updated_html = html_content.replace(old_text, new_text, 1)
+    else:
+        # If not found in HTML directly, we need to be more careful
+        # This can happen when HTML has tags breaking up the text
+        # For safety, do a simple replacement in plain text and regenerate
+        updated_plain = plain_text.replace(old_text, new_text, 1)
+        # Convert back to simple HTML paragraphs
+        updated_html = ''.join(f'<p>{line}</p>' for line in updated_plain.split('\n') if line.strip())
+    
+    await note_service.update_note(note_id=note_id, content=updated_html)
+    
+    return f"Successfully patched note (ID: {note_id}). Replaced '{old_text[:30]}...' with '{new_text[:30]}...'"
+
 @tool
 async def list_categories() -> str:
     """
@@ -292,6 +345,7 @@ def get_all_agent_tools():
         rename_note,
         list_recent_notes,
         update_note,
+        patch_note,  # New: diff-style editing
         create_note,
         delete_note,
         list_categories,

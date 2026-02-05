@@ -95,7 +95,7 @@ npm run build:linux
 
 ## 项目结构
 
-```
+```text
 src/
   main/           Electron 主进程
   preload/        预加载脚本（IPC 桥接）

@@ -93,5 +93,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (imageRef: string) => ipcRenderer.invoke('image-delete', imageRef),
     getStats: () => ipcRenderer.invoke('image-stats'),
     cleanup: (usedImageRefs: string[]) => ipcRenderer.invoke('image-cleanup', usedImageRefs)
-  }
+  },
+
+  // ==================== 导出 API ====================
+  exportPdf: (htmlContent: string) => ipcRenderer.invoke('export-pdf', htmlContent)
 })

@@ -97,10 +97,15 @@ Keep going until the task is truly complete:
 
 Choose the RIGHT tool for each task:
 - "Change/rename the title" -> rename_note (NOT update_note)
-- "Edit/format the content" -> update_note
+- "Edit/format the content" -> update_note (for large changes) or patch_note (for small targeted edits)
+- "Fix a typo" or "Replace X with Y" -> patch_note (more efficient)
 - "Categorize/tag the note" -> set_note_category
 - "Find information" -> search_knowledge
 - "this note" or "current note" -> use active_note_id from context
+
+**patch_note vs update_note:**
+- patch_note: For small, targeted changes (typos, word replacements). Uses search & replace.
+- update_note: For large rewrites, formatting changes, or when you need to restructure content.
 
 **Knowledge Questions Priority**:
 When user asks "What is xxx" or any knowledge question:

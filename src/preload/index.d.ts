@@ -146,6 +146,7 @@ export interface IElectronAPI {
   dialog: DialogAPI
   shell: ShellAPI
   image: ImageAPI
+  exportPdf: (htmlContent: string) => Promise<Uint8Array | null>
 }
 
 declare global {

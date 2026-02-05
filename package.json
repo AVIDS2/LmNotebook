@@ -34,6 +34,7 @@
     "dexie": "^4.0.4",
     "dompurify": "^3.3.1",
     "highlight.js": "^11.11.1",
+    "html-docx-js-typescript": "^0.1.5",
     "katex": "^0.16.28",
     "lowlight": "^3.3.0",
     "marked": "^17.0.1",
