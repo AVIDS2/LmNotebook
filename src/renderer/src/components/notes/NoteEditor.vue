@@ -506,6 +506,40 @@
         </svg>
         扩写
       </button>
+      <div class="selection-ai-menu__divider"></div>
+      <button 
+        class="selection-ai-menu__btn selection-ai-menu__btn--ask" 
+        @click="toggleAskInput"
+        :disabled="aiProcessing"
+        :class="{ 'selection-ai-menu__btn--active': showAskInput }"
+        title="自由提问"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1C3.7 1 1 3.2 1 6C1 7.5 1.8 8.8 3 9.7V13L6 10.5C6.3 10.5 6.7 10.5 7 10.5C10.3 10.5 13 8.3 13 5.5C13 3.2 10.3 1 7 1Z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+        </svg>
+        询问
+      </button>
+    </div>
+    <!-- 自由提问输入框 -->
+    <div v-if="showAskInput" class="selection-ai-menu__ask-input">
+      <input 
+        ref="askInputRef"
+        v-model="askInputText"
+        type="text"
+        placeholder="针对选中文本提问..."
+        @keyup.enter="handleAskSubmit"
+        @keyup.esc="showAskInput = false"
+        :disabled="aiProcessing"
+      />
+      <button 
+        class="selection-ai-menu__ask-submit"
+        @click="handleAskSubmit"
+        :disabled="aiProcessing || !askInputText.trim()"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 7H13M9 3L13 7L9 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
     <div v-if="aiProcessing" class="selection-ai-menu__loading">
       <span class="loading-dot"></span>
@@ -1015,6 +1049,12 @@ const selectionMenu = reactive({
 })
 const aiProcessing = ref(false)
 
+// 自由提问状态
+const showAskInput = ref(false)
+const askInputText = ref('')
+const askInputRef = ref<HTMLInputElement | null>(null)
+
+
 // AI 结果预览状态
 const aiResult = reactive({
   visible: false,
@@ -1036,19 +1076,44 @@ const actionLabels: Record<string, string> = {
 
 // 选中菜单位置计算
 const selectionMenuStyle = computed(() => {
-  const menuWidth = 280
+  // 菜单宽度估算（包含询问输入框时会更宽）
+  const menuWidth = showAskInput.value ? 480 : 360
   const menuHeight = 50
-  const padding = 8
+  const padding = 16
   
+  // 获取编辑器容器的边界（如果存在）
+  const editorEl = document.querySelector('.note-editor')
+  const containerRect = editorEl?.getBoundingClientRect()
+  
+  // 使用容器边界，但也确保不超出窗口
+  const maxRight = Math.min(
+    containerRect ? containerRect.right : window.innerWidth,
+    window.innerWidth
+  )
+  const minLeft = Math.max(
+    containerRect ? containerRect.left : 0,
+    0
+  )
+
   let x = selectionMenu.x - menuWidth / 2 // 居中显示
   let y = selectionMenu.y - menuHeight - 10 // 显示在选区上方
   
-  // 边界检查
-  if (x + menuWidth > window.innerWidth - padding) {
-    x = window.innerWidth - menuWidth - padding
+  // 右边界检查：确保 x + menuWidth <= maxRight - padding
+  const rightLimit = maxRight - padding - menuWidth
+  if (x > rightLimit) {
+    x = rightLimit
   }
-  if (x < padding) x = padding
-  if (y < padding) y = selectionMenu.y + 25 // 如果上方空间不够，显示在下方
+  // 左边界检查
+  if (x < minLeft + padding) {
+    x = minLeft + padding
+  }
+  // 顶部边界检查
+  if (y < padding) {
+    y = selectionMenu.y + 25 // 如果上方空间不够，显示在下方
+  }
+  
+  // 调试日志
+  console.log('[Menu Position] final x:', x, 'rightEdge:', x + menuWidth, 'maxRight:', maxRight, 'rightLimit:', rightLimit)
   
   return {
     left: x + 'px',
@@ -1056,19 +1121,32 @@ const selectionMenuStyle = computed(() => {
   }
 })
 
+
+
+
+
 // AI 结果面板位置计算
 const aiResultStyle = computed(() => {
   const panelWidth = 320
+  const panelHeight = 200 // 估计面板高度
   const padding = 8
   
   let x = aiResult.x - panelWidth / 2
   let y = aiResult.y + 5 // 显示在选区下方
   
-  // 边界检查
+  // 右边界检查
   if (x + panelWidth > window.innerWidth - padding) {
     x = window.innerWidth - panelWidth - padding
   }
+  // 左边界检查
   if (x < padding) x = padding
+  
+  // 底部边界检查：如果超出底部，显示在选区上方
+  if (y + panelHeight > window.innerHeight - padding) {
+    y = aiResult.y - panelHeight - 10
+  }
+  // 顶部边界检查
+  if (y < padding) y = padding
   
   return {
     left: x + 'px',
@@ -1428,11 +1506,70 @@ function handleSelectionChange(): void {
     // 没有选中或选中的是图片节点，不显示菜单
     if (empty || from === to) {
       selectionMenu.visible = false
+      showAskInput.value = false // 重置询问输入状态
       return
     }
     
-    // 获取选中的纯文本
-    const selectedText = editor.value.state.doc.textBetween(from, to, ' ')
+    // 获取选中区域的内容
+    let selectedText = ''
+    
+    // 检查选区是否在表格内部（通过解析父节点）
+    const $from = editor.value.state.doc.resolve(from)
+    let isInTable = false
+    for (let d = $from.depth; d > 0; d--) {
+      const node = $from.node(d)
+      if (node.type.name === 'table') {
+        isInTable = true
+        break
+      }
+    }
+    
+    console.log('[AI Menu] isInTable:', isInTable, 'from:', from, 'to:', to)
+    
+    if (isInTable) {
+      // 选区在表格内：自动扩展到整个表格，获取所有行的内容
+      const $from = editor.value.state.doc.resolve(from)
+      
+      // 找到选区所在的表格（table）
+      let tableNode: any = null
+      for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d)
+        if (node.type.name === 'table') {
+          tableNode = node
+          break
+        }
+      }
+      
+      if (tableNode) {
+        // 提取整个表格的所有行
+        const rows: string[] = []
+        tableNode.content.forEach((row: any) => {
+          if (row.type.name === 'tableRow') {
+            const cells: string[] = []
+            row.content.forEach((cell: any) => {
+              const cellText = cell.textContent.trim()
+              if (cellText) {
+                cells.push(cellText)
+              }
+            })
+            if (cells.length > 0) {
+              rows.push(cells.join(' | '))
+            }
+          }
+        })
+        selectedText = rows.join('\n')
+        console.log('[AI Menu] Extracted full table:', rows.length, 'rows')
+      } else {
+        // 找不到表格，回退到默认方法
+        selectedText = editor.value.state.doc.textBetween(from, to, '\n', ' ')
+        console.log('[AI Menu] Fallback to default extraction')
+      }
+
+    } else {
+      // 普通文本使用默认方式
+      selectedText = editor.value.state.doc.textBetween(from, to, '\n', ' ')
+    }
+
     
     // 选中内容太短（少于3个字符）不显示
     if (selectedText.trim().length < 3) {
@@ -1440,18 +1577,30 @@ function handleSelectionChange(): void {
       return
     }
     
+    // 调试：输出选中的文本内容
+    console.log('[AI Menu] Final selected text:', selectedText.substring(0, 200), isInTable ? '(in table)' : '')
+
+
+    
     // 获取选区的屏幕坐标
+    // 注意：选区可能是从左到右，也可能是从右到左选择
     const view = editor.value.view
-    const coords = view.coordsAtPos(from)
+    const startCoords = view.coordsAtPos(from)
     const endCoords = view.coordsAtPos(to)
     
-    // 计算菜单位置（选区中间上方）
-    selectionMenu.x = (coords.left + endCoords.right) / 2
-    selectionMenu.y = coords.top
+    // 计算菜单位置（选区顶部中间位置）
+    // 使用 Math.min 确保获取最上方的位置
+    const minY = Math.min(startCoords.top, endCoords.top)
+    const minX = Math.min(startCoords.left, endCoords.left)
+    const maxX = Math.max(startCoords.right, endCoords.right)
+    
+    selectionMenu.x = (minX + maxX) / 2
+    selectionMenu.y = minY
     selectionMenu.selectedText = selectedText
     selectionMenu.selectionFrom = from
     selectionMenu.selectionTo = to
     selectionMenu.visible = true
+
   }, 10)
 }
 
@@ -1532,6 +1681,66 @@ function closeAIResult(): void {
   aiResult.text = ''
   aiResult.action = ''
 }
+
+// 切换自由提问输入框
+function toggleAskInput(): void {
+  showAskInput.value = !showAskInput.value
+  if (showAskInput.value) {
+    nextTick(() => {
+      askInputRef.value?.focus()
+    })
+  }
+}
+
+// 处理自由提问提交
+async function handleAskSubmit(): Promise<void> {
+  if (!editor.value || !selectionMenu.selectedText || !askInputText.value.trim() || aiProcessing.value) return
+  
+  aiProcessing.value = true
+  
+  try {
+    const response = await fetch('http://127.0.0.1:8765/api/chat/process-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: selectionMenu.selectedText,
+        action: 'ask',
+        question: askInputText.value.trim()
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error('AI processing failed')
+    }
+    
+    const result = await response.json()
+    
+    if (result.processed) {
+      // 获取选区结束位置的坐标，用于显示结果面板
+      const view = editor.value.view
+      const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
+      
+      // 显示结果预览面板
+      aiResult.text = result.processed
+      aiResult.action = 'ask'
+      aiResult.actionLabel = '回答'
+      aiResult.x = (selectionMenu.x + endCoords.right) / 2
+      aiResult.y = endCoords.bottom
+      aiResult.visible = true
+      
+      // 隐藏选中菜单和输入框
+      selectionMenu.visible = false
+      showAskInput.value = false
+      askInputText.value = ''
+    }
+  } catch (error) {
+    console.error('AI ask failed:', error)
+    alert('AI 处理失败，请检查后端服务是否运行')
+  } finally {
+    aiProcessing.value = false
+  }
+}
+
 
 // Markdown 渲染功能
 // - 有选中文本：只渲染选中部分
@@ -2739,7 +2948,94 @@ onBeforeUnmount(() => {
       50% { opacity: 1; }
     }
   }
+  
+  // 分隔线
+  &__divider {
+    width: 1px;
+    height: 20px;
+    background: var(--color-border-light);
+    margin: 0 4px;
+    align-self: center;
+  }
+  
+  // 询问按钮特殊样式
+  &__btn--ask {
+    color: var(--color-accent);
+    
+    &:hover:not(:disabled) {
+      background: rgba(var(--color-accent-rgb, 59, 130, 246), 0.1);
+    }
+  }
+  
+  &__btn--active {
+    background: var(--color-bg-active);
+    color: var(--color-accent);
+  }
+  
+  // 自由提问输入框
+  &__ask-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--color-border-light);
+    margin-top: 4px;
+    
+    input {
+      flex: 1;
+      min-width: 180px;
+      padding: 6px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: $radius-sm;
+      background: var(--color-bg-primary);
+      color: var(--color-text-primary);
+      font-size: 12px;
+      outline: none;
+      
+      &::placeholder {
+        color: var(--color-text-placeholder);
+      }
+      
+      &:focus {
+        border-color: var(--color-accent);
+      }
+      
+      &:disabled {
+        opacity: 0.6;
+      }
+    }
+  }
+  
+  &__ask-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: $radius-sm;
+    background: var(--color-accent);
+    color: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    
+    &:hover:not(:disabled) {
+      opacity: 0.9;
+      transform: translateX(2px);
+    }
+    
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+  }
 }
+
 
 // AI 结果预览面板
 .ai-result-panel {

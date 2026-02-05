@@ -1484,22 +1484,28 @@ function adjustHeight() {
 
 function handleContextMenu(event: MouseEvent, content: string) {
   event.preventDefault()
+  
+  // 先移除已存在的右键菜单
+  const existingMenus = document.querySelectorAll('.agent-context-menu')
+  existingMenus.forEach(m => m.remove())
+  
   const selection = window.getSelection()
   const selectedText = selection?.toString() || content
   const menu = document.createElement('div')
-  menu.className = 'context-menu'
+  menu.className = 'agent-context-menu'
   menu.style.cssText = `position: fixed; left: ${event.clientX}px; top: ${event.clientY}px; background: white; border: 1px solid #E8E4DF; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; z-index: 10000; min-width: 120px;`
   const copyItem = document.createElement('div')
   copyItem.textContent = '📋 复制'
   copyItem.style.cssText = `padding: 8px 16px; cursor: pointer; font-size: 14px; color: #2D2A26;`
   copyItem.onmouseover = () => { copyItem.style.background = '#F5F1EC' }
   copyItem.onmouseout = () => { copyItem.style.background = 'transparent' }
-  copyItem.onclick = () => { navigator.clipboard.writeText(selectedText); document.body.removeChild(menu) }
+  copyItem.onclick = () => { navigator.clipboard.writeText(selectedText); menu.remove() }
   menu.appendChild(copyItem)
   document.body.appendChild(menu)
-  const removeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { document.body.removeChild(menu); document.removeEventListener('click', removeMenu) } }
+  const removeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { menu.remove(); document.removeEventListener('click', removeMenu) } }
   setTimeout(() => document.addEventListener('click', removeMenu), 0)
 }
+
 
 onMounted(() => {
   checkConnection()

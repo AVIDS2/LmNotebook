@@ -346,8 +346,9 @@ async def delete_session(session_id: str):
 class TextProcessRequest(BaseModel):
     """Request for lightweight text processing."""
     text: str = Field(..., description="Selected text to process")
-    action: str = Field(..., description="Action: translate, explain, polish, summarize, expand")
+    action: str = Field(..., description="Action: translate, explain, polish, summarize, expand, ask")
     target_lang: Optional[str] = Field("zh", description="Target language for translation")
+    question: Optional[str] = Field(None, description="User's custom question for 'ask' action")
 
 
 @router.post("/process-text")
@@ -367,6 +368,7 @@ async def process_text(request: TextProcessRequest):
         "summarize": f"Summarize the following text in 1-2 sentences. Output ONLY the summary:\n\n{request.text}",
         "expand": f"Expand on the following text with more details and examples. Keep the same style:\n\n{request.text}",
         "fix_grammar": f"Fix any grammar or spelling errors in the following text. Output ONLY the corrected text:\n\n{request.text}",
+        "ask": f"Based on the following text, answer the user's question.\n\nText:\n{request.text}\n\nQuestion: {request.question or 'What is this about?'}\n\nProvide a helpful, concise answer:",
     }
     
     prompt = action_prompts.get(request.action)
