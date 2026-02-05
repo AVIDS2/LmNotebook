@@ -82,6 +82,12 @@ faiss_v1_qwen/
 
 # Images (if not needed in repo)
 image/
+image*.png
+logo*.png
+
+# Temp/debug files
+claude.md
+debug_exe.py
 
 # Skills (if local only)
 skills/
