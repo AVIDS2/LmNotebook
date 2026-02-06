@@ -1112,14 +1112,12 @@ const selectionMenuStyle = computed(() => {
     y = selectionMenu.y + 25 // 如果上方空间不够，显示在下方
   }
   
-  // 调试日志
-  console.log('[Menu Position] final x:', x, 'rightEdge:', x + menuWidth, 'maxRight:', maxRight, 'rightLimit:', rightLimit)
-  
   return {
     left: x + 'px',
     top: y + 'px'
   }
 })
+
 
 
 
@@ -1576,13 +1574,9 @@ function handleSelectionChange(): void {
       selectionMenu.visible = false
       return
     }
-    
-    // 调试：输出选中的文本内容
-    console.log('[AI Menu] Final selected text:', selectedText.substring(0, 200), isInTable ? '(in table)' : '')
 
-
-    
     // 获取选区的屏幕坐标
+
     // 注意：选区可能是从左到右，也可能是从右到左选择
     const view = editor.value.view
     const startCoords = view.coordsAtPos(from)
