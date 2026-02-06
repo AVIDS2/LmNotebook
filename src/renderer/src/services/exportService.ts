@@ -103,7 +103,9 @@ export const exportService = {
   // 导出单个笔记为 Markdown
   async exportNoteAsMarkdown(note: Note): Promise<boolean> {
     const title = note.title || '未命名笔记'
-    const content = htmlToMarkdown(note.content)
+    const content = note.markdownSource && note.markdownSource.trim()
+      ? note.markdownSource
+      : htmlToMarkdown(note.content)
 
     const markdown = `# ${title}\n\n${content}`
 
@@ -137,7 +139,9 @@ export const exportService = {
 
     for (const note of notes) {
       const title = note.title || '未命名笔记'
-      const noteContent = htmlToMarkdown(note.content)
+      const noteContent = (note.markdownSource && note.markdownSource.trim())
+        ? note.markdownSource
+        : htmlToMarkdown(note.content)
       content += `## ${title}\n\n`
       content += `${noteContent}\n\n`
       content += '---\n\n'

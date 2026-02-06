@@ -16,6 +16,7 @@ import json
 import hashlib
 import os
 from typing import Literal, Optional, Callable, Any
+import re
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -238,8 +239,10 @@ class NoteAgentGraph:
             m for m in state.get("messages", []) 
             if getattr(m, "additional_kwargs", {}).get("type") != "status_message"
         ]
-        
-        messages = [SystemMessage(content=FAST_CHAT_PROMPT)] + filtered_messages
+
+        lang = self._detect_user_language(filtered_messages)
+        lang_instruction = SystemMessage(content=f"Always respond in the user's language ({lang}).")
+        messages = [SystemMessage(content=FAST_CHAT_PROMPT), lang_instruction] + filtered_messages
         
         response = self.llm.invoke(messages)
         return {"messages": [response]}
@@ -300,6 +303,10 @@ A note has two distinct parts:
 - title: The note's name (modify with rename_note)
 - content: The note's body text (modify with update_note)
 These are SEPARATE. "Change the title" means rename_note, NOT adding a heading in content.""")
+        context_parts.append("""
+TOOL USAGE:
+When a tool requires note_id, ALWAYS use the exact ID shown in CURRENT NOTE or REFERENCED NOTE.
+Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         
         context_msg = "\n".join(context_parts) if context_parts else "（无特定笔记上下文）"
         
@@ -310,9 +317,13 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
         ]
 
         # Build message list
+        lang = self._detect_user_language(filtered_history)
+        lang_instruction = SystemMessage(content=f"Always respond in the user's language ({lang}).")
+
         messages = [
             SystemMessage(content=SUPERVISOR_PROMPT),
             SystemMessage(content=f"[当前上下文]\n{context_msg}"),
+            lang_instruction,
         ] + filtered_history
         
         # Check if we're at max turns
@@ -324,6 +335,28 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
         
         # Invoke LLM with tools
         response = self.model_with_tools.invoke(messages)
+
+        # Standard tool-loop guard:
+        # For actionable TASK requests, first turn should enter tool loop immediately.
+        # If model returns plain text only, force one retry with explicit tool-call requirement.
+        if (
+            state.get("intent") == "TASK"
+            and tool_count == 0
+            and not (hasattr(response, "tool_calls") and response.tool_calls)
+            and self._task_requires_tool(state, filtered_history)
+        ):
+            forced_messages = messages + [
+                SystemMessage(
+                    content=(
+                        "You are handling an actionable TASK. "
+                        "Call exactly ONE tool now. "
+                        "Do not output plain text in this step."
+                    )
+                )
+            ]
+            forced_response = self.model_with_tools.invoke(forced_messages)
+            if hasattr(forced_response, "tool_calls") and forced_response.tool_calls:
+                response = forced_response
         
         return {"messages": [response]}
     
@@ -364,8 +397,15 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
         last_tool_hash = state.get("last_tool_input_hash")
         
         current_tool_name = next_tool_call.get("name", "")
+        tool_args = next_tool_call.get("args", {}) or {}
+
+        # Normalize tool args that depend on note_id to avoid placeholder usage.
+        # This keeps agent behavior robust without hardcoding UI-specific strings.
+        tool_args = self._normalize_note_id_args(tool_args, state)
+        next_tool_call["args"] = tool_args
+
         current_input_hash = hashlib.md5(
-            json.dumps(next_tool_call.get("args", {}), sort_keys=True).encode()
+            json.dumps(tool_args, sort_keys=True).encode()
         ).hexdigest()
         
         # Check for doom loop
@@ -409,6 +449,71 @@ These are SEPARATE. "Change the title" means rename_note, NOT adding a heading i
             "last_tool_input_hash": current_input_hash,
             "next_tool_call": None,  # Clear after execution
         }
+
+    def _normalize_note_id_args(self, args: dict, state: NoteAgentState) -> dict:
+        """
+        Ensure note_id is a real ID when tools require it.
+        If note_id is missing or malformed, fall back to active note in state.
+        """
+        if not isinstance(args, dict):
+            return args
+
+        note_id = args.get("note_id")
+        active_note_id = state.get("active_note_id")
+
+        if not note_id or not isinstance(note_id, str):
+            if active_note_id:
+                args["note_id"] = active_note_id
+            return args
+
+        # Accept both timestamp IDs and UUID IDs.
+        # Fallback only for obvious placeholders or malformed ids.
+        is_timestamp_id = bool(re.match(r"^\d{13}-[0-9a-f]{9}$", note_id))
+        is_uuid_id = bool(re.match(r"^[0-9a-fA-F-]{32,36}$", note_id))
+        if not (is_timestamp_id or is_uuid_id):
+            if active_note_id:
+                safe_print(f"[WARN] Normalizing note_id '{note_id}' -> '{active_note_id}'")
+                args["note_id"] = active_note_id
+        return args
+
+    def _task_requires_tool(self, state: NoteAgentState, history: list) -> bool:
+        """
+        Decide if current TASK should enter tool loop immediately.
+        Uses lightweight intent cues to avoid false forcing on purely conversational TASKs.
+        """
+        last_user_text = ""
+        for msg in reversed(history):
+            if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
+                last_user_text = msg.content.lower()
+                break
+
+        actionable_cues = [
+            "整理", "格式", "排版", "重写", "修改", "更新", "删除", "创建", "重命名", "分类",
+            "format", "reformat", "tidy", "rewrite", "update", "delete", "create", "rename", "categorize",
+        ]
+        has_action_word = any(cue in last_user_text for cue in actionable_cues)
+
+        # If note context exists, formatting/update style queries are expected to use tools.
+        has_note_context = bool(state.get("active_note_id") or state.get("context_note_id"))
+        return has_action_word and has_note_context
+
+    def _detect_user_language(self, messages: list) -> str:
+        """
+        Lightweight language detection based on latest user message.
+        Returns 'zh' when CJK chars are present, otherwise 'en'.
+        """
+        if not messages:
+            return "en"
+
+        last_user_text = ""
+        for msg in reversed(messages):
+            if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
+                last_user_text = msg.content
+                break
+
+        if re.search(r"[\\u4e00-\\u9fff]", last_user_text):
+            return "zh"
+        return "en"
     
     def _status_node(self, state: NoteAgentState) -> dict:
         """

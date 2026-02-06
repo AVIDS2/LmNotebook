@@ -105,6 +105,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useNotifyStore } from '@/stores/notifyStore'
 
 const emit = defineEmits<{
   close: []
@@ -152,6 +153,8 @@ const imageStats = ref<ImageStats>({
   count: 0,
   totalSize: 0
 })
+
+const notify = useNotifyStore()
 
 const backups = ref<BackupInfo[]>([])
 const isCreatingBackup = ref(false)
@@ -205,7 +208,7 @@ async function selectDataDirectory() {
     if (confirmMove) {
       const migrateResult = await window.electronAPI.data.migrate(result.path)
       if (!migrateResult.success) {
-        alert(`迁移失败: ${migrateResult.error}`)
+        notify.add(`迁移失败: ${migrateResult.error}`, 'error')
       }
     }
   }
@@ -223,7 +226,7 @@ async function resetToDefault() {
   if (confirmed) {
     const result = await window.electronAPI.data.migrate(defaultDirectory.value)
     if (!result.success) {
-      alert(`恢复失败: ${result.error}`)
+      notify.add(`恢复失败: ${result.error}`, 'error')
     }
   }
 }
@@ -234,9 +237,9 @@ async function createBackup() {
     const result = await window.electronAPI.backup.create()
     if (result) {
       await loadBackups()
-      alert('备份创建成功!')
+      notify.add('备份创建成功', 'success')
     } else {
-      alert('备份创建失败')
+      notify.add('备份创建失败', 'error')
     }
   } finally {
     isCreatingBackup.value = false
@@ -251,11 +254,11 @@ async function restoreBackup(backup: BackupInfo) {
   if (confirmed) {
     const success = await window.electronAPI.backup.restore(backup.path)
     if (success) {
-      alert('备份恢复成功！\n\n请关闭并重新打开应用以加载恢复的数据。')
+      notify.add('备份恢复成功。请关闭并重新打开应用以加载恢复的数据。', 'success', 6000)
       // 关闭设置弹窗
       emit('close')
     } else {
-      alert('备份恢复失败，请重试。')
+      notify.add('备份恢复失败，请重试。', 'error')
     }
   }
 }

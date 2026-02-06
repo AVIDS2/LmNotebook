@@ -255,6 +255,61 @@
           </div>
         </div>
 
+        <div class="agent-chat__context-bar">
+          <div class="context-pill approval-mode-pill" :class="{ 'inactive': !autoAcceptEdits }">
+            <button class="pill-toggle-btn" @click="toggleAutoAcceptEdits" title="Toggle auto accept">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
+                <path d="M5 12l4 4 10-10" />
+              </svg>
+            </button>
+            <span class="pill-text">{{ autoAcceptEdits ? 'Auto-Accept' : 'Manual Review' }}</span>
+          </div>
+        </div>
+
+        <div v-if="pendingApprovals.length > 0" class="agent-approval-bar">
+          <span class="agent-approval-bar__label">Pending: {{ pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }}</span>
+          <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
+            {{ showApprovalPreview ? 'Hide changes' : 'View changes' }}
+          </button>
+          <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">Accept</button>
+          <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">Reject</button>
+          <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">Auto-Accept</button>
+        </div>
+
+        <div v-if="showApprovalPreview && currentPendingApproval" class="agent-approval-preview">
+          <div class="agent-approval-preview__summary">{{ currentApprovalSummary }}</div>
+          <div class="agent-approval-preview__title-row">
+            <div class="agent-approval-preview__title">Structured diff</div>
+            <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
+              {{ showUnchangedDiff ? 'Hide unchanged' : 'Show unchanged' }}
+            </button>
+          </div>
+          <div class="agent-approval-diff">
+            <div
+              v-for="block in visibleApprovalDiffBlocks"
+              :key="block.id"
+              class="agent-diff-block"
+              :class="`agent-diff-block--${block.kind}`"
+            >
+              <div class="agent-diff-block__head">
+                <span class="agent-diff-block__label">{{ block.label }}</span>
+                <span class="agent-diff-block__kind">{{ block.kind }}</span>
+              </div>
+              <div class="agent-diff-lines">
+                <div
+                  v-for="(line, idx) in block.lines"
+                  :key="`${block.id}-${idx}`"
+                  class="agent-diff-line"
+                  :class="`agent-diff-line--${line.op}`"
+                >
+                  <span class="agent-diff-sign">{{ line.op === 'add' ? '+' : line.op === 'del' ? '-' : ' ' }}</span>
+                  <span class="agent-diff-text">{{ line.text || ' ' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Compact Input Area -->
         <div class="agent-chat__footer">
           <div class="chat-input-unified-box">
@@ -358,7 +413,7 @@ import 'highlight.js/styles/github.css'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { useNoteStore } from '@/stores/noteStore'
-import { noteRepository } from '@/database/noteRepository'
+import { noteRepository, type Note } from '@/database/noteRepository'
 import ModelSettings from './ModelSettings.vue'
 
 // Inject dependencies
@@ -418,6 +473,8 @@ const streamingMessage = ref<ChatMessage | null>(null)
 const currentStatus = ref('')
 const abortController = ref<AbortController | null>(null)
 const includeActiveNote = ref(true)
+const AUTO_ACCEPT_EDITS_KEY = 'origin_agent_auto_accept_edits'
+const autoAcceptEdits = ref(localStorage.getItem(AUTO_ACCEPT_EDITS_KEY) !== '0')
 
 // --- Auto-scroll control ---
 const userScrolledUp = ref(false)
@@ -427,6 +484,67 @@ const showScrollToBottom = ref(false)
 const showNoteSelector = ref(false)
 const selectedContextNote = ref<any>(null)
 const selectorRef = ref<HTMLElement | null>(null)
+
+interface NoteSnapshot {
+  id: string
+  title: string
+  content: string
+  markdownSource: string | null
+}
+
+interface PendingApproval {
+  id: string
+  noteId: string
+  noteTitle: string
+  before: NoteSnapshot
+  after: NoteSnapshot
+  beforePreview: string
+  afterPreview: string
+  createdAt: number
+}
+
+type DiffOp = 'same' | 'add' | 'del'
+type DiffBlockKind = 'unchanged' | 'modified' | 'added' | 'removed'
+
+interface DiffLine {
+  op: DiffOp
+  text: string
+}
+
+interface DiffBlockView {
+  id: string
+  label: string
+  kind: DiffBlockKind
+  lines: DiffLine[]
+}
+
+interface TextBlock {
+  id: string
+  label: string
+  text: string
+  key: string
+}
+
+interface PersistedUiState {
+  version: 1
+  messages: Array<{
+    role: ChatMessage['role']
+    content: string
+    parts?: MessagePart[]
+    timestamp: string
+    isError?: boolean
+  }>
+  pendingApprovals: PendingApproval[]
+  showApprovalPreview: boolean
+}
+
+const preUpdateSnapshots = ref<Record<string, NoteSnapshot>>({})
+const pendingApprovals = ref<PendingApproval[]>([])
+const showApprovalPreview = ref(false)
+const showUnchangedDiff = ref(false)
+const approvalBusy = ref(false)
+const SESSION_UI_PREFIX = 'origin_agent_session_ui_v1:'
+let persistUiTimer: ReturnType<typeof setTimeout> | null = null
 
 // --- Session History ---
 interface SessionInfo {
@@ -441,6 +559,63 @@ const sessionList = ref<SessionInfo[]>([])
 
 // Session metadata stored locally (pinned status, custom titles)
 const sessionMeta = ref<Record<string, { pinned?: boolean; title?: string }>>({})
+
+function getSessionUiKey(sessionId: string): string {
+  return `${SESSION_UI_PREFIX}${sessionId}`
+}
+
+function persistSessionUiState(sessionId: string = currentSessionId.value): void {
+  try {
+    const payload: PersistedUiState = {
+      version: 1,
+      messages: messages.value.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        parts: msg.parts,
+        timestamp: msg.timestamp instanceof Date ? msg.timestamp.toISOString() : new Date(msg.timestamp).toISOString(),
+        isError: msg.isError
+      })),
+      pendingApprovals: pendingApprovals.value,
+      showApprovalPreview: showApprovalPreview.value
+    }
+    localStorage.setItem(getSessionUiKey(sessionId), JSON.stringify(payload))
+  } catch (e) {
+    console.warn('[Agent] Failed to persist UI session state:', e)
+  }
+}
+
+function schedulePersistUiState(): void {
+  if (persistUiTimer) clearTimeout(persistUiTimer)
+  persistUiTimer = setTimeout(() => {
+    persistSessionUiState()
+  }, 80)
+}
+
+function loadPersistedUiState(sessionId: string): boolean {
+  try {
+    const raw = localStorage.getItem(getSessionUiKey(sessionId))
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as PersistedUiState
+    if (!parsed || parsed.version !== 1) return false
+    messages.value = (parsed.messages || []).map(m => ({
+      role: m.role,
+      content: m.content || '',
+      parts: m.parts || [],
+      timestamp: new Date(m.timestamp || Date.now()),
+      isError: m.isError
+    }))
+    pendingApprovals.value = Array.isArray(parsed.pendingApprovals) ? parsed.pendingApprovals : []
+    showApprovalPreview.value = Boolean(parsed.showApprovalPreview)
+    return true
+  } catch (e) {
+    console.warn('[Agent] Failed to load persisted UI session state:', e)
+    return false
+  }
+}
+
+function clearPersistedUiState(sessionId: string): void {
+  localStorage.removeItem(getSessionUiKey(sessionId))
+}
 
 // Load session metadata from localStorage
 function loadSessionMeta() {
@@ -561,12 +736,15 @@ async function loadSession(sessionId: string) {
       // Switch to this session
       currentSessionId.value = sessionId
       localStorage.setItem(SESSION_KEY, sessionId)
-      // Load messages
-      messages.value = (data.messages || []).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-        timestamp: new Date()
-      }))
+      // Load messages (prefer persisted UI state with parts/tool traces)
+      const restored = loadPersistedUiState(sessionId)
+      if (!restored) {
+        messages.value = (data.messages || []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: new Date()
+        }))
+      }
       showSessionHistory.value = false
       nextTick(() => scrollToBottom())
     }
@@ -581,6 +759,7 @@ async function deleteSession(sessionId: string) {
       method: 'DELETE'
     })
     if (response.ok) {
+      clearPersistedUiState(sessionId)
       sessionList.value = sessionList.value.filter(s => s.id !== sessionId)
       // If deleted current session, start new one
       if (sessionId === currentSessionId.value) {
@@ -626,6 +805,331 @@ function selectNoteAsContext(note: any) {
 function clearContextNote() {
   selectedContextNote.value = null
 }
+
+function snapshotFromNote(note: Note): NoteSnapshot {
+  return {
+    id: note.id,
+    title: note.title || '',
+    content: note.content || '',
+    markdownSource: note.markdownSource ?? null
+  }
+}
+
+function snapshotsDiffer(a: NoteSnapshot, b: NoteSnapshot): boolean {
+  return a.title !== b.title || a.content !== b.content || (a.markdownSource ?? '') !== (b.markdownSource ?? '')
+}
+
+function stripHtml(html: string): string {
+  const div = document.createElement('div')
+  div.innerHTML = html || ''
+  return (div.textContent || div.innerText || '').trim()
+}
+
+function snapshotToText(snapshot: NoteSnapshot): string {
+  const raw = (snapshot.markdownSource && snapshot.markdownSource.trim())
+    ? snapshot.markdownSource
+    : stripHtml(snapshot.content)
+  return raw.trim()
+}
+
+function previewText(input: string, maxLen = 220): string {
+  if (!input) return '(empty)'
+  return input.length > maxLen ? `${input.slice(0, maxLen)}...` : input
+}
+
+function countByRegex(text: string, regex: RegExp): number {
+  const matches = text.match(regex)
+  return matches ? matches.length : 0
+}
+
+function normalizeKey(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s#-]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function makeLabelFromText(text: string, fallback: string): string {
+  const firstLine = text.split('\n').find(line => line.trim())?.trim() || ''
+  if (!firstLine) return fallback
+  return firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine
+}
+
+function splitIntoBlocks(text: string): TextBlock[] {
+  const normalized = text.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return []
+  const rawBlocks = normalized
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean)
+  return rawBlocks.map((block, idx) => {
+    const label = makeLabelFromText(block, `Block ${idx + 1}`)
+    const key = normalizeKey(label)
+    return {
+      id: `b-${idx}`,
+      label,
+      text: block,
+      key
+    }
+  })
+}
+
+function buildLcsIndices(left: string[], right: string[]): Array<[number, number]> {
+  const m = left.length
+  const n = right.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+  for (let i = m - 1; i >= 0; i -= 1) {
+    for (let j = n - 1; j >= 0; j -= 1) {
+      if (left[i] === right[j]) dp[i][j] = dp[i + 1][j + 1] + 1
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+  const pairs: Array<[number, number]> = []
+  let i = 0
+  let j = 0
+  while (i < m && j < n) {
+    if (left[i] === right[j]) {
+      pairs.push([i, j])
+      i += 1
+      j += 1
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i += 1
+    } else {
+      j += 1
+    }
+  }
+  return pairs
+}
+
+function buildLineDiff(beforeText: string, afterText: string): DiffLine[] {
+  const before = beforeText.split('\n')
+  const after = afterText.split('\n')
+  const pairs = buildLcsIndices(before, after)
+  const lines: DiffLine[] = []
+  let i = 0
+  let j = 0
+  for (const [pi, pj] of pairs) {
+    while (i < pi) {
+      lines.push({ op: 'del', text: before[i] })
+      i += 1
+    }
+    while (j < pj) {
+      lines.push({ op: 'add', text: after[j] })
+      j += 1
+    }
+    lines.push({ op: 'same', text: before[pi] })
+    i = pi + 1
+    j = pj + 1
+  }
+  while (i < before.length) {
+    lines.push({ op: 'del', text: before[i] })
+    i += 1
+  }
+  while (j < after.length) {
+    lines.push({ op: 'add', text: after[j] })
+    j += 1
+  }
+  return lines
+}
+
+function pairSegments(beforeSeg: TextBlock[], afterSeg: TextBlock[]): DiffBlockView[] {
+  const out: DiffBlockView[] = []
+  let i = 0
+  let j = 0
+  while (i < beforeSeg.length && j < afterSeg.length) {
+    const b = beforeSeg[i]
+    const a = afterSeg[j]
+    out.push({
+      id: `${b.id}:${a.id}`,
+      label: a.label || b.label,
+      kind: 'modified',
+      lines: buildLineDiff(b.text, a.text)
+    })
+    i += 1
+    j += 1
+  }
+  while (i < beforeSeg.length) {
+    const b = beforeSeg[i]
+    out.push({
+      id: `${b.id}:removed`,
+      label: b.label,
+      kind: 'removed',
+      lines: b.text.split('\n').map(line => ({ op: 'del' as const, text: line }))
+    })
+    i += 1
+  }
+  while (j < afterSeg.length) {
+    const a = afterSeg[j]
+    out.push({
+      id: `added:${a.id}`,
+      label: a.label,
+      kind: 'added',
+      lines: a.text.split('\n').map(line => ({ op: 'add' as const, text: line }))
+    })
+    j += 1
+  }
+  return out
+}
+
+function buildStructuredDiff(beforeText: string, afterText: string): DiffBlockView[] {
+  const beforeBlocks = splitIntoBlocks(beforeText)
+  const afterBlocks = splitIntoBlocks(afterText)
+  const pairs = buildLcsIndices(beforeBlocks.map(b => b.key), afterBlocks.map(b => b.key))
+  const out: DiffBlockView[] = []
+  let bi = 0
+  let ai = 0
+  for (const [pb, pa] of pairs) {
+    if (bi < pb || ai < pa) {
+      out.push(...pairSegments(beforeBlocks.slice(bi, pb), afterBlocks.slice(ai, pa)))
+    }
+    const b = beforeBlocks[pb]
+    const a = afterBlocks[pa]
+    if (b.text === a.text) {
+      out.push({
+        id: `${b.id}:${a.id}`,
+        label: a.label || b.label,
+        kind: 'unchanged',
+        lines: [{ op: 'same', text: previewText(a.text, 280) }]
+      })
+    } else {
+      out.push({
+        id: `${b.id}:${a.id}`,
+        label: a.label || b.label,
+        kind: 'modified',
+        lines: buildLineDiff(b.text, a.text)
+      })
+    }
+    bi = pb + 1
+    ai = pa + 1
+  }
+  if (bi < beforeBlocks.length || ai < afterBlocks.length) {
+    out.push(...pairSegments(beforeBlocks.slice(bi), afterBlocks.slice(ai)))
+  }
+  return out
+}
+
+function summarizeChange(before: NoteSnapshot, after: NoteSnapshot): string {
+  const beforeText = snapshotToText(before)
+  const afterText = snapshotToText(after)
+  const beforeHeadings = countByRegex(beforeText, /^#{1,6}\s/mg)
+  const afterHeadings = countByRegex(afterText, /^#{1,6}\s/mg)
+  const beforeLists = countByRegex(beforeText, /^\s*([-*+]|\d+\.)\s/mg)
+  const afterLists = countByRegex(afterText, /^\s*([-*+]|\d+\.)\s/mg)
+  const deltaChars = afterText.length - beforeText.length
+  return `chars ${beforeText.length} -> ${afterText.length} (${deltaChars >= 0 ? '+' : ''}${deltaChars}), headings ${beforeHeadings} -> ${afterHeadings}, lists ${beforeLists} -> ${afterLists}`
+}
+
+async function capturePreUpdateSnapshot(noteId: string | null | undefined): Promise<void> {
+  if (!noteId || preUpdateSnapshots.value[noteId]) return
+  const note = await noteRepository.getById(noteId)
+  if (!note) return
+  preUpdateSnapshots.value[noteId] = snapshotFromNote(note)
+}
+
+function extractNoteIdFromToolInputPreview(inputPreview?: string): string | null {
+  if (!inputPreview) return null
+  const uuidMatch = inputPreview.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+  if (uuidMatch) return uuidMatch[0]
+  const genericIdMatch = inputPreview.match(/(?:note[_-]?id|id)\s*[:=]\s*['"]?([a-zA-Z0-9-]{8,})/i)
+  return genericIdMatch?.[1] || null
+}
+
+function patchStoreWithSnapshot(snapshot: NoteSnapshot): void {
+  if (noteStore.currentNote?.id === snapshot.id) {
+    noteStore.currentNote = {
+      ...noteStore.currentNote,
+      title: snapshot.title,
+      content: snapshot.content,
+      markdownSource: snapshot.markdownSource
+    } as any
+    if (setEditorContent) {
+      setEditorContent(snapshot.content)
+    }
+  }
+  const idx = noteStore.notes.findIndex((n: any) => n.id === snapshot.id)
+  if (idx >= 0) {
+    noteStore.notes[idx] = {
+      ...noteStore.notes[idx],
+      title: snapshot.title,
+      content: snapshot.content,
+      markdownSource: snapshot.markdownSource
+    } as any
+  }
+}
+
+function persistSnapshotAsync(snapshot: NoteSnapshot): Promise<void> {
+  return noteRepository.update(snapshot.id, {
+    title: snapshot.title,
+    content: snapshot.content,
+    markdownSource: snapshot.markdownSource
+  })
+}
+
+function applySnapshot(snapshot: NoteSnapshot): void {
+  patchStoreWithSnapshot(snapshot)
+  persistSnapshotAsync(snapshot).catch((err) => {
+    console.warn('[Agent] Failed to persist approval snapshot:', err)
+  })
+}
+
+function addPendingApproval(approval: PendingApproval): void {
+  pendingApprovals.value = pendingApprovals.value.filter(item => item.noteId !== approval.noteId)
+  pendingApprovals.value.unshift(approval)
+  showApprovalPreview.value = true
+}
+
+async function acceptPendingApproval(approvalId: string): Promise<void> {
+  if (approvalBusy.value) return
+  const approval = pendingApprovals.value.find(item => item.id === approvalId)
+  if (!approval) return
+  approvalBusy.value = true
+  try {
+    applySnapshot(approval.after)
+    pendingApprovals.value = pendingApprovals.value.filter(item => item.id !== approvalId)
+  } finally {
+    approvalBusy.value = false
+  }
+}
+
+async function rejectPendingApproval(approvalId: string): Promise<void> {
+  if (approvalBusy.value) return
+  const approval = pendingApprovals.value.find(item => item.id === approvalId)
+  if (!approval) return
+  approvalBusy.value = true
+  try {
+    applySnapshot(approval.before)
+    pendingApprovals.value = pendingApprovals.value.filter(item => item.id !== approvalId)
+  } finally {
+    approvalBusy.value = false
+  }
+}
+
+function toggleAutoAcceptEdits(): void {
+  autoAcceptEdits.value = !autoAcceptEdits.value
+}
+
+async function enableAutoAcceptAndApply(): Promise<void> {
+  autoAcceptEdits.value = true
+  if (pendingApprovals.value.length === 0) return
+  await acceptPendingApproval(pendingApprovals.value[0].id)
+}
+
+const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
+const currentApprovalSummary = computed(() => {
+  if (!currentPendingApproval.value) return ''
+  return summarizeChange(currentPendingApproval.value.before, currentPendingApproval.value.after)
+})
+const approvalDiffBlocks = computed(() => {
+  if (!currentPendingApproval.value) return []
+  const beforeText = snapshotToText(currentPendingApproval.value.before)
+  const afterText = snapshotToText(currentPendingApproval.value.after)
+  return buildStructuredDiff(beforeText, afterText)
+})
+const visibleApprovalDiffBlocks = computed(() => {
+  if (showUnchangedDiff.value) return approvalDiffBlocks.value
+  return approvalDiffBlocks.value.filter(block => block.kind !== 'unchanged')
+})
 
 // Auto-resize input
 function autoResizeInput(e: Event) {
@@ -834,19 +1338,26 @@ function toggleChat() {
 }
 
 function clearChat() {
+  persistSessionUiState()
+
+  // Rotate to new session first so old session UI snapshot is preserved
+  console.log('[Agent] User cleared chat. Rotating Session ID.')
+  currentSessionId.value = crypto.randomUUID()
+  localStorage.setItem('origin_agent_session_id', currentSessionId.value)
+
   messages.value = []
+  pendingApprovals.value = []
+  preUpdateSnapshots.value = {}
+  showApprovalPreview.value = false
+  showUnchangedDiff.value = false
   isTyping.value = false
   currentStatus.value = ''
   if (abortController.value) {
     abortController.value.abort()
     abortController.value = null
   }
-  
-  // Fix: Force New Session on Clear
-  console.log('[Agent] User cleared chat. Rotating Session ID.')
-  currentSessionId.value = crypto.randomUUID()
-  localStorage.setItem('origin_agent_session_id', currentSessionId.value)
-  
+
+  persistSessionUiState()
   inputRef.value?.focus()
 }
 
@@ -880,13 +1391,23 @@ if (!localStorage.getItem(SESSION_KEY)) {
 }
 const currentSessionId = ref(localStorage.getItem(SESSION_KEY)!)
 
+// Restore visual UI state for current session on startup
+loadPersistedUiState(currentSessionId.value)
+
 // Watch active note change to reset session
 watch(() => noteStore.currentNote?.id, (newId, oldId) => {
     // Only reset if ID actually changed (and isn't just initializing to same value)
     if (newId !== oldId) {
+        persistSessionUiState()
         console.log(`[Agent] Note switched (${oldId} -> ${newId}). Rotating Session ID.`)
         currentSessionId.value = crypto.randomUUID()
         localStorage.setItem(SESSION_KEY, currentSessionId.value)
+        messages.value = []
+        pendingApprovals.value = []
+        preUpdateSnapshots.value = {}
+        showApprovalPreview.value = false
+        showUnchangedDiff.value = false
+        persistSessionUiState()
         // Optional: Insert a system divider in UI?
         // messages.value.push({ role: 'assistant', content: '*(New Context Loaded)*', timestamp: new Date() })
     }
@@ -918,6 +1439,16 @@ function handleSuggestionClick(suggestion: string) {
 async function sendMessage(text?: string) {
   const messageText = text || inputText.value.trim()
   if (!messageText || isTyping.value) return
+
+  if (!autoAcceptEdits.value) {
+    const activeNoteId = includeActiveNote.value ? noteStore.currentNote?.id : null
+    if (activeNoteId) {
+      await capturePreUpdateSnapshot(activeNoteId)
+    }
+    if (selectedContextNote.value?.id) {
+      await capturePreUpdateSnapshot(selectedContextNote.value.id)
+    }
+  }
   
   // Optimistic UI update
   messages.value.push({ role: 'user', content: messageText, timestamp: new Date() })
@@ -1088,6 +1619,14 @@ async function sendMessage(text?: string) {
                   } 
                   else if (chunk.part_type === 'tool') {
                       if (chunk.status === 'running') {
+                          if (!autoAcceptEdits.value && chunk.tool === 'update_note') {
+                              const toolNoteId = extractNoteIdFromToolInputPreview(chunk.input_preview)
+                              if (toolNoteId) {
+                                  await capturePreUpdateSnapshot(toolNoteId)
+                              } else if (includeActiveNote.value && noteStore.currentNote?.id) {
+                                  await capturePreUpdateSnapshot(noteStore.currentNote.id)
+                              }
+                          }
                           // Add new tool part with toolId
                           msg.parts.push({
                               type: 'tool',
@@ -1289,18 +1828,48 @@ async function handleToolCallEvent(data: any, msg: any) {
         msg.content += `\n\n> [SYSTEM_LOG] Created Note ID: ${data.note_id}`
       }
     } else if (data.tool_call === 'note_updated') {
+      const targetNoteId = data.note_id || noteStore.currentNote?.id || null
       await noteStore.loadNotes()
-      
-      // Fix: Real-time update for active note
-      if (data.note_id && noteStore.currentNote?.id === data.note_id) {
-          const fresh = await noteRepository.getById(data.note_id)
-          if (fresh && setEditorContent) {
-              setEditorContent(fresh.content)
-              noteStore.currentNote = fresh
+      const fresh = targetNoteId ? await noteRepository.getById(targetNoteId) : undefined
+
+      if (!autoAcceptEdits.value && targetNoteId && fresh) {
+        const before = preUpdateSnapshots.value[targetNoteId]
+        const after = snapshotFromNote(fresh)
+        if (before && snapshotsDiffer(before, after)) {
+          applySnapshot(before)
+          addPendingApproval({
+            id: crypto.randomUUID(),
+            noteId: targetNoteId,
+            noteTitle: fresh.title || targetNoteId,
+            before,
+            after,
+            beforePreview: previewText(snapshotToText(before)),
+            afterPreview: previewText(snapshotToText(after)),
+            createdAt: Date.now()
+          })
+          if (msg.content) {
+            msg.content += `\n\n> [SYSTEM_LOG] Pending approval for note update`
           }
+          delete preUpdateSnapshots.value[targetNoteId]
+          messages.value = [...messages.value]
+          return
+        }
       }
 
-      // Only append log if there's already content
+      if (targetNoteId && noteStore.currentNote?.id === targetNoteId) {
+        const latest = fresh || await noteRepository.getById(targetNoteId)
+        if (latest) {
+          noteStore.currentNote = latest
+          if (setEditorContent) {
+            setEditorContent(latest.content)
+          }
+        }
+      }
+
+      if (targetNoteId) {
+        delete preUpdateSnapshots.value[targetNoteId]
+      }
+
       if (msg.content) {
         msg.content += `\n\n> [SYSTEM_LOG] Updated Note`
       }
@@ -1517,6 +2086,22 @@ watch(inputText, () => {
     inputRef.value.style.height = 'auto'
     inputRef.value.style.height = Math.min(inputRef.value.scrollHeight, 120) + 'px'
   }
+})
+
+watch(autoAcceptEdits, (enabled) => {
+  localStorage.setItem(AUTO_ACCEPT_EDITS_KEY, enabled ? '1' : '0')
+})
+
+watch(messages, () => {
+  schedulePersistUiState()
+}, { deep: true })
+
+watch(pendingApprovals, () => {
+  schedulePersistUiState()
+}, { deep: true })
+
+watch(showApprovalPreview, () => {
+  schedulePersistUiState()
 })
 </script>
 
@@ -2333,6 +2918,10 @@ watch(inputText, () => {
   color: var(--theme-accent);
 }
 
+.approval-mode-pill {
+  margin-left: auto;
+}
+
 .inspecting-pill.inactive {
   opacity: 0.5;
   text-decoration: line-through;
@@ -2382,6 +2971,153 @@ watch(inputText, () => {
 }
 
 .pill-clear:hover { opacity: 1; }
+
+.agent-approval-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 6px;
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+}
+
+.agent-approval-bar__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-approval-btn {
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg-solid);
+  color: var(--theme-text);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agent-approval-btn--accept {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.agent-approval-btn--reject {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.agent-approval-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agent-approval-preview {
+  border-top: 1px solid var(--theme-border);
+  margin: 0 12px 6px;
+  padding-top: 8px;
+}
+
+.agent-approval-preview__summary {
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+  margin-bottom: 6px;
+}
+
+.agent-approval-preview__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.agent-approval-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.agent-diff-block {
+  border: 1px solid var(--theme-border);
+  border-radius: 6px;
+  background: var(--theme-bg-solid);
+  padding: 6px;
+}
+
+.agent-diff-block--added {
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.agent-diff-block--removed {
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.agent-diff-block--modified {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.agent-diff-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.agent-diff-block__label {
+  font-size: 11px;
+  color: var(--theme-text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-diff-block__kind {
+  font-size: 10px;
+  color: var(--theme-text-secondary);
+  text-transform: capitalize;
+}
+
+.agent-diff-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-diff-line {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.agent-diff-line--add {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.agent-diff-line--del {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.agent-diff-sign {
+  color: var(--theme-text-secondary);
+  text-align: center;
+}
+
+.agent-diff-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-approval-preview__title {
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+}
 
 /* Shallow Glass override */
 .shallow-glass {

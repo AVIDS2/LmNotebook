@@ -6,9 +6,17 @@ import aiosqlite
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import uuid
+import asyncio
 
 from core.config import settings
 from .rag_service import RAGService
+
+
+def safe_print(msg: str):
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('gbk', errors='replace').decode('gbk'))
 
 
 class NoteService:
@@ -21,6 +29,15 @@ class NoteService:
     def __init__(self):
         self.db_path = settings.NOTES_DB_PATH
         self.rag_service = RAGService()
+
+    def _run_vector_task(self, coro, label: str) -> None:
+        """Run vector sync in background so note CRUD is never blocked by embedding API latency."""
+        async def _wrapped():
+            try:
+                await coro
+            except Exception as e:
+                safe_print(f"[WARN] Vector task failed ({label}): {e}")
+        asyncio.create_task(_wrapped())
     
     async def get_all_notes(self) -> List[Dict[str, Any]]:
         """Get all non-deleted notes."""
@@ -50,7 +67,8 @@ class NoteService:
         self,
         title: str,
         content: str = "",
-        category_id: Optional[str] = None
+        category_id: Optional[str] = None,
+        markdown_source: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new note."""
         note_id = f"{int(datetime.now().timestamp() * 1000)}-{uuid.uuid4().hex[:9]}"
@@ -67,7 +85,7 @@ class NoteService:
                     createdAt, updatedAt
                 ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?)
             """, (
-                note_id, title, content, plain_text, None,
+                note_id, title, content, plain_text, markdown_source,
                 category_id, now, now
             ))
             await db.commit()
@@ -77,13 +95,17 @@ class NoteService:
             "title": title,
             "content": content,
             "plainText": plain_text,
+            "markdownSource": markdown_source,
             "categoryId": category_id,
             "createdAt": now,
             "updatedAt": now,
         }
         
-        # Add to vector store
-        await self.rag_service.add_document(note_id, title, plain_text)
+        # Add to vector store in background (non-blocking for UX)
+        self._run_vector_task(
+            self.rag_service.add_document(note_id, title, plain_text),
+            f"create:{note_id}"
+        )
         
         return note
     
@@ -92,7 +114,8 @@ class NoteService:
         note_id: str,
         title: Optional[str] = None,
         content: Optional[str] = None,
-        category_id: Optional[str] = None
+        category_id: Optional[str] = None,
+        markdown_source: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Update an existing note."""
         # Get current note
@@ -109,6 +132,8 @@ class NoteService:
             updates["plainText"] = self._extract_plain_text(content)
         if category_id is not None:
             updates["categoryId"] = category_id
+        if markdown_source is not None:
+            updates["markdownSource"] = markdown_source
         
         if not updates:
             return current
@@ -126,10 +151,13 @@ class NoteService:
             )
             await db.commit()
         
-        # Update vector store
+        # Update vector store in background (non-blocking for UX)
         final_title = updates.get("title", current["title"])
         final_content = updates.get("plainText", current.get("plainText", ""))
-        await self.rag_service.update_document(note_id, final_title, final_content)
+        self._run_vector_task(
+            self.rag_service.update_document(note_id, final_title, final_content),
+            f"update:{note_id}"
+        )
         
         return await self.get_note(note_id)
     
@@ -143,8 +171,11 @@ class NoteService:
             )
             await db.commit()
             if result.rowcount > 0:
-                # Remove from vector store
-                await self.rag_service.remove_document(note_id)
+                # Remove from vector store in background (non-blocking for UX)
+                self._run_vector_task(
+                    self.rag_service.remove_document(note_id),
+                    f"delete:{note_id}"
+                )
                 return True
         return False
     

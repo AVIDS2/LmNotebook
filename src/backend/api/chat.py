@@ -110,7 +110,8 @@ async def stream_agent(request: ChatRequest):
             ):
                 chunk_count += 1
                 elapsed = time.time() - start_time
-                safe_print(f">> Chunk #{chunk_count} at {elapsed:.2f}s: {repr(chunk[:30] if len(chunk) > 30 else chunk)}")
+                preview = chunk[:120] + ("..." if len(chunk) > 120 else "")
+                safe_print(f">> Chunk #{chunk_count} at {elapsed:.2f}s (len={len(chunk)}): {repr(preview)}")
                 
                 # Check if chunk is already a JSON message (status, tool_call, or text)
                 if isinstance(chunk, str) and chunk.startswith('{'):

@@ -1,69 +1,66 @@
-# Origin Notes 打包指南
+﻿# Origin Notes Packaging Guide
 
-## 打包流程概述
+## Overview
 
-项目采用 **Electron + Python 后端** 的混合架构，打包分两步：
-1. PyInstaller 打包 Python 后端为 exe
-2. electron-builder 打包整个应用为安装程序
+This project ships as a hybrid app: Electron frontend + Python backend. Packaging is two steps:
+1. Build the Python backend with PyInstaller
+2. Build the Electron app with electron-builder
 
-## 前置条件
+## Prerequisites
 
-- Node.js 环境
-- Python 虚拟环境 `backend_env`（位于项目根目录）
+- Node.js
+- Python
+- Virtual environment `backend_env` at repo root
 
-## 打包步骤
+Important: use `backend_env` for PyInstaller. Do not use Anaconda base. It will massively bloat the build.
 
-### 第一步：打包 Python 后端
+## Step 1: Package Python Backend
 
 ```powershell
-# 1. 进入后端目录
+# Enter backend dir
 cd src/backend
 
-# 2. 激活专用虚拟环境（重要！不要用 Anaconda base）
+# Activate dedicated venv (repo root)
 ..\..\backend_env\Scripts\activate
 
-# 3. 执行 PyInstaller 打包
+# Build backend
 pyinstaller origin-backend.spec -y
 ```
 
-打包完成后，输出目录为 `src/backend/dist/origin_backend/`
+Output directory:
+- `src/backend/dist/origin_backend/`
 
-### 第二步：打包 Electron 应用
+## Step 2: Package Electron App
 
 ```powershell
-# 回到项目根目录
+# Back to repo root
 cd ../..
 
-# 执行完整打包
+# Build full app
 npm run build:win
 ```
 
-打包完成后，安装程序位于 `dist/Origin Notes Setup 1.0.0.exe`
+Output:
+- `dist/Origin Notes Setup 1.0.0.exe`
 
-## 注意事项
+## Why `backend_env` is Required
 
-### 为什么必须用 backend_env？
+| Environment | Result |
+| --- | --- |
+| `backend_env` | Minimal dependencies, backend ~20-30MB |
+| Anaconda base | Huge bundle (often 500MB+) |
 
-| 环境 | 结果 |
-|------|------|
-| `backend_env` | 精简依赖，后端约 20-30MB |
-| Anaconda base | 全家桶依赖，后端可能 500MB+ |
+## PyInstaller Mode
 
-Anaconda base 环境包含大量科学计算库（torch、tensorflow、sklearn 等），PyInstaller 会把它们全部打包进去，导致体积爆炸。
+This repo uses directory mode (`exclude_binaries=True` + `COLLECT`):
+- Faster startup (no self-extract)
+- Output: `dist/origin_backend/`
 
-### 目录模式 vs 单文件模式
+One-file mode is not used by default (`--onefile`), because it slows startup.
 
-当前使用**目录模式**（`exclude_binaries=True` + `COLLECT`）：
-- 优点：启动快（无需解压），便于调试
-- 输出：`dist/origin_backend/` 文件夹
+## electron-builder Integration
 
-单文件模式（`--onefile`）：
-- 缺点：每次启动需解压到临时目录，冷启动慢
-- 输出：单个 `origin_backend.exe`
-
-### package.json 配置
-
-`extraResources` 配置将后端目录复制到安装包：
+`package.json` includes:
 
 ```json
 "extraResources": [
@@ -75,16 +72,11 @@ Anaconda base 环境包含大量科学计算库（torch、tensorflow、sklearn �
 ]
 ```
 
-运行时路径：`resources/backend/origin_backend.exe`
+Runtime backend path:
+- `resources/backend/origin_backend.exe`
 
-## 快速命令（一键打包）
+## One-Command Build
 
 ```powershell
-# 在项目根目录执行
 cd src/backend ; ..\..\backend_env\Scripts\activate ; pyinstaller origin-backend.spec -y ; cd ../.. ; npm run build:win
 ```
-
-## 预期输出
-
-- 安装包大小：约 110MB
-- 安装包位置：`dist/Origin Notes Setup 1.0.0.exe`

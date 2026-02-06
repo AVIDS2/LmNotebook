@@ -71,7 +71,11 @@ class RAGService:
                     self.api_base = api_base
                     self.model_name = model_name
                     # Bypass system proxy (Clash)
-                    self.client = httpx.Client(trust_env=False, timeout=60.0)
+                    # Keep embedding calls bounded to avoid blocking chat/note workflows on network stalls.
+                    self.client = httpx.Client(
+                        trust_env=False,
+                        timeout=httpx.Timeout(connect=8.0, read=20.0, write=20.0, pool=8.0),
+                    )
 
                 def embed_documents(self, texts):
                     if not texts: return []

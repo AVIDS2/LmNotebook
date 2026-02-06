@@ -1,5 +1,5 @@
-"""
-Stream Adapter for LangGraph → SSE Format.
+﻿"""
+Stream Adapter for LangGraph 鈫?SSE Format.
 
 This module provides adapters to convert LangGraph streaming output
 to the existing SSE (Server-Sent Events) format used by the frontend.
@@ -146,20 +146,17 @@ async def langgraph_stream_to_sse(
                         text_buffer += content
                         
                         # Check for sentence completion or significant buffer size
-                        # This allows for real-time streaming without waiting for the full node output
-                        if any(p in text_buffer for p in ['。', '！', '？', '.', '!', '?', '\n']) or len(text_buffer) > 50:
-                            # Filter out tool announcements before yielding
-                            import re
-                            pattern = r'(?:调用工具|执行中|正在调用|正在执行|calling tool|executing)[^\n。]*(?:\n|。|$)'
-                            clean_text = re.sub(pattern, '', text_buffer, flags=re.IGNORECASE)
-                            
-                            if clean_text.strip():
-                                final_clean = clean_text.strip()
+                        # Check for sentence completion or significant buffer size.
+                        # Use robust punctuation detection to avoid encoding-related truncation.
+                        if re.search(r"[。！？.!?\n]", text_buffer) or len(text_buffer) > 50:
+                            chunk_text = text_buffer
+                            if chunk_text.strip():
+                                final_clean = chunk_text.strip()
                                 # Record this content to avoid duplicates in 'updates' mode
                                 seen_content_hashes.add(final_clean)
                                 yield json.dumps({
                                     "part_type": "text",
-                                    "delta": clean_text
+                                    "delta": chunk_text
                                 })
                             text_buffer = ""
                 
@@ -281,10 +278,7 @@ async def langgraph_stream_to_sse(
     finally:
         # Flush any remaining text in buffer at stream end
         if text_buffer:
-            # Clean the buffer before emitting
-            import re
-            tool_patterns_re = r'(?:调用工具|执行中|正在调用|正在执行|calling tool|executing)[^\n。]*(?:\n|。|$)'
-            clean_text = re.sub(tool_patterns_re, '', text_buffer, flags=re.IGNORECASE).strip()
+            clean_text = text_buffer.strip()
             if clean_text and len(clean_text) > 2:
                 yield json.dumps({
                     "part_type": "text",
@@ -306,7 +300,7 @@ def _extract_tool_events(tool_name: str, content: str) -> list:
         List of JSON strings for SSE
     """
     events = []
-    
+
     if tool_name == "create_note" and "ID:" in content:
         match = re.search(r"ID:\s*([\w-]+)", content)
         if match:
@@ -374,3 +368,4 @@ async def invoke_and_stream(
     
     except Exception as e:
         yield json.dumps({"error": str(e)})
+

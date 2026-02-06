@@ -27,11 +27,19 @@
       </div>
     </div>
 
-    <!-- 置顶标识 -->
-    <div v-if="note.isPinned && !isSelectionMode" class="note-card__pin">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M6 1L7 4L10 4.5L7.5 7L8 11L6 9.5L4 11L4.5 7L2 4.5L5 4L6 1Z" fill="currentColor"/>
-      </svg>
+    <!-- 状态标识 -->
+    <div v-if="!isSelectionMode" class="note-card__status">
+      <div v-if="note.isLocked" class="note-card__lock" title="已加锁">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <rect x="2.5" y="5.5" width="7" height="5" rx="1.2" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M4 5.5V4.2C4 3 4.9 2 6 2C7.1 2 8 3 8 4.2V5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div v-if="note.isPinned" class="note-card__pin" title="已置顶">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 1L7 4L10 4.5L7.5 7L8 11L6 9.5L4 11L4.5 7L2 4.5L5 4L6 1Z" fill="currentColor"/>
+        </svg>
+      </div>
     </div>
 
     <!-- 标题 -->
@@ -294,10 +302,20 @@ function formatDate(timestamp: number): string {
   }
 }
 
-.note-card__pin {
+.note-card__status {
   position: absolute;
   top: $spacing-sm;
   right: $spacing-sm;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.note-card__lock {
+  color: var(--color-text-muted);
+}
+
+.note-card__pin {
   color: var(--color-accent);
 }
 
@@ -308,7 +326,7 @@ function formatDate(timestamp: number): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-right: 20px;
+  padding-right: 32px;
   color: var(--color-text-primary);
 }
 

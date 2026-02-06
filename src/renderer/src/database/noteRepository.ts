@@ -21,6 +21,7 @@ export interface UpdateNoteInput {
   title?: string
   content?: string
   plainText?: string
+  markdownSource?: string | null
   categoryId?: string | null
   isPinned?: boolean
   createdAt?: number

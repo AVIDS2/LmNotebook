@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="note-editor">
     <!-- 无笔记状态 -->
     <div v-if="!noteStore.currentNote" class="note-editor__empty">
@@ -1187,6 +1187,34 @@ const imageMenuStyle = computed(() => {
   }
 })
 
+function htmlToMarkdown(html: string): string {
+  return html
+    .replace(/<h1[^>]*>(.*?)<\/h1>/gis, '# $1\n\n')
+    .replace(/<h2[^>]*>(.*?)<\/h2>/gis, '## $1\n\n')
+    .replace(/<h3[^>]*>(.*?)<\/h3>/gis, '### $1\n\n')
+    .replace(/<h4[^>]*>(.*?)<\/h4>/gis, '#### $1\n\n')
+    .replace(/<h5[^>]*>(.*?)<\/h5>/gis, '##### $1\n\n')
+    .replace(/<h6[^>]*>(.*?)<\/h6>/gis, '###### $1\n\n')
+    .replace(/<strong[^>]*>(.*?)<\/strong>/gis, '**$1**')
+    .replace(/<b[^>]*>(.*?)<\/b>/gis, '**$1**')
+    .replace(/<em[^>]*>(.*?)<\/em>/gis, '*$1*')
+    .replace(/<i[^>]*>(.*?)<\/i>/gis, '*$1*')
+    .replace(/<code[^>]*>(.*?)<\/code>/gis, '`$1`')
+    .replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, '> $1\n\n')
+    .replace(/<li[^>]*data-checked="true"[^>]*>(.*?)<\/li>/gis, '- [x] $1\n')
+    .replace(/<li[^>]*data-checked="false"[^>]*>(.*?)<\/li>/gis, '- [ ] $1\n')
+    .replace(/<li[^>]*>(.*?)<\/li>/gis, '- $1\n')
+    .replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // Tiptap 编辑器 - 优化配置
 const editor = useEditor({
   extensions: [
@@ -1281,23 +1309,63 @@ const editor = useEditor({
       autocorrect: 'off',
       autocapitalize: 'off',
     },
+    handleDOMEvents: {
+      copy: (_view, event) => {
+        const clipboard = event.clipboardData
+        if (!clipboard) return false
+
+        const selection = window.getSelection()
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+          const fragment = selection.getRangeAt(0).cloneContents()
+          const container = document.createElement('div')
+          container.appendChild(fragment)
+          const markdown = htmlToMarkdown(container.innerHTML)
+          event.preventDefault()
+          clipboard.setData('text/plain', markdown)
+          return true
+        }
+
+        const markdown = htmlToMarkdown(editor.value?.getHTML() || '')
+        event.preventDefault()
+        clipboard.setData('text/plain', markdown)
+        return true
+      }
+    },
     handlePaste: (view, event) => {
       const clipboardData = event.clipboardData
       if (!clipboardData) return false
 
-      // 1. 优先检查是否有图片
+      // 1. 检查是否有 HTML 内容（WPS/Excel 复制的表格会带 HTML）
+      const html = clipboardData.getData('text/html')
+      if (html && html.includes('<table')) {
+        // 有表格的 HTML，让 Tiptap 默认处理
+        return false
+      }
+
+      // 2. 对于纯文本或 Markdown 源码，强制以纯文本插入
+      const text = clipboardData.getData('text/plain')
+      if (text) {
+        const normalized = text
+          .replace(/\r\n?/g, '\n')
+          .replace(/[ \t]+\n/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+        const { tr } = view.state
+        const textNode = view.state.schema.text(normalized)
+        view.dispatch(tr.replaceSelectionWith(textNode, false))
+        return true
+      }
+
+      // 3. 纯图片粘贴
       const items = clipboardData.items
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile()
           if (file) {
-            // 将图片转为 base64
             const reader = new FileReader()
             reader.onload = async (e) => {
               const base64 = e.target?.result as string
               if (base64) {
-                // 使用图片存储服务（大图片会分离存储）
                 const imageSrc = await window.electronAPI.image.store(base64)
                 const node = view.state.schema.nodes.image.create({ src: imageSrc })
                 const { tr } = view.state
@@ -1308,22 +1376,6 @@ const editor = useEditor({
             return true
           }
         }
-      }
-
-      // 2. 检查是否有 HTML 内容（WPS/Excel 复制的表格会带 HTML）
-      const html = clipboardData.getData('text/html')
-      if (html && html.includes('<table')) {
-        // 有表格的 HTML，让 Tiptap 默认处理
-        return false
-      }
-
-      // 3. 对于纯文本或 Markdown 源码，强制以纯文本插入
-      const text = clipboardData.getData('text/plain')
-      if (text) {
-        const { tr } = view.state
-        const textNode = view.state.schema.text(text)
-        view.dispatch(tr.replaceSelectionWith(textNode, false))
-        return true
       }
 
       return false

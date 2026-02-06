@@ -31,6 +31,7 @@ class NoteUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     category_id: Optional[str] = None
+    markdown_source: Optional[str] = None
 
 
 class NoteSearchRequest(BaseModel):
@@ -89,7 +90,8 @@ async def update_note(note_id: str, request: NoteUpdate):
             note_id=note_id,
             title=request.title,
             content=request.content,
-            category_id=request.category_id
+            category_id=request.category_id,
+            markdown_source=request.markdown_source
         )
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")

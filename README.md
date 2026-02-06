@@ -1,45 +1,42 @@
-# Origin Notes
+﻿# Origin Notes
 
-简约风格的本地 AI 笔记应用，专注快速记录与智能检索。基于 Electron + Vue 3 + Python 构建，数据完全保存在本地。
+[中文](README.md) | [English](README.en.md)
 
-## 核心特性
+Origin Notes 是一款本地优先的 AI 笔记应用，基于 Electron + Vue 3 + Python 构建，数据默认保存在本机。
 
-### 笔记功能
+## 核心功能
 
-- 富文本编辑（标题、列表、任务清单、代码块、表格、数学公式）
-- 图片粘贴与本地存储
-- 分类管理（新建/重命名/删除/拖拽排序）
-- 置顶、回收站、批量操作
-- 全文搜索（关键词高亮）
-- 拖拽排序笔记
-- 自动保存（防抖 600ms）
+### 笔记
+- 富文本编辑（标题、列表、任务、代码、表格、公式）
+- 图片本地存储
+- 分类、置顶、回收站、批量操作
+- 全文搜索
+- 拖拽排序
+- 自动保存
 
 ### AI 助手 (Origin)
+- 基于 LangGraph 的 agent + 工具调用
+- 基于 FAISS 的知识库检索（RAG）
+- 通过 OpenAI-compatible 协议接入多家模型
+- 流式输出
+- 笔记工具：创建 / 更新 / 重命名 / 删除 / 分类
 
-- 基于 RAG 的笔记知识库搜索
-- 智能问答（支持多种 LLM：OpenAI、阿里云、DeepSeek 等）
-- 笔记内容读取、创建、更新、删除
-- 对话历史记录（置顶/重命名/删除）
-- 流式输出，实时响应
-
-### 数据管理
-
-- 本地 SQLite 存储（WAL 模式优化）
-- 自定义数据目录
+### 数据
+- 本地 SQLite 存储（better-sqlite3）
+- 可配置数据目录
 - 自动备份
-- JSON 导入/导出
-- Markdown 导出
+- 导出/导入（JSON、Markdown）
 
 ## 技术栈
 
-- **前端**：Electron + Vue 3 + TypeScript + Pinia + TipTap
-- **后端**：Python + FastAPI + LangGraph + ChromaDB
-- **数据库**：SQLite (better-sqlite3) + 向量索引
+- 前端：Electron + Vue 3 + TypeScript + Pinia + TipTap
+- 后端：Python + FastAPI + LangGraph + LangChain
+- 向量检索：FAISS
+- 存储：SQLite
 
 ## 快速开始
 
 ### 环境要求
-
 - Node.js 18+
 - Python 3.10+
 - pnpm / npm
@@ -57,19 +54,22 @@ pip install -r requirements.txt
 
 ### 配置
 
-复制 `src/backend/.env.example` 为 `src/backend/.env`，配置 LLM API：
+复制 `src/backend/.env.example` 为 `src/backend/.env` 并设置必要的环境变量。
 
 ```env
-# 阿里云（推荐）
-LLM_PROVIDER=aliyun
-DASHSCOPE_API_KEY=your_api_key
-
-# 或 OpenAI
-LLM_PROVIDER=openai
+# OpenAI-compatible provider (OpenAI / DeepSeek / Gemini / etc.)
+OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=your_api_key
+MODEL_NAME=gpt-4o-mini
+
+# Embeddings (本仓库默认 DashScope)
+DASHSCOPE_API_KEY=your_dashscope_key
+EMBEDDING_MODEL=embedding-2
 ```
 
-### 启动开发
+也可以在应用内的 Model Settings 中配置模型提供商。配置会保存到用户数据目录下的 `models.json`，并覆盖 `.env` 默认值。
+
+### 开发运行
 
 ```bash
 # 启动后端
@@ -80,37 +80,34 @@ python main.py
 npm run dev
 ```
 
-### 打包发布
+## 打包
 
-```bash
-# Windows
-npm run build:win
+详见 `PACKAGING.md`。注意：使用 PyInstaller 时必须激活 `backend_env` 虚拟环境。
 
-# macOS
-npm run build:mac
+## 文档索引
 
-# Linux
-npm run build:linux
-```
+- `PACKAGING.md` - 打包流程（必须使用 backend_env）
+- `src/backend/README.md` - 后端说明与架构
+- `docs/dev/` - 开发记录与排查日志
 
-## 项目结构
+## 目录结构
 
 ```text
 src/
   main/           Electron 主进程
-  preload/        预加载脚本（IPC 桥接）
-  renderer/       渲染进程（Vue 应用）
-    components/   视图组件
-    stores/       Pinia 状态管理
-    database/     数据仓库
-    services/     业务服务
+  preload/        IPC 桥接
+  renderer/       Vue 应用
+    components/
+    stores/
+    database/
+    services/
   backend/        Python 后端
-    agent/        LangGraph AI Agent
+    agent/        LangGraph agent
     api/          FastAPI 路由
     core/         LLM 配置
-    services/     RAG 服务
+    services/     RAG + note 服务
 ```
 
-## 许可协议
+## License
 
-MIT License
+MIT

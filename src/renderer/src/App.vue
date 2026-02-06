@@ -60,6 +60,7 @@
 
     <!-- AI Agent 聊天气泡 -->
     <AgentBubble />
+    <ToastHost />
   </div>
 </template>
 
@@ -69,6 +70,7 @@ import TheSidebar from '@/components/sidebar/TheSidebar.vue'
 import NoteList from '@/components/notes/NoteList.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
 import AgentBubble from '@/components/agent/AgentBubble.vue'
+import ToastHost from '@/components/common/ToastHost.vue'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'

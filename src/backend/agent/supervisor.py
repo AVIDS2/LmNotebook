@@ -248,14 +248,14 @@ class AgentSupervisor:
                 
                 async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
                     cursor = await db.execute(
-                        "SELECT checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+                        "SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
                         (session_id,)
                     )
                     row = await cursor.fetchone()
                     
                     if row:
                         serde = JsonPlusSerializer()
-                        checkpoint_data = serde.loads(row[0])
+                        checkpoint_data = serde.loads_typed((row[0], row[1]))
                         
                         if checkpoint_data and 'channel_values' in checkpoint_data:
                             messages = checkpoint_data['channel_values'].get('messages', [])

@@ -141,7 +141,7 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
             for img_tag in existing_img_tags:
                 html_result += f"<p>{img_tag}</p>\n"
         
-        await note_service.update_note(note_id=note_id, content=html_result)
+        await note_service.update_note(note_id=note_id, content=html_result, markdown_source="")
         return f"Successfully updated note (ID: {note_id}). (Content cleared, images preserved)"
 
     # 3. LLM Edit
@@ -193,7 +193,7 @@ If the user asks to "format", "organize", "tidy up", "整理格式", "排版", o
         for img_tag in existing_img_tags:
             html_content += f"\n<p>{img_tag}</p>"
     
-    await note_service.update_note(note_id=note_id, content=html_content)
+    await note_service.update_note(note_id=note_id, content=html_content, markdown_source=new_content)
     
     return f"Successfully updated note (ID: {note_id}). [SYSTEM: DO NOT output the note content.]"
 
@@ -215,7 +215,7 @@ async def create_note(title: str, content: str) -> str:
     # Fix: Remove empty <p> tags
     html_content = re.sub(r'<p>\s*</p>', '', html_content)
     
-    note = await note_service.create_note(title=title, content=html_content)
+    note = await note_service.create_note(title=title, content=html_content, markdown_source=content)
     return f"Successfully created note with ID: {note['id']}"
 
 @tool
@@ -279,7 +279,7 @@ async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
         # Convert back to simple HTML paragraphs
         updated_html = ''.join(f'<p>{line}</p>' for line in updated_plain.split('\n') if line.strip())
     
-    await note_service.update_note(note_id=note_id, content=updated_html)
+    await note_service.update_note(note_id=note_id, content=updated_html, markdown_source="")
     
     return f"Successfully patched note (ID: {note_id}). Replaced '{old_text[:30]}...' with '{new_text[:30]}...'"
 
