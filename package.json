@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:utf8": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev_utf8.ps1",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:win": "npm run build && electron-builder --win",

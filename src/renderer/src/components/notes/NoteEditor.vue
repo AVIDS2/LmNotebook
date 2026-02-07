@@ -38,6 +38,32 @@
 
           <div class="toolbar-divider"></div>
 
+          <!-- 撤销 / 重做（仅当前笔记编辑历史） -->
+          <button
+            class="note-editor__tool toolbar-hide-sm"
+            title="撤销 (Ctrl+Z)"
+            :disabled="!canUndo"
+            @click="handleUndo"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 5L3 8L6 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 8H9.2C11.3 8 13 9.7 13 11.8V12.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button
+            class="note-editor__tool toolbar-hide-sm"
+            title="重做 (Ctrl+Y)"
+            :disabled="!canRedo"
+            @click="handleRedo"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M10 5L13 8L10 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M12 8H6.8C4.7 8 3 9.7 3 11.8V12.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+
+          <div class="toolbar-divider toolbar-hide-sm"></div>
+
           <!-- 基础格式：加粗、斜体、下划线 -->
           <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('bold') }" title="加粗" @click="editor?.chain().focus().toggleBold().run()">
             <strong>B</strong>
@@ -56,7 +82,7 @@
           <div class="toolbar-divider"></div>
 
           <!-- 文字颜色下拉 -->
-          <div class="toolbar-dropdown" ref="textColorDropdownRef">
+          <div class="toolbar-dropdown toolbar-hide-md" ref="textColorDropdownRef">
             <button 
               class="toolbar-dropdown__trigger toolbar-dropdown__trigger--color"
               @click.stop="toggleTextColorDropdown"
@@ -110,7 +136,7 @@
           <div class="toolbar-divider toolbar-hide-sm"></div>
 
           <!-- 标题下拉 -->
-          <div class="toolbar-dropdown" ref="headingDropdownRef">
+          <div class="toolbar-dropdown toolbar-hide-md" ref="headingDropdownRef">
             <button 
               class="toolbar-dropdown__trigger"
               @click.stop="toggleHeadingDropdown"
@@ -127,10 +153,10 @@
             </div>
           </div>
 
-          <div class="toolbar-divider"></div>
+          <div class="toolbar-divider toolbar-hide-md"></div>
 
           <!-- 列表下拉 -->
-          <div class="toolbar-dropdown" ref="listDropdownRef">
+          <div class="toolbar-dropdown toolbar-hide-md" ref="listDropdownRef">
             <button 
               class="toolbar-dropdown__trigger"
               :class="{ 'toolbar-dropdown__trigger--active': editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList') }"
@@ -166,7 +192,7 @@
             &lt;/&gt;
           </button>
 
-          <div class="toolbar-divider toolbar-hide-sm"></div>
+          <div class="toolbar-divider toolbar-hide-sm toolbar-hide-narrow"></div>
 
           <!-- 插入下拉 -->
           <div class="toolbar-dropdown" ref="insertDropdownRef">
@@ -258,6 +284,7 @@
           <!-- 更多操作菜单 -->
           <div class="toolbar-dropdown" ref="moreMenuRef">
             <button 
+              ref="moreMenuButtonRef"
               class="note-editor__tool"
               @click.stop="toggleMoreMenu"
               title="更多操作"
@@ -268,68 +295,6 @@
                 <circle cx="9" cy="14" r="1.5" fill="currentColor"/>
               </svg>
             </button>
-            <div v-show="moreMenuOpen" class="toolbar-dropdown__menu toolbar-dropdown__menu--right">
-              <!-- 正常视图的操作 -->
-              <template v-if="noteStore.currentView !== 'trash'">
-                <button class="toolbar-dropdown__item" @click="handleDelete">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                  </svg>
-                  删除
-                </button>
-                <button class="toolbar-dropdown__item" @click="handleToggleLock">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
-                    <path d="M5 7V5C5 3.34 6.34 2 8 2C9.66 2 11 3.34 11 5V7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                    <circle cx="8" cy="10.5" r="1" fill="currentColor"/>
-                  </svg>
-                  {{ noteStore.currentNote.isLocked ? '解锁' : '加锁' }}
-                </button>
-                <div class="toolbar-dropdown__divider"></div>
-                <div class="toolbar-dropdown__submenu">
-                  <button class="toolbar-dropdown__item toolbar-dropdown__item--has-arrow" @click.stop="toggleExportSubmenu">
-                    <svg class="arrow-left" width="10" height="10" viewBox="0 0 10 10"><path d="M6 2L3 5L6 8" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 3H10L13 6V13H3V3Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                      <path d="M10 3V6H13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                    </svg>
-                    导出
-                  </button>
-                  <div v-show="exportSubmenuOpen" class="toolbar-dropdown__submenu-panel">
-                    <button class="toolbar-dropdown__item" @click="handleExport('markdown')">导出为 Markdown</button>
-                    <button class="toolbar-dropdown__item" @click="handleExport('txt')">导出为纯文本</button>
-                    <button class="toolbar-dropdown__item" @click="handleExport('html')">导出为 HTML</button>
-                    <button class="toolbar-dropdown__item" @click="handleExport('docx')">导出为 Word</button>
-                    <button class="toolbar-dropdown__item" @click="handleExport('pdf')">导出为 PDF</button>
-                  </div>
-                </div>
-                <div class="toolbar-dropdown__divider"></div>
-                <button class="toolbar-dropdown__item" @click="showNoteInfo">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
-                    <path d="M8 5V5.5M8 7V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                  </svg>
-                  笔记信息
-                </button>
-              </template>
-              <!-- 回收站视图的操作 -->
-              <template v-else>
-                <button class="toolbar-dropdown__item" @click="handleRestore">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 8C2 4.69 4.69 2 8 2C9.96 2 11.68 3.01 12.65 4.54" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                    <path d="M14 8C14 11.31 11.31 14 8 14C6.04 14 4.32 12.99 3.35 11.46" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                    <path d="M12 2V5H9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                  恢复
-                </button>
-                <button class="toolbar-dropdown__item toolbar-dropdown__item--danger" @click="handleDelete">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                  </svg>
-                  永久删除
-                </button>
-              </template>
-            </div>
           </div>
         </div>
       </div>
@@ -603,6 +568,76 @@
       <button class="note-info-modal__btn" @click="noteInfoVisible = false">知道了</button>
     </div>
   </div>
+
+  <!-- 更多菜单浮层（脱离编辑器层叠上下文） -->
+  <Teleport to="body">
+    <div
+      v-if="moreMenuOpen"
+      ref="moreMenuFloatingRef"
+      class="toolbar-dropdown__menu toolbar-dropdown__menu--floating"
+      :style="moreMenuStyle"
+      @click.stop
+    >
+      <template v-if="noteStore.currentView !== 'trash'">
+        <button class="toolbar-dropdown__item" @click="handleDelete">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          删除
+        </button>
+        <button class="toolbar-dropdown__item" @click="handleToggleLock">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M5 7V5C5 3.34 6.34 2 8 2C9.66 2 11 3.34 11 5V7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <circle cx="8" cy="10.5" r="1" fill="currentColor"/>
+          </svg>
+          {{ noteStore.currentNote.isLocked ? '解锁' : '加锁' }}
+        </button>
+        <div class="toolbar-dropdown__divider"></div>
+        <div class="toolbar-dropdown__submenu">
+          <button class="toolbar-dropdown__item toolbar-dropdown__item--has-arrow" @click.stop="toggleExportSubmenu">
+            <svg class="arrow-left" width="10" height="10" viewBox="0 0 10 10"><path d="M6 2L3 5L6 8" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3H10L13 6V13H3V3Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <path d="M10 3V6H13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            导出
+          </button>
+          <div v-show="exportSubmenuOpen" class="toolbar-dropdown__submenu-panel">
+            <button class="toolbar-dropdown__item" @click="handleExport('markdown')">导出为 Markdown</button>
+            <button class="toolbar-dropdown__item" @click="handleExport('txt')">导出为纯文本</button>
+            <button class="toolbar-dropdown__item" @click="handleExport('html')">导出为 HTML</button>
+            <button class="toolbar-dropdown__item" @click="handleExport('docx')">导出为 Word</button>
+            <button class="toolbar-dropdown__item" @click="handleExport('pdf')">导出为 PDF</button>
+          </div>
+        </div>
+        <div class="toolbar-dropdown__divider"></div>
+        <button class="toolbar-dropdown__item" @click="showNoteInfo">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M8 5V5.5M8 7V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          笔记信息
+        </button>
+      </template>
+      <template v-else>
+        <button class="toolbar-dropdown__item" @click="handleRestore">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M2 8C2 4.69 4.69 2 8 2C9.96 2 11.68 3.01 12.65 4.54" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M14 8C14 11.31 11.31 14 8 14C6.04 14 4.32 12.99 3.35 11.46" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M12 2V5H9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          恢复
+        </button>
+        <button class="toolbar-dropdown__item toolbar-dropdown__item--danger" @click="handleDelete">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 4H13M5 4V3.5C5 2.67 5.67 2 6.5 2H9.5C10.33 2 11 2.67 11 3.5V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          永久删除
+        </button>
+      </template>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -661,13 +696,13 @@ const FontSize = Extension.create({
   },
   addCommands() {
     return {
-      setFontSize: (fontSize: string) => ({ chain }) => {
+      setFontSize: (fontSize: string) => ({ chain }: any) => {
         return chain().setMark('textStyle', { fontSize }).run()
       },
-      unsetFontSize: () => ({ chain }) => {
+      unsetFontSize: () => ({ chain }: any) => {
         return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run()
       },
-    }
+    } as any
   },
 })
 
@@ -675,6 +710,7 @@ const lowlight = createLowlight(common)
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
+const editorStateVersion = ref(0)
 
 // Register AI format brush action
 const registerEditorAction = inject<(fn: (html: string) => void) => void>('registerEditorAction')
@@ -770,6 +806,8 @@ const headingDropdownRef = ref<HTMLElement>()
 const listDropdownRef = ref<HTMLElement>()
 const insertDropdownRef = ref<HTMLElement>()
 const moreMenuRef = ref<HTMLElement>()
+const moreMenuButtonRef = ref<HTMLElement>()
+const moreMenuFloatingRef = ref<HTMLElement>()
 
 // 下拉菜单开关状态
 const fontSizeDropdownOpen = ref(false)
@@ -788,6 +826,10 @@ const noteInfoData = reactive({
   createdAt: '',
   updatedAt: '',
   wordCount: 0
+})
+const moreMenuPosition = reactive({
+  top: 0,
+  left: 0,
 })
 
 // 字体大小选项
@@ -858,6 +900,22 @@ const currentHeadingLabel = computed(() => {
   if (editor.value.isActive('heading', { level: 3 })) return 'H3'
   return '正文'
 })
+const moreMenuStyle = computed(() => ({
+  top: `${moreMenuPosition.top}px`,
+  left: `${moreMenuPosition.left}px`,
+}))
+
+const canUndo = computed(() => {
+  // 依赖编辑器事务，确保按钮状态实时更新
+  void editorStateVersion.value
+  return editor.value?.can().chain().focus().undo().run() ?? false
+})
+
+const canRedo = computed(() => {
+  // 依赖编辑器事务，确保按钮状态实时更新
+  void editorStateVersion.value
+  return editor.value?.can().chain().focus().redo().run() ?? false
+})
 
 // 关闭所有下拉菜单
 function closeAllDropdowns() {
@@ -912,10 +970,35 @@ function toggleMoreMenu() {
   const wasOpen = moreMenuOpen.value
   closeAllDropdowns()
   moreMenuOpen.value = !wasOpen
+  if (!wasOpen) {
+    nextTick(() => {
+      updateMoreMenuPosition()
+      requestAnimationFrame(updateMoreMenuPosition)
+    })
+  }
 }
 
 function toggleExportSubmenu() {
   exportSubmenuOpen.value = !exportSubmenuOpen.value
+}
+
+function updateMoreMenuPosition() {
+  if (!moreMenuOpen.value || !moreMenuButtonRef.value) return
+  const rect = moreMenuButtonRef.value.getBoundingClientRect()
+  const menuWidth = moreMenuFloatingRef.value?.offsetWidth || 170
+  const menuHeight = moreMenuFloatingRef.value?.offsetHeight || 260
+  const gap = 6
+  const minLeft = 8
+  const maxLeft = window.innerWidth - menuWidth - 8
+  const preferredLeft = rect.right - menuWidth
+
+  moreMenuPosition.left = Math.max(minLeft, Math.min(maxLeft, preferredLeft))
+
+  let top = rect.bottom + gap
+  if (top + menuHeight > window.innerHeight - 8) {
+    top = rect.top - menuHeight - gap
+  }
+  moreMenuPosition.top = Math.max(8, top)
 }
 
 // 设置字体大小
@@ -1013,6 +1096,14 @@ function insertMath() {
     const isBlock = confirm('是否作为独立行(Block)显示？')
     editor.value?.chain().focus().insertMath(latex, isBlock).run()
   }
+}
+
+function handleUndo() {
+  editor.value?.chain().focus().undo().run()
+}
+
+function handleRedo() {
+  editor.value?.chain().focus().redo().run()
 }
 
 // 保存防抖定时器 - 使用 RAF 优化
@@ -1289,6 +1380,7 @@ const editor = useEditor({
   content: '',
   editable: true,
   onSelectionUpdate({ editor }) {
+    editorStateVersion.value += 1
     const { selection } = editor.state
     if (selection instanceof NodeSelection && selection.node.type.name === 'image') {
       const dom = editor.view.nodeDOM(selection.from) as HTMLImageElement
@@ -1381,8 +1473,12 @@ const editor = useEditor({
       return false
     }
   },
+  onTransaction: () => {
+    editorStateVersion.value += 1
+  },
   // 使用 requestAnimationFrame 优化更新
   onUpdate: ({ editor }) => {
+    editorStateVersion.value += 1
     if (noteStore.currentNote && noteStore.currentView !== 'trash') {
       // 防抖保存 - 使用 RAF + setTimeout 组合优化
       if (saveTimer) {
@@ -1513,7 +1609,18 @@ watch(editorContainerRef, (newVal) => {
   }
 })
 
+watch(moreMenuOpen, (open) => {
+  if (!open) return
+  nextTick(() => {
+    updateMoreMenuPosition()
+    requestAnimationFrame(updateMoreMenuPosition)
+  })
+})
+
 onMounted(() => {
+  window.addEventListener('resize', updateMoreMenuPosition)
+  window.addEventListener('scroll', updateMoreMenuPosition, true)
+
   // 全局点击关闭右键菜单和工具栏下拉
   document.addEventListener('click', (e) => {
     // 关闭图片右键菜单
@@ -2095,7 +2202,7 @@ async function handleExport(format: 'markdown' | 'txt' | 'html' | 'docx' | 'pdf'
 </html>`
       const pdfData = await window.electronAPI.exportPdf(htmlForPdf)
       if (pdfData) {
-        const blob = new Blob([pdfData], { type: 'application/pdf' })
+        const blob = new Blob([pdfData as unknown as BlobPart], { type: 'application/pdf' })
         downloadBlob(blob, `${title}.pdf`)
       }
     } catch (e) {
@@ -2150,6 +2257,8 @@ function showNoteInfo(): void {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateMoreMenuPosition)
+  window.removeEventListener('scroll', updateMoreMenuPosition, true)
   editor.value?.destroy()
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -2200,7 +2309,7 @@ onBeforeUnmount(() => {
   transition: background-color 0.2s ease;
   gap: $spacing-sm;
   position: relative;
-  z-index: 10;
+  z-index: 10020;
 }
 
 .note-editor__tools {
@@ -2210,6 +2319,7 @@ onBeforeUnmount(() => {
   flex-wrap: nowrap;
   flex-shrink: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 // 工具栏分隔线
@@ -2271,7 +2381,7 @@ onBeforeUnmount(() => {
     border: 1px solid var(--color-border);
     border-radius: $radius-md;
     box-shadow: var(--shadow-lg);
-    z-index: 100;
+    z-index: 10030;
     padding: 4px;
     
     &--colors {
@@ -2339,12 +2449,19 @@ onBeforeUnmount(() => {
     border-radius: $radius-md;
     box-shadow: var(--shadow-lg);
     padding: 4px;
-    z-index: 101;
+    z-index: 10031;
   }
   
   &__menu--right {
     left: auto;
     right: 0;
+  }
+
+  &__menu--floating {
+    position: fixed;
+    margin-top: 0;
+    right: auto !important;
+    z-index: 12000;
   }
 }
 
@@ -2410,6 +2527,18 @@ onBeforeUnmount(() => {
     color: var(--color-text-primary);
   }
 
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: transparent;
+    color: var(--color-text-muted);
+  }
+
+  &:disabled:hover {
+    background: transparent;
+    color: var(--color-text-muted);
+  }
+
   &--active {
     border-color: var(--color-border-dark);
     background: var(--color-bg-card);
@@ -2427,6 +2556,24 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: $spacing-sm;
   flex-shrink: 0;
+}
+
+// 中等宽度：保持单行，通过隐藏次要工具避免重叠
+@container editor (max-width: 1180px) {
+  .note-editor__toolbar {
+    padding: 6px 10px;
+  }
+
+  .toolbar-hide-md {
+    display: none !important;
+  }
+}
+
+// 更窄时继续精简
+@container editor (max-width: 900px) {
+  .toolbar-hide-narrow {
+    display: none !important;
+  }
 }
 
 // 响应式工具栏 - 小屏幕隐藏/显示

@@ -24,6 +24,7 @@ export interface UpdateNoteInput {
   markdownSource?: string | null
   categoryId?: string | null
   isPinned?: boolean
+  isLocked?: boolean
   createdAt?: number
   updatedAt?: number
   order?: number

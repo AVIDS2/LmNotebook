@@ -1,5 +1,5 @@
 ﻿"""
-Stream Adapter for LangGraph 鈫?SSE Format.
+Stream Adapter for LangGraph -> SSE Format.
 
 This module provides adapters to convert LangGraph streaming output
 to the existing SSE (Server-Sent Events) format used by the frontend.
@@ -18,6 +18,7 @@ import asyncio
 import httpx
 from typing import AsyncGenerator, Any, Dict
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from services.note_service import NoteService
 
 
 # Safe print for Windows GBK encoding
@@ -47,8 +48,38 @@ TOOL_STATUS_LABELS = {
     "set_note_category": "Setting category",
 }
 
+WRITE_TOOLS = {
+    "delete_note",
+    "create_note",
+    "rename_note",
+    "update_note",
+    "set_note_category",
+}
 
-def _extract_note_title_from_args(tool_name: str, tool_args: dict) -> str:
+_note_service = NoteService()
+
+
+def _build_note_title_lookup(input_state: Any) -> Dict[str, str]:
+    """
+    Build a note_id -> note_title map from current request context.
+    """
+    if not isinstance(input_state, dict):
+        return {}
+
+    lookup: Dict[str, str] = {}
+    pairs = [
+        ("active_note_id", "active_note_title"),
+        ("context_note_id", "context_note_title"),
+    ]
+    for note_id_key, note_title_key in pairs:
+        note_id = input_state.get(note_id_key)
+        note_title = input_state.get(note_title_key)
+        if isinstance(note_id, str) and note_id and isinstance(note_title, str) and note_title.strip():
+            lookup[note_id] = note_title.strip()
+    return lookup
+
+
+def _extract_note_title_from_args(tool_name: str, tool_args: dict, note_title_lookup: Dict[str, str] | None = None) -> str:
     """
     Extract note title from tool arguments for display.
     Returns empty string if not applicable.
@@ -60,13 +91,40 @@ def _extract_note_title_from_args(tool_name: str, tool_args: dict) -> str:
         return tool_args['title']
     if 'new_title' in tool_args:
         return tool_args['new_title']
-    # For read/update operations, try to get note_id as fallback
+    # For read/update operations, try to resolve note_id to a known title.
     if 'note_id' in tool_args:
         note_id = tool_args['note_id']
-        # Truncate long IDs
-        if len(note_id) > 20:
-            return f"...{note_id[-12:]}"
-        return note_id
+        if isinstance(note_id, str) and note_title_lookup:
+            if note_id in note_title_lookup:
+                return note_title_lookup[note_id]
+    return ""
+
+
+async def _resolve_note_title(tool_name: str, tool_args: dict, note_title_lookup: Dict[str, str]) -> str:
+    """
+    Resolve user-facing note title for status labels.
+    Priority:
+    1) explicit title args
+    2) context lookup by note_id
+    3) database lookup by note_id
+    """
+    title = _extract_note_title_from_args(tool_name, tool_args, note_title_lookup)
+    if title:
+        return title
+
+    note_id = tool_args.get("note_id")
+    if not isinstance(note_id, str) or not note_id:
+        return ""
+
+    try:
+        note = await _note_service.get_note(note_id)
+    except Exception:
+        return ""
+
+    if isinstance(note, dict):
+        note_title = note.get("title")
+        if isinstance(note_title, str):
+            return note_title.strip()
     return ""
 
 
@@ -76,7 +134,7 @@ def _extract_note_title_from_args(tool_name: str, tool_args: dict) -> str:
 
 async def langgraph_stream_to_sse(
     graph,
-    input_state: Dict[str, Any],
+    input_state: Any,
     config: Dict[str, Any],
 ) -> AsyncGenerator[str, None]:
     """
@@ -106,6 +164,9 @@ async def langgraph_stream_to_sse(
     # Buffer for accumulating text to filter out tool descriptions
     text_buffer = ""
     
+    # Resolve note titles from request context so status labels can show user-friendly names.
+    note_title_lookup = _build_note_title_lookup(input_state)
+
     try:
         # Use multi-mode streaming for rich feedback
         async for event in graph.astream(
@@ -167,6 +228,22 @@ async def langgraph_stream_to_sse(
                 # chunk is a dict like {"node_name": state_update}
                 if not isinstance(chunk, dict):
                     continue
+
+                # LangGraph interrupt payload (human-in-the-loop pause)
+                if "__interrupt__" in chunk:
+                    interrupts = chunk.get("__interrupt__") or []
+                    payload = None
+                    if interrupts:
+                        first = interrupts[0]
+                        payload = getattr(first, "value", None)
+                        if payload is None and isinstance(first, dict):
+                            payload = first.get("value")
+                    if payload is not None:
+                        yield json.dumps({
+                            "type": "approval_required",
+                            "approval": payload
+                        })
+                    continue
                 
                 for node_name, node_output in chunk.items():
                     # Skip if not a dict
@@ -184,6 +261,7 @@ async def langgraph_stream_to_sse(
                     
                     # ========== Agent Node (tool calls) ==========
                     elif node_name == "agent":
+                        auto_accept_writes = bool(node_output.get("auto_accept_writes", True))
                         for msg in messages:
                             # Emit tool call as Part
                             if hasattr(msg, 'tool_calls') and msg.tool_calls:
@@ -197,7 +275,7 @@ async def langgraph_stream_to_sse(
                                     
                                     # Part-Based: Emit tool_part with status "running"
                                     base_label = TOOL_STATUS_LABELS.get(tool_name, tool_name)
-                                    note_title = _extract_note_title_from_args(tool_name, tool_args)
+                                    note_title = await _resolve_note_title(tool_name, tool_args, note_title_lookup)
                                     
                                     # Build display title with note name if available
                                     if note_title:
@@ -205,11 +283,15 @@ async def langgraph_stream_to_sse(
                                     else:
                                         title = base_label
                                     
+                                    part_status = "running"
+                                    if (not auto_accept_writes) and (tool_name in WRITE_TOOLS):
+                                        part_status = "pending"
+
                                     yield json.dumps({
                                         "part_type": "tool",
                                         "tool": tool_name,
                                         "tool_id": tool_id,
-                                        "status": "running",
+                                        "status": part_status,
                                         "title": title,
                                         "input_preview": str(tool_args)[:80] if tool_args else ""
                                     })

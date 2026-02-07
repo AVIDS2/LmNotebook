@@ -1,4 +1,4 @@
-"""
+﻿"""
 Agent Supervisor - LangGraph 1.x Edition.
 
 This module provides the main entry point for the AI agent.
@@ -21,6 +21,7 @@ import re
 from typing import Optional, List, Dict, Any, AsyncIterator
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langgraph.types import Command
 
 from core.llm import get_llm
 from agent.tools import get_all_agent_tools
@@ -156,7 +157,9 @@ class AgentSupervisor:
         selected_text: Optional[str] = None,
         context_note_id: Optional[str] = None,
         context_note_title: Optional[str] = None,
-        use_knowledge: bool = False
+        use_knowledge: bool = False,
+        auto_accept_writes: bool = True,
+        resume: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[str]:
         """
         Stream agent responses using LangGraph.
@@ -218,11 +221,37 @@ class AgentSupervisor:
             note_content=context_notes_info if context_notes_info else note_context,
             selected_text=selected_text,
             use_knowledge=use_knowledge,
+            auto_accept_writes=auto_accept_writes,
         )
         
-        # In LangGraph 1.x with checkpointer, we don't manually append the new message to history.
-        # The checkpointer restores the history based on thread_id, and we only pass the NEW message.
-        initial_state["messages"] = [HumanMessage(content=message)]
+        # In LangGraph 1.x with checkpointer, we don't manually append the full history.
+        # For normal requests, pass only the new user message.
+        # For approval resume, pass Command(resume=...) and do not inject a new user message.
+        graph_input: Any
+        if resume is not None:
+            # Safety check: verify checkpoint exists before attempting resume.
+            # If the checkpoint was cleared (e.g. by error recovery), resuming
+            # would start a fresh graph with no context, causing "Hello!" replies.
+            try:
+                from agent.graph import CHECKPOINT_DB_PATH
+                import aiosqlite
+                async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                    cursor = await db.execute(
+                        "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?",
+                        (session_id,)
+                    )
+                    row = await cursor.fetchone()
+                    if not row or row[0] == 0:
+                        safe_print(f"[Agent] Resume requested but no checkpoint found for session {session_id}")
+                        yield json.dumps({"error": "No pending approval found for this session. The session may have expired."})
+                        return
+            except Exception as e:
+                safe_print(f"[Agent] Resume checkpoint check failed (non-fatal): {e}")
+
+            graph_input = Command(resume=resume)
+        else:
+            initial_state["messages"] = [HumanMessage(content=message)]
+            graph_input = initial_state
         
         # ================================================================
         # STEP 3: LangGraph config with thread_id for checkpointing
@@ -239,44 +268,59 @@ class AgentSupervisor:
         try:
             safe_print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
             
-            # Pre-check: Validate checkpoint state before streaming
-            # This prevents the "tool_calls must be followed by tool messages" error
-            try:
-                from agent.graph import CHECKPOINT_DB_PATH
-                import aiosqlite
-                from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-                
-                async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
-                    cursor = await db.execute(
-                        "SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
-                        (session_id,)
-                    )
-                    row = await cursor.fetchone()
+            # Pre-check: Validate checkpoint state before streaming.
+            # This prevents the "tool_calls must be followed by tool messages" error.
+            #
+            # IMPORTANT: When an approval interrupt is pending, the checkpoint
+            # legitimately contains an AIMessage with tool_calls plus a pending
+            # write (the interrupt payload).  We must NOT delete that checkpoint.
+            # Only clear when tool_calls are truly orphaned (no pending interrupt).
+            if resume is None:
+                try:
+                    from agent.graph import CHECKPOINT_DB_PATH
+                    import aiosqlite
+                    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
                     
-                    if row:
-                        serde = JsonPlusSerializer()
-                        checkpoint_data = serde.loads_typed((row[0], row[1]))
+                    async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                        cursor = await db.execute(
+                            "SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+                            (session_id,)
+                        )
+                        row = await cursor.fetchone()
                         
-                        if checkpoint_data and 'channel_values' in checkpoint_data:
-                            messages = checkpoint_data['channel_values'].get('messages', [])
+                        if row:
+                            serde = JsonPlusSerializer()
+                            checkpoint_data = serde.loads_typed((row[0], row[1]))
                             
-                            # Check for orphaned tool_calls (AIMessage with tool_calls but no following ToolMessage)
-                            if messages:
-                                last_msg = messages[-1]
-                                if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
-                                    # Last message has tool_calls - this is a corrupted state
-                                    safe_print(f"[Agent] Detected incomplete tool_calls in checkpoint, cleaning up...")
-                                    await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
-                                    await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
-                                    await db.commit()
-                                    safe_print(f"[Agent] Cleaned up corrupted checkpoint for session {session_id}")
-                                    yield json.dumps({"type": "status", "text": "\\u2714 Session recovered"})
-            except Exception as check_err:
-                safe_print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
+                            if checkpoint_data and 'channel_values' in checkpoint_data:
+                                messages = checkpoint_data['channel_values'].get('messages', [])
+                                
+                                if messages:
+                                    last_msg = messages[-1]
+                                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                                        # Check if there is a pending interrupt (approval waiting).
+                                        # If so, this is a legitimate state 鈥?do NOT clear.
+                                        pending_cursor = await db.execute(
+                                            "SELECT COUNT(*) FROM writes WHERE thread_id = ? AND task_path LIKE '%__interrupt__%'",
+                                            (session_id,)
+                                        )
+                                        pending_row = await pending_cursor.fetchone()
+                                        has_pending_interrupt = pending_row and pending_row[0] > 0
+                                        
+                                        if has_pending_interrupt:
+                                            safe_print("[Agent] Checkpoint has pending approval interrupt, skipping cleanup")
+                                        else:
+                                            # Non-destructive safeguard: avoid deleting checkpoint data automatically.
+                                            safe_print(
+                                                "[Agent] Checkpoint has unresolved tool_calls without interrupt. "
+                                                "Skip cleanup and wait for explicit user retry."
+                                            )
+                except Exception as check_err:
+                    safe_print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
             
             async for sse_chunk in langgraph_stream_to_sse(
                 graph,
-                initial_state,
+                graph_input,
                 config
             ):
                 yield sse_chunk
@@ -289,22 +333,19 @@ class AgentSupervisor:
             import traceback
             traceback.print_exc()
             
-            # Check if this is a corrupted checkpoint error (orphaned tool_calls)
-            if "tool_calls" in error_str and "tool_call_id" in error_str:
-                safe_print(f"[Agent] Detected corrupted checkpoint for session {session_id}, clearing...")
-                try:
-                    # Clear the corrupted checkpoint by deleting from SQLite
-                    from agent.graph import CHECKPOINT_DB_PATH
-                    import aiosqlite
-                    async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
-                        await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
-                        await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
-                        await db.commit()
-                    safe_print(f"[Agent] Cleared corrupted checkpoint, please retry")
-                    yield json.dumps({"error": "Session history was corrupted and has been cleared. Please try again."})
-                except Exception as cleanup_err:
-                    safe_print(f"[Agent] Failed to clear checkpoint: {cleanup_err}")
-                    yield json.dumps({"error": f"AI service error: {error_str}"})
+            # Check if this is a corrupted checkpoint error (orphaned tool_calls).
+            # Do not auto-clear during explicit approval resume requests.
+            if resume is None and "tool_calls" in error_str and "tool_call_id" in error_str:
+                safe_print(
+                    f"[Agent] Checkpoint state appears invalid for session {session_id}. "
+                    "Skipping destructive cleanup."
+                )
+                yield json.dumps({
+                    "error": (
+                        "Session state is inconsistent (pending tool call mismatch). "
+                        "Please click New Chat or retry the same action."
+                    )
+                })
             else:
                 yield json.dumps({"error": str(e)})
     
@@ -378,3 +419,4 @@ Formatted text:
         except Exception as e:
             safe_print(f"[Agent] Format error: {e}")
             return text
+

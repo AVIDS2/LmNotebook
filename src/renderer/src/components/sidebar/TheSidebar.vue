@@ -131,15 +131,19 @@
         </div>
         
         <!-- 主题切换 -->
-        <button class="sidebar__theme-btn" @click="uiStore.toggleTheme" :tabindex="collapsed ? -1 : 0">
+        <button class="sidebar__theme-btn" @click="uiStore.toggleTheme" :tabindex="collapsed ? -1 : 0" :title="themeToggleTitle">
           <svg v-if="uiStore.theme === 'light'" width="18" height="18" viewBox="0 0 18 18" fill="none">
             <circle cx="9" cy="9" r="4" stroke="currentColor" stroke-width="1.3"/>
             <path d="M9 2V4M9 14V16M2 9H4M14 9H16M4.22 4.22L5.64 5.64M12.36 12.36L13.78 13.78M4.22 13.78L5.64 12.36M12.36 5.64L13.78 4.22" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
           </svg>
+          <svg v-else-if="uiStore.theme === 'classic'" width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect x="3" y="3" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M3 9H15" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
           <svg v-else width="18" height="18" viewBox="0 0 18 18" fill="none">
             <path d="M15 10.5A6 6 0 017.5 3a6 6 0 108 7.5z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <span>{{ uiStore.theme === 'light' ? '深色模式' : '浅色模式' }}</span>
+          <span>{{ themeButtonLabel }}</span>
         </button>
       </div>
     </div>
@@ -221,12 +225,16 @@
         <button
           class="sidebar__collapsed-btn"
           @click="uiStore.toggleTheme"
-          :title="uiStore.theme === 'light' ? '深色模式' : '浅色模式'"
+          :title="themeToggleTitle"
           :tabindex="collapsed ? 0 : -1"
         >
           <svg v-if="uiStore.theme === 'light'" width="20" height="20" viewBox="0 0 20 20" fill="none">
             <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.3"/>
             <path d="M10 2V4M10 16V18M2 10H4M16 10H18M4.93 4.93L6.34 6.34M13.66 13.66L15.07 15.07M4.93 15.07L6.34 13.66M13.66 6.34L15.07 4.93" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          <svg v-else-if="uiStore.theme === 'classic'" width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <rect x="4" y="4" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M4 10H16" stroke="currentColor" stroke-width="1.3"/>
           </svg>
           <svg v-else width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M17 11.5A7 7 0 018.5 3a7 7 0 109 8.5z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -351,6 +359,16 @@ function getCategoryInitial(name: string): string {
 
 // 使用 store 的 totalNotesCount（全部笔记总数）
 const allNotesCount = computed(() => noteStore.totalNotesCount)
+const themeButtonLabel = computed(() => {
+  if (uiStore.theme === 'light') return '暖色主题'
+  if (uiStore.theme === 'classic') return '默认主题'
+  return '深色主题'
+})
+const themeToggleTitle = computed(() => {
+  if (uiStore.theme === 'light') return '切换到默认主题'
+  if (uiStore.theme === 'classic') return '切换到深色主题'
+  return '切换到暖色主题'
+})
 
 // 拖拽相关状态
 const draggedCategoryId = ref<string | null>(null)

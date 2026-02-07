@@ -24,7 +24,7 @@ cd src/backend
 ..\..\backend_env\Scripts\activate
 
 # Build backend
-pyinstaller origin-backend.spec -y
+..\..\backend_env\Scripts\python -m PyInstaller origin-backend.spec -y
 ```
 
 Output directory:
@@ -78,5 +78,7 @@ Runtime backend path:
 ## One-Command Build
 
 ```powershell
-cd src/backend ; ..\..\backend_env\Scripts\activate ; pyinstaller origin-backend.spec -y ; cd ../.. ; npm run build:win
+cd src/backend ; ..\..\backend_env\Scripts\activate ; ..\..\backend_env\Scripts\python -m PyInstaller origin-backend.spec -y ; cd ../.. ; npm run build:win
 ```
+
+

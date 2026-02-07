@@ -317,6 +317,18 @@ onMounted(fetchProviders)
   --theme-input-bg: rgba(50, 50, 55, 0.8);
 }
 
+/* Classic Theme Override */
+[data-theme="classic"] .settings-overlay {
+  --theme-bg: #FFFFFF;
+  --theme-bg-secondary: rgba(255, 255, 255, 1);
+  --theme-bg-card: #FFFFFF;
+  --theme-text: #1F1F1F;
+  --theme-text-secondary: #666666;
+  --theme-accent: #555555;
+  --theme-border: #F0F0F0;
+  --theme-input-bg: rgba(0, 0, 0, 0.02);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

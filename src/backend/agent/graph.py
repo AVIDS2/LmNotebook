@@ -1,4 +1,4 @@
-"""
+﻿"""
 LangGraph StateGraph Core Definition.
 
 This module defines the main agent graph using LangGraph 1.x StateGraph.
@@ -9,18 +9,19 @@ It implements a production-grade ReAct pattern with:
 - Persistent memory via SQLite checkpointer
 
 Architecture:
-    START → router → [fast_chat → END]
-                   → [agent → tools → agent...] → END
+    START  -> router  -> [fast_chat  -> END]
+                    -> [agent  -> tools  -> agent...]  -> END
 """
 import json
 import hashlib
 import os
-from typing import Literal, Optional, Callable, Any
+from typing import Literal, Optional, Callable, Any, TypedDict
 import re
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import interrupt
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
 from agent.state import NoteAgentState
@@ -46,6 +47,24 @@ DOOM_LOOP_THRESHOLD = 3  # Same tool+input triggers safety stop (OpenCode style)
 
 # Write operations: success = workflow done
 WRITE_TOOLS = {"delete_note", "create_note", "rename_note", "update_note", "set_note_category"}
+
+# Intent cues for policy gating (global, reusable, non query-specific).
+WRITE_INTENT_CUES = {
+    "整理", "格式", "排版", "重写", "改写", "修改", "更新", "删除", "创建", "新建", "重命名", "改标题", "分类", "归类", "打标签",
+    "填补", "补充", "完善", "扩写", "丰富", "润色", "优化", "重构", "改成", "改为", "生成内容", "写一篇", "写个",
+    "format", "reformat", "tidy", "rewrite", "edit", "modify", "update", "delete", "remove", "create", "rename", "categorize", "tag",
+    "expand", "enrich", "improve", "refine", "polish", "fill", "complete", "draft",
+}
+READ_ONLY_INTENT_CUES = {
+    "总结", "摘要", "概括", "提炼", "要点", "解释", "说明", "翻译", "问答", "查找", "搜索", "看看", "读取",
+    "summarize", "summary", "analyze", "analysis", "explain", "what", "find", "search", "read", "list",
+}
+
+
+class ToolPolicyDecision(TypedDict):
+    action: Literal["allow", "deny"]
+    code: str
+    reason: str
 
 # Checkpointer database path (in user data directory)
 CHECKPOINT_DB_PATH = os.path.join(settings.data_directory, "checkpoints.db")
@@ -103,7 +122,7 @@ class NoteAgentGraph:
         self.checkpointer = checkpointer  # Will be set during build()
         
         # Bind tools to LLM for function calling
-        # parallel_tool_calls=False forces sequential execution: chat → tool → chat → tool
+        # parallel_tool_calls=False forces sequential execution: chat  -> tool  -> chat  -> tool
         self.model_with_tools = self.llm.bind_tools(tools, parallel_tool_calls=False)
         
     async def build(self, checkpointer=None) -> StateGraph:
@@ -111,8 +130,8 @@ class NoteAgentGraph:
         Build and compile the StateGraph.
         
         Graph Structure:
-            START → router → fast_chat → END
-                          → agent → tools → agent (loop) → END
+            START  -> router  -> fast_chat  -> END
+                           -> agent  -> tools  -> agent (loop)  -> END
         
         Returns:
             Compiled StateGraph with checkpointer
@@ -133,7 +152,7 @@ class NoteAgentGraph:
         # Entry point
         workflow.add_edge(START, "router")
         
-        # Router → Conditional branch
+        # Router  -> Conditional branch
         workflow.add_conditional_edges(
             "router",
             self._route_by_intent,
@@ -143,10 +162,10 @@ class NoteAgentGraph:
             }
         )
         
-        # Fast chat → End
+        # Fast chat  -> End
         workflow.add_edge("fast_chat", END)
         
-        # Agent → 2-way branch (continue/end)
+        # Agent  -> 2-way branch (continue/end)
         workflow.add_conditional_edges(
             "agent",
             self._should_continue,
@@ -156,7 +175,7 @@ class NoteAgentGraph:
             }
         )
         
-        # pick_one_tool → run_one_tool → status → agent (loop)
+        # pick_one_tool  -> run_one_tool  -> status  -> agent (loop)
         workflow.add_edge("pick_one_tool", "run_one_tool")
         workflow.add_edge("run_one_tool", "status")
         workflow.add_edge("status", "agent")
@@ -308,7 +327,7 @@ TOOL USAGE:
 When a tool requires note_id, ALWAYS use the exact ID shown in CURRENT NOTE or REFERENCED NOTE.
 Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         
-        context_msg = "\n".join(context_parts) if context_parts else "（无特定笔记上下文）"
+        context_msg = "\n".join(context_parts) if context_parts else "(无特定笔记上下文)"
         
         # Filter status messages from history to prevent "Status Pollution"
         filtered_history = [
@@ -330,7 +349,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         tool_count = state.get("tool_call_count", 0)
         if tool_count >= MAX_TOOL_CALLS:
             messages.append(HumanMessage(
-                content="[SYSTEM]: 工具调用次数已达上限，请停止调用工具，直接给出最终回答。"
+                content="[SYSTEM]: Tool call limit reached. Stop calling tools and provide final answer."
             ))
         
         # Invoke LLM with tools
@@ -407,6 +426,50 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         current_input_hash = hashlib.md5(
             json.dumps(tool_args, sort_keys=True).encode()
         ).hexdigest()
+
+        # Global write-policy safety gate: centralized decision before approval/execution.
+        history = state.get("messages", [])
+        policy_decision = self._evaluate_tool_policy(
+            state=state,
+            tool_name=current_tool_name,
+            tool_args=tool_args,
+            history=history,
+        )
+        if policy_decision["action"] == "deny":
+            return {
+                "messages": [ToolMessage(
+                    content=f"Write action blocked ({policy_decision['code']}): {policy_decision['reason']}",
+                    tool_call_id=next_tool_call.get("id", "write_blocked"),
+                )],
+                "tool_call_count": tool_call_count + 1,
+                "last_tool_name": current_tool_name,
+                "last_tool_input_hash": current_input_hash,
+                "next_tool_call": None,
+            }
+
+        # Human-in-the-loop approval gate for write operations.
+        # This follows LangGraph's interrupt/resume pattern and can be resumed
+        # via Command(resume={...}) from the API layer.
+        if current_tool_name in WRITE_TOOLS and not state.get("auto_accept_writes", True):
+            approval_payload = self._build_write_approval_payload(current_tool_name, next_tool_call, tool_args, state)
+            decision = interrupt(approval_payload)
+            approved, resumed_args = self._parse_approval_decision(
+                decision, tool_args,
+                expected_approval_id=next_tool_call.get("id", ""),
+            )
+            if not approved:
+                return {
+                    "messages": [ToolMessage(
+                        content="Action rejected by user approval.",
+                        tool_call_id=next_tool_call.get("id", "approval_rejected"),
+                    )],
+                    "tool_call_count": tool_call_count + 1,
+                    "last_tool_name": current_tool_name,
+                    "last_tool_input_hash": current_input_hash,
+                    "next_tool_call": None,
+                }
+            tool_args = self._normalize_note_id_args(resumed_args, state)
+            next_tool_call["args"] = tool_args
         
         # Check for doom loop
         if (current_tool_name == last_tool_name and 
@@ -415,7 +478,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             if consecutive >= DOOM_LOOP_THRESHOLD:
                 return {
                     "messages": [ToolMessage(
-                        content=f"[DOOM LOOP DETECTED] 工具 {current_tool_name} 被连续调用了 {consecutive} 次。已自动终止。",
+                        content=f"[DOOM LOOP DETECTED] Tool {current_tool_name} called repeatedly ({consecutive}); workflow stopped.",
                         tool_call_id=next_tool_call.get("id", "doom_loop"),
                     )],
                     "tool_call_count": consecutive,
@@ -450,6 +513,56 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             "next_tool_call": None,  # Clear after execution
         }
 
+    def _build_write_approval_payload(self, tool_name: str, tool_call: dict, tool_args: dict, state: NoteAgentState) -> dict:
+        note_id = tool_args.get("note_id") or state.get("active_note_id") or state.get("context_note_id")
+        note_title = state.get("active_note_title") or state.get("context_note_title")
+        return {
+            "kind": "write_tool_approval",
+            "approval_id": tool_call.get("id", ""),
+            "tool": tool_name,
+            "note_id": note_id,
+            "note_title": note_title,
+            "operation": tool_name,
+            "scope": "current_note_full_content" if tool_name == "update_note" else "note_metadata_or_content",
+            "args": tool_args,
+            "message": "Approve this write action before execution.",
+        }
+
+    def _parse_approval_decision(self, decision: Any, original_args: dict, expected_approval_id: str = "") -> tuple[bool, dict]:
+        """
+        Parse resume payload from Command(resume=...).
+        Supports bool, string ('approve'/'reject'), or dict with {action, approval_id, args}.
+
+        When expected_approval_id is provided, the decision must carry a matching
+        approval_id.  A mismatch is treated as a rejection to prevent cross-session
+        or stale approval payloads from being applied to the wrong tool call.
+        """
+        if isinstance(decision, bool):
+            return decision, original_args
+        if isinstance(decision, str):
+            action = decision.strip().lower()
+            return action in {"approve", "accept", "yes", "true"}, original_args
+        if isinstance(decision, dict):
+            # Validate approval_id if expected
+            if expected_approval_id:
+                received_id = str(decision.get("approval_id", "")).strip()
+                if not received_id:
+                    safe_print(f"[Agent] Approval ID missing in resume payload. expected={expected_approval_id}")
+                    return False, original_args
+                if received_id != expected_approval_id:
+                    safe_print(f"[Agent] Approval ID mismatch: expected={expected_approval_id}, got={received_id}")
+                    return False, original_args
+
+            action = str(decision.get("action", "")).strip().lower()
+            approved = action in {"approve", "accept", "yes", "true"}
+            resumed_args = decision.get("args")
+            if isinstance(resumed_args, dict):
+                merged = dict(original_args)
+                merged.update(resumed_args)
+                return approved, merged
+            return approved, original_args
+        return False, original_args
+
     def _normalize_note_id_args(self, args: dict, state: NoteAgentState) -> dict:
         """
         Ensure note_id is a real ID when tools require it.
@@ -481,22 +594,86 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         Decide if current TASK should enter tool loop immediately.
         Uses lightweight intent cues to avoid false forcing on purely conversational TASKs.
         """
-        last_user_text = ""
+        last_user_text = self._get_last_user_text(history)
+        has_write_cue = any(cue in last_user_text for cue in WRITE_INTENT_CUES)
+        has_read_only_cue = any(cue in last_user_text for cue in READ_ONLY_INTENT_CUES)
+
+        # Read-only request should not be forced into write-tool loop.
+        if has_read_only_cue and not has_write_cue:
+            return False
+
+        # If note context exists, explicit write-style queries are expected to use tools.
+        has_note_context = bool(state.get("active_note_id") or state.get("context_note_id"))
+        return has_write_cue and has_note_context
+
+    def _get_last_user_text(self, history: list) -> str:
+        """Extract last human message as lowercase text."""
         for msg in reversed(history):
             if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
-                last_user_text = msg.content.lower()
-                break
+                return str(msg.content).lower()
+        return ""
 
-        actionable_cues = [
-            "整理", "格式", "排版", "重写", "修改", "更新", "删除", "创建", "重命名", "分类",
-            "format", "reformat", "tidy", "rewrite", "update", "delete", "create", "rename", "categorize",
-        ]
-        has_action_word = any(cue in last_user_text for cue in actionable_cues)
+    def _evaluate_tool_policy(
+        self,
+        state: NoteAgentState,
+        tool_name: str,
+        tool_args: dict,
+        history: list,
+    ) -> ToolPolicyDecision:
+        """
+        Centralized tool policy decision.
 
-        # If note context exists, formatting/update style queries are expected to use tools.
+        This is intentionally modeled as a dedicated policy layer (decision object),
+        so approval/execution nodes consume one normalized result instead of ad-hoc
+        condition checks. It keeps behavior aligned with LangGraph agent patterns.
+        """
+        if tool_name not in WRITE_TOOLS:
+            return {"action": "allow", "code": "non_write_tool", "reason": "Read-only tool is always allowed."}
+
+        user_text = self._get_last_user_text(history)
+        if not user_text:
+            return {
+                "action": "deny",
+                "code": "missing_user_intent",
+                "reason": "No latest user intent found for a write operation.",
+            }
+
+        arg_blob = ""
+        if isinstance(tool_args, dict):
+            arg_blob = json.dumps(tool_args, ensure_ascii=False).lower()
+
+        user_has_write = any(cue in user_text for cue in WRITE_INTENT_CUES)
+        user_has_read_only = any(cue in user_text for cue in READ_ONLY_INTENT_CUES)
+        args_has_write = any(cue in arg_blob for cue in WRITE_INTENT_CUES)
         has_note_context = bool(state.get("active_note_id") or state.get("context_note_id"))
-        return has_action_word and has_note_context
+        is_task_intent = state.get("intent") == "TASK"
 
+        # Strong allow: explicit write intent in user request or synthesized tool args.
+        if user_has_write or args_has_write:
+            return {"action": "allow", "code": "explicit_write_intent", "reason": "Write intent detected."}
+
+        # Strong deny: explicit read-only request with no write cue.
+        if user_has_read_only:
+            return {
+                "action": "deny",
+                "code": "read_only_intent",
+                "reason": "Latest user request is read-only (summary/explain/search/read).",
+            }
+
+        # Contextual allow: actionable task with concrete note context.
+        if is_task_intent and has_note_context:
+            return {
+                "action": "allow",
+                "code": "task_with_note_context",
+                "reason": "Task intent with concrete note context allows write action.",
+            }
+
+        # Conservative fallback.
+        return {
+            "action": "deny",
+            "code": "insufficient_write_signal",
+            "reason": "Write intent is not explicit enough.",
+        }
     def _detect_user_language(self, messages: list) -> str:
         """
         Lightweight language detection based on latest user message.
@@ -511,7 +688,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 last_user_text = msg.content
                 break
 
-        if re.search(r"[\\u4e00-\\u9fff]", last_user_text):
+        if re.search(r"[\u4e00-\u9fff]", last_user_text):
             return "zh"
         return "en"
     
@@ -535,7 +712,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             "list_categories": "[Done] Categories loaded",
         }
         
-        status_text = STATUS_TEMPLATES.get(last_tool_name, f"✓ {last_tool_name} 执行完成")
+        status_text = STATUS_TEMPLATES.get(last_tool_name, f"{last_tool_name} 执行完成")
         
         # CRITICAL: Mark as status_message to filter it out from LLM reasoning in next turn
         status_message = AIMessage(
@@ -552,7 +729,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         Workflow state machine: determine whether to continue or end.
         
         2-way branching:
-        - "continue": has tool_calls → execute tools
+        - "continue": has tool_calls  -> execute tools
         - "end": no tool_calls OR max turns reached
         """
         messages = state.get("messages", [])
@@ -561,13 +738,13 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         
         last_message = messages[-1]
         
-        # 1. Has tool_calls → continue to tools
+        # 1. Has tool_calls  -> continue to tools
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
             if state.get("tool_call_count", 0) >= MAX_TOOL_CALLS:
                 return "end"
             return "continue"
         
-        # 2. No tool_calls → task complete, end
+        # 2. No tool_calls  -> task complete, end
         return "end"
 
 

@@ -8,13 +8,31 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# Safe print for Windows GBK encoding
+# Ensure Python stdio uses UTF-8 to avoid mojibake on Windows terminals.
+def configure_utf8_stdio():
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+# Safe print helper that keeps logs readable even if terminal encoding is odd.
 def safe_print(msg: str):
-    """Print message safely on Windows by handling encoding errors."""
+    """Print message safely without falling back to GBK transcoding."""
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            sys.stdout.buffer.write((msg + "\n").encode("utf-8", errors="replace"))
+            sys.stdout.flush()
+        except Exception:
+            print(msg.encode("ascii", errors="replace").decode("ascii"))
+
+
+configure_utf8_stdio()
 
 
 # CRITICAL: Load .env before importing anything that uses config

@@ -1,5 +1,5 @@
-<template>
-  <div class="app-container">
+﻿<template>
+  <div class="app-container" :style="{ '--agent-sidebar-width': `${uiStore.agentSidebarWidth}px` }">
     <!-- 自定义标题栏 -->
     <header class="titlebar" @dblclick="handleMaximize">
       <div class="titlebar__drag-region"></div>
@@ -23,42 +23,47 @@
       </div>
     </header>
 
-    <!-- 主内容区 -->
-    <main class="main-content" :class="{ 'main-content--resizing': isResizing }">
-      <!-- 侧边栏 -->
-      <div 
+    <main
+      class="main-content"
+      :class="{
+        'main-content--resizing': isResizing,
+        'main-content--agent-sidebar': isAgentSidebarMode
+      }"
+    >
+      <div
         class="panel panel--sidebar"
         :style="{ width: uiStore.sidebarCollapsed ? '56px' : `${uiStore.sidebarWidth}px` }"
       >
         <TheSidebar :collapsed="uiStore.sidebarCollapsed" @toggle="uiStore.toggleSidebar" />
-        <!-- 侧边栏拖拽条 -->
-        <div 
+        <div
           v-if="!uiStore.sidebarCollapsed"
           class="resizer"
           @mousedown="startResize('sidebar', $event)"
         ></div>
       </div>
-      
-      <!-- 笔记列表 -->
-      <div 
+
+      <div
         class="panel panel--notelist"
         :style="{ width: `${uiStore.noteListWidth}px` }"
       >
         <NoteList />
-        <!-- 笔记列表拖拽条 -->
-        <div 
+        <div
           class="resizer"
           @mousedown="startResize('notelist', $event)"
         ></div>
       </div>
-      
-      <!-- 编辑器 -->
+
       <div class="panel panel--editor">
         <NoteEditor :key="noteStore.currentNote?.id || 'empty'" />
       </div>
     </main>
 
-    <!-- AI Agent 聊天气泡 -->
+    <div
+      v-if="isAgentSidebarMode"
+      class="agent-sidebar-resizer"
+      @mousedown="startResize('agent', $event)"
+    ></div>
+
     <AgentBubble />
     <ToastHost />
   </div>
@@ -79,43 +84,52 @@ import { noteRepository } from '@/database/noteRepository'
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
+const isAgentSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
+const syncAgentSidebarMode = () => {
+  isAgentSidebarMode.value = localStorage.getItem('origin_agent_sidebar_mode') === '1'
+}
 
-// ========== 拖拽调整宽度 ==========
-type ResizeTarget = 'sidebar' | 'notelist' | null
+type ResizeTarget = 'sidebar' | 'notelist' | 'agent' | null
 const isResizing = ref(false)
 const resizeTarget = ref<ResizeTarget>(null)
 const startX = ref(0)
 const startWidth = ref(0)
 
-// 使用 RAF 节流优化拖拽性能
 let rafId: number | null = null
 
-function startResize(target: 'sidebar' | 'notelist', e: MouseEvent): void {
+function startResize(target: 'sidebar' | 'notelist' | 'agent', e: MouseEvent): void {
   e.preventDefault()
   isResizing.value = true
   resizeTarget.value = target
   startX.value = e.clientX
-  startWidth.value = target === 'sidebar' ? uiStore.sidebarWidth : uiStore.noteListWidth
-  
+
+  if (target === 'sidebar') {
+    startWidth.value = uiStore.sidebarWidth
+  } else if (target === 'notelist') {
+    startWidth.value = uiStore.noteListWidth
+  } else {
+    startWidth.value = uiStore.agentSidebarWidth
+  }
+
   document.addEventListener('mousemove', handleResize, { passive: true })
   document.addEventListener('mouseup', stopResize)
 }
 
 function handleResize(e: MouseEvent): void {
   if (!isResizing.value || !resizeTarget.value) return
-  
-  // 使用 RAF 节流，避免过度渲染
   if (rafId) return
-  
+
   rafId = requestAnimationFrame(() => {
     const delta = e.clientX - startX.value
-    const newWidth = startWidth.value + delta
-    
+
     if (resizeTarget.value === 'sidebar') {
-      uiStore.setSidebarWidth(newWidth)
+      uiStore.setSidebarWidth(startWidth.value + delta)
+    } else if (resizeTarget.value === 'notelist') {
+      uiStore.setNoteListWidth(startWidth.value + delta)
     } else {
-      uiStore.setNoteListWidth(newWidth)
+      uiStore.setAgentSidebarWidth(startWidth.value - delta)
     }
+
     rafId = null
   })
 }
@@ -131,7 +145,6 @@ function stopResize(): void {
   document.removeEventListener('mouseup', stopResize)
 }
 
-// Shared editor action bridge
 const setEditorContentRef = { value: (_html: string) => {} }
 provide('setEditorContent', (html: string) => {
   setEditorContentRef.value(html)
@@ -140,7 +153,6 @@ provide('registerEditorAction', (fn: (html: string) => void) => {
   setEditorContentRef.value = fn
 })
 
-// 窗口控制
 function handleMinimize(): void {
   window.electronAPI?.minimizeWindow()
 }
@@ -153,7 +165,6 @@ function handleClose(): void {
   window.electronAPI?.closeWindow()
 }
 
-// 初始化
 onMounted(async () => {
   let retryCount = 0
   while (!window.electronAPI?.db && retryCount < 50) {
@@ -174,19 +185,29 @@ onMounted(async () => {
   }
 
   noteRepository.cleanupOldDeleted().catch(console.error)
+
+  window.addEventListener('origin-agent-sidebar-mode-changed', syncAgentSidebarMode as EventListener)
+  window.addEventListener('storage', syncAgentSidebarMode)
+  syncAgentSidebarMode()
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('origin-agent-sidebar-mode-changed', syncAgentSidebarMode as EventListener)
+  window.removeEventListener('storage', syncAgentSidebarMode)
 })
 </script>
 
 <style lang="scss" scoped>
 .app-container {
+  --agent-sidebar-width: 460px;
+  --app-titlebar-height: #{$titlebar-height};
   display: flex;
   flex-direction: column;
   height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   background: var(--color-bg-primary);
   transition: background-color 0.3s ease;
 }
@@ -205,7 +226,7 @@ onUnmounted(() => {
     position: absolute;
     top: 0;
     left: 0;
-    right: 140px; // 3个按钮 * 46px + 2px 余量
+    right: 140px;
     height: 100%;
     -webkit-app-region: drag;
   }
@@ -248,47 +269,50 @@ onUnmounted(() => {
 }
 
 .main-content {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;
+  transition: padding-right 0.2s ease;
+
+  &--agent-sidebar {
+    padding-right: var(--agent-sidebar-width);
+  }
 
   &--resizing {
     cursor: col-resize;
     user-select: none;
-    
+
     .panel {
       pointer-events: none;
     }
-    
+
     .resizer {
       pointer-events: auto;
     }
   }
 }
 
-// 面板容器
 .panel {
   position: relative;
   display: flex;
   flex-shrink: 0;
-  // 使用 GPU 加速的 transform 代替 width 过渡
   will-change: width;
-  
+
   &--sidebar {
     z-index: 2;
   }
-  
+
   &--notelist {
     z-index: 1;
   }
-  
+
   &--editor {
     flex: 1;
     min-width: 300px;
   }
 }
 
-// 拖拽分隔条
 .resizer {
   position: absolute;
   top: 0;
@@ -297,7 +321,7 @@ onUnmounted(() => {
   height: 100%;
   cursor: col-resize;
   z-index: 100;
-  
+
   &::after {
     content: '';
     position: absolute;
@@ -308,16 +332,41 @@ onUnmounted(() => {
     background: var(--color-border-light);
     transition: width 0.15s ease, background-color 0.15s ease;
   }
-  
+
   &:hover::after {
     width: 3px;
     background: var(--color-accent);
   }
 }
 
-// 子组件填满容器
 .panel :deep(> *:first-child) {
   width: 100%;
   height: 100%;
+}
+
+.agent-sidebar-resizer {
+  position: fixed;
+  top: var(--app-titlebar-height);
+  bottom: 0;
+  right: var(--agent-sidebar-width);
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10050;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 2px;
+    width: 1px;
+    height: 100%;
+    background: var(--color-border-light);
+    transition: width 0.15s ease, background-color 0.15s ease;
+  }
+
+  &:hover::after {
+    width: 3px;
+    background: var(--color-accent);
+  }
 }
 </style>

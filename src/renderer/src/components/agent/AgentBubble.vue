@@ -1,12 +1,13 @@
-<template>
+﻿<template>
   <!-- Main Container with dynamic position -->
   <div 
     class="agent-container" 
     :style="containerStyle"
-    :class="{ 'is-dragging': isDragging, 'is-docked': isDocked && !isOpen }"
+    :class="{ 'is-dragging': isDragging, 'is-docked': isDocked && !isOpen, 'agent-container--sidebar': isSidebarMode && isOpen }"
   >
     <!-- Floating Bubble Button -->
     <div
+      v-if="!(isSidebarMode && isOpen)"
       class="agent-bubble glass-panel"
       :class="{ 'agent-bubble--active': isOpen }"
       @mousedown="startDrag"
@@ -32,7 +33,8 @@
         class="agent-chat glass-panel" 
         :class="{ 
           'maximized': isMaximized,
-          'align-left': position.x < windowWidth / 2 
+          'align-left': !isSidebarMode && position.x < windowWidth / 2,
+          'sidebar-mode': isSidebarMode
         }"
         @mousedown.stop
       >
@@ -65,7 +67,13 @@
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
               </svg>
             </button>
-            <button class="header-btn" @mousedown.stop @click="isMaximized = !isMaximized" :title="isMaximized ? '还原' : '最大化'">
+            <button class="header-btn" @mousedown.stop @click="toggleSidebarMode" :title="isSidebarMode ? '退出侧栏模式' : '侧栏模式'">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <line x1="9" y1="4" x2="9" y2="20"/>
+              </svg>
+            </button>
+            <button class="header-btn" @mousedown.stop @click="toggleMaximizeMode" :title="isMaximized ? '还原' : '最大化'">
               <svg v-if="!isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
               </svg>
@@ -168,7 +176,7 @@
             :class="[`message--${msg.role}`]">
             <div class="message">
               <div class="message__avatar">
-                {{ msg.role === 'user' ? '◉' : '✦' }}
+                {{ msg.role === 'user' ? '•' : '✦' }}
               </div>
               <div class="message__content">
                 <!-- Part-Based Rendering -->
@@ -187,6 +195,7 @@
                       <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
                       <span class="tool-part__name">{{ part.title || part.tool }}</span>
                       <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
+                      <span v-else-if="part.status === 'pending'" class="tool-part__pending">等待确认</span>
                       <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
                       <span v-if="part.output && part.status === 'completed'" class="tool-part__output">{{ part.output }}</span>
                     </div>
@@ -203,9 +212,9 @@
             </div>
           </div>
 
-          <div v-if="currentStatus" class="status-update">
-            <span class="status-update__text">{{ currentStatus }}</span>
-            <span class="status-update__dots">...</span>
+          <div v-if="displayStatusText" class="status-update">
+            <span class="status-update__text">{{ displayStatusText }}</span>
+            <span v-if="showStatusDots" class="status-update__dots">...</span>
           </div>
 
           <div v-if="isTyping && !currentStatus" class="typing-minimal">
@@ -233,55 +242,94 @@
 
         <!-- Context Bar (Automatic & Explicit) -->
         <div class="agent-chat__context-bar">
-          <!-- 1. Automatic: Current Active Note -->
-          <div v-if="noteStore.currentNote" class="context-pill inspecting-pill" :class="{ 'inactive': !includeActiveNote }">
-            <button class="pill-toggle-btn" @click="includeActiveNote = !includeActiveNote" title="切换上下文包含">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="eye-svg">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-                <line v-if="!includeActiveNote" x1="1" y1="1" x2="23" y2="23" stroke-width="3" />
-              </svg>
-            </button>
-            <span class="pill-text">{{ noteStore.currentNote.title || '无标题' }}</span>
-          </div>
+          <div class="agent-chat__context-left">
+            <!-- 1. Automatic: Current Active Note -->
+            <div v-if="noteStore.currentNote" class="context-pill inspecting-pill" :class="{ 'inactive': !includeActiveNote }">
+              <button class="pill-toggle-btn" @click="includeActiveNote = !includeActiveNote" title="Toggle current note context">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="eye-svg">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                  <line v-if="!includeActiveNote" x1="1" y1="1" x2="23" y2="23" stroke-width="3" />
+                </svg>
+              </button>
+              <span class="pill-text">{{ noteStore.currentNote.title || '无标题' }}</span>
+            </div>
 
-          <!-- 2. Explicit: Manually selected @ note -->
-          <div v-if="selectedContextNote" class="context-pill mentioned-pill">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            <span class="pill-text">{{ selectedContextNote.title }}</span>
-            <button class="pill-clear" @click="clearContextNote">×</button>
-          </div>
-        </div>
-
-        <div class="agent-chat__context-bar">
-          <div class="context-pill approval-mode-pill" :class="{ 'inactive': !autoAcceptEdits }">
-            <button class="pill-toggle-btn" @click="toggleAutoAcceptEdits" title="Toggle auto accept">
+            <!-- 2. Explicit: Manually selected @ note -->
+            <div v-if="selectedContextNote" class="context-pill mentioned-pill">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
-                <path d="M5 12l4 4 10-10" />
+                <path d="M12 5v14M5 12h14" />
               </svg>
-            </button>
-            <span class="pill-text">{{ autoAcceptEdits ? 'Auto-Accept' : 'Manual Review' }}</span>
+              <span class="pill-text">{{ selectedContextNote.title }}</span>
+              <button class="pill-clear" @click="clearContextNote">×</button>
+            </div>
+          </div>
+
+          <div class="agent-chat__context-right">
+            <div class="context-pill approval-mode-pill" :class="{ 'inactive': !autoAcceptEdits }">
+              <button class="pill-toggle-btn" @click="toggleAutoAcceptEdits" title="Toggle auto accept">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
+                  <path d="M5 12l4 4 10-10" />
+                </svg>
+              </button>
+              <button class="pill-text-btn" @click="handleReviewPillClick" :disabled="!hasReviewData">
+                {{ autoAcceptEdits ? 'Auto-Accept' : 'Manual Review' }}
+              </button>
+            </div>
           </div>
         </div>
+        <div v-if="isExecutionAwaitingApproval || pendingApprovals.length > 0" class="agent-approval-bar">
+          <template v-if="isExecutionAwaitingApproval && pendingExecutionApproval">
+            <span class="agent-approval-bar__label">待执行：{{ pendingExecutionApproval.operation }} ({{ pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }})</span>
+            <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="respondExecutionApproval('approve')">接受</button>
+            <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="respondExecutionApproval('reject')">拒绝</button>
+            <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
+          </template>
+          <template v-else>
+            <span class="agent-approval-bar__label">待审核：{{ pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }}</span>
+            <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
+              {{ showApprovalPreview ? '隐藏变更' : '查看变更' }}
+            </button>
+            <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">接受</button>
+            <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">拒绝</button>
+            <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
+          </template>
+        </div>
 
-        <div v-if="pendingApprovals.length > 0" class="agent-approval-bar">
-          <span class="agent-approval-bar__label">Pending: {{ pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }}</span>
-          <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
-            {{ showApprovalPreview ? 'Hide changes' : 'View changes' }}
-          </button>
-          <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">Accept</button>
-          <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">Reject</button>
-          <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">Auto-Accept</button>
+        <div v-if="((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview" class="agent-task-card">
+          <div class="agent-task-card__title">任务卡</div>
+          <div class="agent-task-card__row"><span>目标</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId) : (currentPendingApproval?.noteTitle || currentPendingApproval?.noteId) }}</span></div>
+          <div class="agent-task-card__row"><span>操作</span><span>{{ pendingExecutionApproval ? pendingExecutionApproval.operation : 'update_note' }}</span></div>
+          <div class="agent-task-card__row"><span>影响</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.scope || pendingExecutionApproval.message || '写操作') : currentApprovalSummary }}</span></div>
+        </div>
+
+        <div v-if="executionRecords.length > 0" class="agent-execution-panel">
+          <div class="agent-execution-panel__head">
+            <span class="agent-execution-panel__title">执行记录</span>
+            <button class="agent-approval-btn" @click="executionExpanded = !executionExpanded">
+              {{ executionExpanded ? '收起' : '展开' }}
+            </button>
+          </div>
+          <div v-if="executionExpanded" class="agent-execution-list">
+            <div
+              v-for="record in executionRecords"
+              :key="record.id"
+              class="agent-execution-item"
+              :class="`agent-execution-item--${record.status}`"
+            >
+              <span class="agent-execution-item__status">{{ record.statusText }}</span>
+              <span class="agent-execution-item__title">{{ record.title }}</span>
+              <span class="agent-execution-item__time">{{ record.timeLabel }}</span>
+            </div>
+          </div>
         </div>
 
         <div v-if="showApprovalPreview && currentPendingApproval" class="agent-approval-preview">
           <div class="agent-approval-preview__summary">{{ currentApprovalSummary }}</div>
           <div class="agent-approval-preview__title-row">
-            <div class="agent-approval-preview__title">Structured diff</div>
+            <div class="agent-approval-preview__title">结构化差异</div>
             <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
-              {{ showUnchangedDiff ? 'Hide unchanged' : 'Show unchanged' }}
+              {{ showUnchangedDiff ? '隐藏未变更' : '显示未变更' }}
             </button>
           </div>
           <div class="agent-approval-diff">
@@ -334,7 +382,7 @@
                     <span class="menu-label">笔记知识库</span>
                   </div>
                   <div class="menu-item" @click="toggleNoteSelector">
-                    <span class="menu-icon smaller">📎</span>
+                    <span class="menu-icon smaller">👁</span>
                     <span class="menu-label">添加笔记上下文</span>
                   </div>
                 </div>
@@ -351,7 +399,7 @@
                       class="selector-item"
                       @click="selectNoteAsContext(note)"
                     >
-                      <span class="item-icon">📄</span>
+                      <span class="item-icon">📝</span>
                       <span class="item-title">{{ note.title || '无标题' }}</span>
                     </div>
                     <div v-if="noteStore.notes.length === 0" class="selector-empty">暂无笔记</div>
@@ -436,7 +484,7 @@ interface ToolPart {
   type: 'tool'
   tool: string
   toolId?: string  // For precise status matching
-  status: 'running' | 'completed' | 'error'
+  status: 'running' | 'pending' | 'completed' | 'error'
   title?: string
   output?: string
   inputPreview?: string
@@ -445,9 +493,9 @@ interface ToolPart {
 type MessagePart = TextPart | ToolPart
 
 const STATUS_MAP = {
-  THINKING: '思考中...',
-  SEARCHING: '搜索知识库...',
-  WRITING: '正在撰写...',
+  THINKING: '思考中',
+  SEARCHING: '正在搜索知识库',
+  WRITING: '正在撰写',
   ERROR: '出错了'
 }
 
@@ -468,6 +516,7 @@ const messages = ref<ChatMessage[]>([])
 const messagesContainer = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const isMaximized = ref(false)
+const isSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
 const showModelSettings = ref(false)
 const streamingMessage = ref<ChatMessage | null>(null)
 const currentStatus = ref('')
@@ -503,6 +552,18 @@ interface PendingApproval {
   createdAt: number
 }
 
+interface PendingExecutionApproval {
+  approvalId: string
+  tool: string
+  noteId: string
+  noteTitle: string
+  operation: string
+  scope: string
+  args: Record<string, any>
+  message: string
+  createdAt: number
+}
+
 type DiffOp = 'same' | 'add' | 'del'
 type DiffBlockKind = 'unchanged' | 'modified' | 'added' | 'removed'
 
@@ -535,14 +596,26 @@ interface PersistedUiState {
     isError?: boolean
   }>
   pendingApprovals: PendingApproval[]
+  pendingExecutionApproval?: PendingExecutionApproval | null
   showApprovalPreview: boolean
+  executionExpanded?: boolean
+}
+
+interface ExecutionRecord {
+  id: string
+  title: string
+  status: 'running' | 'pending' | 'completed' | 'error'
+  statusText: string
+  timeLabel: string
 }
 
 const preUpdateSnapshots = ref<Record<string, NoteSnapshot>>({})
 const pendingApprovals = ref<PendingApproval[]>([])
+const pendingExecutionApproval = ref<PendingExecutionApproval | null>(null)
 const showApprovalPreview = ref(false)
 const showUnchangedDiff = ref(false)
 const approvalBusy = ref(false)
+const executionExpanded = ref(true)
 const SESSION_UI_PREFIX = 'origin_agent_session_ui_v1:'
 let persistUiTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -576,7 +649,9 @@ function persistSessionUiState(sessionId: string = currentSessionId.value): void
         isError: msg.isError
       })),
       pendingApprovals: pendingApprovals.value,
-      showApprovalPreview: showApprovalPreview.value
+      pendingExecutionApproval: pendingExecutionApproval.value,
+      showApprovalPreview: showApprovalPreview.value,
+      executionExpanded: executionExpanded.value
     }
     localStorage.setItem(getSessionUiKey(sessionId), JSON.stringify(payload))
   } catch (e) {
@@ -605,7 +680,9 @@ function loadPersistedUiState(sessionId: string): boolean {
       isError: m.isError
     }))
     pendingApprovals.value = Array.isArray(parsed.pendingApprovals) ? parsed.pendingApprovals : []
+    pendingExecutionApproval.value = parsed.pendingExecutionApproval || null
     showApprovalPreview.value = Boolean(parsed.showApprovalPreview)
+    executionExpanded.value = parsed.executionExpanded !== false
     return true
   } catch (e) {
     console.warn('[Agent] Failed to load persisted UI session state:', e)
@@ -783,7 +860,7 @@ function toggleNoteSelector() {
 }
 
 function triggerKnowledgeSearch() {
-  const triggerText = "@笔记知识库 "
+  const triggerText = "@笔记知识库"
   if (!inputText.value.includes(triggerText)) {
     inputText.value = triggerText + inputText.value
   }
@@ -1035,6 +1112,65 @@ function extractNoteIdFromToolInputPreview(inputPreview?: string): string | null
   return genericIdMatch?.[1] || null
 }
 
+function findToolPartForCompletion(toolId?: string, toolName?: string): ToolPart | null {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const msg = messages.value[i]
+    if (!msg.parts) continue
+    for (let j = msg.parts.length - 1; j >= 0; j -= 1) {
+      const part = msg.parts[j]
+      if (part.type !== 'tool') continue
+      const toolPart = part as ToolPart
+      if (toolId && toolPart.toolId === toolId) {
+        return toolPart
+      }
+      if (!toolId && toolName && toolPart.tool === toolName && (toolPart.status === 'running' || toolPart.status === 'pending')) {
+        return toolPart
+      }
+    }
+  }
+  return null
+}
+
+function markToolPartPendingByApproval(approval: PendingExecutionApproval): void {
+  const toolPart = findToolPartForCompletion(approval.approvalId, approval.tool)
+  if (!toolPart) return
+  if (toolPart.status === 'running') {
+    toolPart.status = 'pending'
+    messages.value = [...messages.value]
+  }
+}
+
+function markToolPartRunningByApproval(approval: PendingExecutionApproval): void {
+  const toolPart = findToolPartForCompletion(approval.approvalId, approval.tool)
+  if (!toolPart) return
+  if (toolPart.status === 'pending') {
+    toolPart.status = 'running'
+    messages.value = [...messages.value]
+  }
+}
+
+async function refreshUpdatedNoteRealtime(noteId: string | null, previousContent?: string): Promise<void> {
+  const targetId = noteId || noteStore.currentNote?.id || null
+  if (!targetId) return
+  let latest: Note | null = null
+  for (let i = 0; i < 12; i += 1) {
+    await noteStore.loadNotes()
+    latest = (await noteRepository.getById(targetId)) ?? null
+    if (!latest) break
+    if (!previousContent || latest.content !== previousContent || i === 5) {
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  if (!latest) return
+  if (noteStore.currentNote?.id === targetId) {
+    noteStore.currentNote = { ...latest }
+    if (setEditorContent) {
+      setEditorContent(latest.content)
+    }
+  }
+}
+
 function patchStoreWithSnapshot(snapshot: NoteSnapshot): void {
   if (noteStore.currentNote?.id === snapshot.id) {
     noteStore.currentNote = {
@@ -1079,6 +1215,61 @@ function addPendingApproval(approval: PendingApproval): void {
   showApprovalPreview.value = true
 }
 
+function normalizeExecutionApproval(raw: any): PendingExecutionApproval | null {
+  if (!raw || typeof raw !== 'object') return null
+  const approvalId = String(raw.approval_id || raw.id || '').trim()
+  if (!approvalId) return null
+  const noteId = String(raw.note_id || noteStore.currentNote?.id || '').trim()
+  const noteTitle = String(raw.note_title || noteStore.currentNote?.title || noteId || 'Current note').trim()
+  return {
+    approvalId,
+    tool: String(raw.tool || raw.operation || 'write_tool'),
+    noteId,
+    noteTitle,
+    operation: String(raw.operation || raw.tool || 'write_tool'),
+    scope: String(raw.scope || ''),
+    args: raw.args && typeof raw.args === 'object' ? raw.args : {},
+    message: String(raw.message || ''),
+    createdAt: Date.now()
+  }
+}
+
+async function respondExecutionApproval(action: 'approve' | 'reject'): Promise<void> {
+  if (approvalBusy.value || !pendingExecutionApproval.value) return
+  const approval = pendingExecutionApproval.value
+  const beforeContent = noteStore.currentNote?.id === approval.noteId
+    ? (noteStore.currentNote?.content || '')
+    : undefined
+  approvalBusy.value = true
+  // Switch UI state immediately from "pending approval" to "executing"
+  pendingExecutionApproval.value = null
+  showApprovalPreview.value = false
+  if (action === 'approve') {
+    markToolPartRunningByApproval(approval)
+    currentStatus.value = '执行中'
+  } else {
+    currentStatus.value = '已拒绝执行'
+  }
+  try {
+    await sendMessage('', {
+      suppressUserEcho: true,
+      resume: {
+        action,
+        approval_id: approval.approvalId
+      }
+    })
+    if (action === 'approve') {
+      await refreshUpdatedNoteRealtime(approval.noteId || null, beforeContent)
+    }
+  } catch (err) {
+    // Restore pending state on failure so user can retry approval action
+    pendingExecutionApproval.value = approval
+    throw err
+  } finally {
+    approvalBusy.value = false
+  }
+}
+
 async function acceptPendingApproval(approvalId: string): Promise<void> {
   if (approvalBusy.value) return
   const approval = pendingApprovals.value.find(item => item.id === approvalId)
@@ -1111,11 +1302,19 @@ function toggleAutoAcceptEdits(): void {
 
 async function enableAutoAcceptAndApply(): Promise<void> {
   autoAcceptEdits.value = true
+  if (pendingExecutionApproval.value) {
+    await respondExecutionApproval('approve')
+    return
+  }
   if (pendingApprovals.value.length === 0) return
   await acceptPendingApproval(pendingApprovals.value[0].id)
 }
 
 const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
+const isExecutionAwaitingApproval = computed(
+  () => Boolean(pendingExecutionApproval.value) && !approvalBusy.value
+)
+const hasReviewData = computed(() => Boolean(pendingExecutionApproval.value || currentPendingApproval.value))
 const currentApprovalSummary = computed(() => {
   if (!currentPendingApproval.value) return ''
   return summarizeChange(currentPendingApproval.value.before, currentPendingApproval.value.after)
@@ -1129,6 +1328,61 @@ const approvalDiffBlocks = computed(() => {
 const visibleApprovalDiffBlocks = computed(() => {
   if (showUnchangedDiff.value) return approvalDiffBlocks.value
   return approvalDiffBlocks.value.filter(block => block.kind !== 'unchanged')
+})
+
+function handleReviewPillClick(): void {
+  if (!hasReviewData.value) return
+  showApprovalPreview.value = !showApprovalPreview.value
+}
+
+function formatExecutionTime(input: Date | string): string {
+  const d = input instanceof Date ? input : new Date(input)
+  if (Number.isNaN(d.getTime())) return '--:--:--'
+  return d.toLocaleTimeString([], { hour12: false })
+}
+
+const executionRecords = computed<ExecutionRecord[]>(() => {
+  const records: ExecutionRecord[] = []
+  messages.value.forEach((msg, msgIndex) => {
+    if (!msg.parts || msg.parts.length === 0) return
+    const timeLabel = formatExecutionTime(msg.timestamp)
+    msg.parts.forEach((part, partIndex) => {
+      if (part.type !== 'tool') return
+      const toolPart = part as ToolPart
+      const statusText =
+        toolPart.status === 'running'
+          ? '执行中'
+          : toolPart.status === 'pending'
+            ? '等待确认'
+            : toolPart.status === 'completed'
+            ? '完成'
+            : '失败'
+      if (toolPart.status === 'pending') return
+      records.push({
+        id: `${msgIndex}-${partIndex}-${toolPart.toolId || toolPart.tool}`,
+        title: toolPart.title || toolPart.tool,
+        status: toolPart.status,
+        statusText,
+        timeLabel
+      })
+    })
+  })
+  return records.reverse().slice(0, 20)
+})
+
+const displayStatusText = computed(() => {
+  if (approvalBusy.value && !pendingExecutionApproval.value) {
+    return '执行中'
+  }
+  if (pendingExecutionApproval.value) {
+    return '等待确认执行'
+  }
+  return currentStatus.value
+})
+
+const showStatusDots = computed(() => {
+  if (pendingExecutionApproval.value || approvalBusy.value) return false
+  return Boolean(displayStatusText.value)
 })
 
 // Auto-resize input
@@ -1166,14 +1420,24 @@ const isDocked = ref(true)
 const dragOffset = ref({ x: 0, y: 0 })
 const windowWidth = ref(window.innerWidth)
 
-const containerStyle = computed(() => ({
-  left: `${position.value.x}px`,
-  top: `${position.value.y}px`,
-  transition: isDragging.value ? 'none' : 'all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)'
-}))
+const containerStyle = computed(() => {
+  if (isSidebarMode.value && isOpen.value) {
+    return {
+      right: '16px',
+      top: '16px',
+      left: 'auto',
+      transition: 'all 0.2s ease'
+    }
+  }
+  return {
+    left: `${position.value.x}px`,
+    top: `${position.value.y}px`,
+    transition: isDragging.value ? 'none' : 'all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)'
+  }
+})
 
 function startDrag(e: MouseEvent) {
-  if (isMaximized.value) return
+  if (isMaximized.value || isSidebarMode.value) return
   isDragging.value = true
   isDocked.value = false
   dragOffset.value = {
@@ -1311,18 +1575,18 @@ const suggestions = [
 
 // Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
 const TOOL_ICONS: Record<string, string> = {
-  'search_knowledge': '◎',
-  'read_note_content': '◉',
-  'list_recent_notes': '◎',
+  'search_knowledge': '🔎',
+  'read_note_content': '👁',
+  'list_recent_notes': '📋',
   'update_note': '✎',
   'create_note': '+',
   'delete_note': '×',
-  'list_categories': '◎',
-  'set_note_category': '▸',
+  'list_categories': '🏷',
+  'set_note_category': '📁',
 }
 
 function getToolIcon(tool: string): string {
-  return TOOL_ICONS[tool] || '▸'
+  return TOOL_ICONS[tool] || '●'
 }
 
 function toggleChat() {
@@ -1337,6 +1601,47 @@ function toggleChat() {
   }
 }
 
+function reanchorFloatingBubble(): void {
+  const BUBBLE_SIZE = 50
+  const EDGE_MARGIN = 20
+  const TOP_MIN = 60
+
+  position.value.x = Math.max(
+    EDGE_MARGIN,
+    Math.min(window.innerWidth - BUBBLE_SIZE - EDGE_MARGIN, position.value.x)
+  )
+  position.value.y = Math.max(
+    TOP_MIN,
+    Math.min(window.innerHeight - BUBBLE_SIZE - EDGE_MARGIN, position.value.y)
+  )
+
+  // Exiting sidebar mode should start as fully visible floating bubble.
+  isDocked.value = false
+}
+
+function toggleSidebarMode() {
+  isSidebarMode.value = !isSidebarMode.value
+  localStorage.setItem('origin_agent_sidebar_mode', isSidebarMode.value ? '1' : '0')
+  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: isSidebarMode.value } }))
+  if (isSidebarMode.value) {
+    isMaximized.value = false
+    isOpen.value = true
+    hasUnread.value = false
+  } else {
+    reanchorFloatingBubble()
+  }
+}
+
+function toggleMaximizeMode() {
+  if (isSidebarMode.value) {
+    isSidebarMode.value = false
+    localStorage.setItem('origin_agent_sidebar_mode', '0')
+    window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: false } }))
+    reanchorFloatingBubble()
+  }
+  isMaximized.value = !isMaximized.value
+}
+
 function clearChat() {
   persistSessionUiState()
 
@@ -1347,9 +1652,11 @@ function clearChat() {
 
   messages.value = []
   pendingApprovals.value = []
+  pendingExecutionApproval.value = null
   preUpdateSnapshots.value = {}
   showApprovalPreview.value = false
   showUnchangedDiff.value = false
+  executionExpanded.value = true
   isTyping.value = false
   currentStatus.value = ''
   if (abortController.value) {
@@ -1404,9 +1711,11 @@ watch(() => noteStore.currentNote?.id, (newId, oldId) => {
         localStorage.setItem(SESSION_KEY, currentSessionId.value)
         messages.value = []
         pendingApprovals.value = []
+        pendingExecutionApproval.value = null
         preUpdateSnapshots.value = {}
         showApprovalPreview.value = false
         showUnchangedDiff.value = false
+        executionExpanded.value = true
         persistSessionUiState()
         // Optional: Insert a system divider in UI?
         // messages.value.push({ role: 'assistant', content: '*(New Context Loaded)*', timestamp: new Date() })
@@ -1436,11 +1745,29 @@ function handleSuggestionClick(suggestion: string) {
   }
 }
 
-async function sendMessage(text?: string) {
-  const messageText = text || inputText.value.trim()
-  if (!messageText || isTyping.value) return
+async function sendMessage(
+  text?: string,
+  options?: {
+    suppressUserEcho?: boolean
+    resume?: Record<string, any> | null
+  }
+) {
+  let streamInterruptedForApproval = false
+  let touchedNoteId: string | null = null
+  const isResume = Boolean(options?.resume)
+  const messageText = (text ?? inputText.value.trim()).trim()
+  if (isTyping.value && !isResume) return
+  if (!isResume && !messageText) return
+  if (!isResume && pendingExecutionApproval.value) {
+    messages.value.push({
+      role: 'assistant',
+      content: '检测到待审批任务，请先点击 Accept 或 Reject 后再继续。',
+      timestamp: new Date()
+    })
+    return
+  }
 
-  if (!autoAcceptEdits.value) {
+  if (!autoAcceptEdits.value && !isResume) {
     const activeNoteId = includeActiveNote.value ? noteStore.currentNote?.id : null
     if (activeNoteId) {
       await capturePreUpdateSnapshot(activeNoteId)
@@ -1451,9 +1778,13 @@ async function sendMessage(text?: string) {
   }
   
   // Optimistic UI update
-  messages.value.push({ role: 'user', content: messageText, timestamp: new Date() })
+  if (!options?.suppressUserEcho) {
+    messages.value.push({ role: 'user', content: messageText, timestamp: new Date() })
+  }
   // Clear state
-  inputText.value = ''
+  if (!options?.suppressUserEcho) {
+    inputText.value = ''
+  }
   isTyping.value = true
   showInputMenu.value = false
   showNoteSelector.value = false
@@ -1470,7 +1801,7 @@ async function sendMessage(text?: string) {
     })
   }
   
-  currentStatus.value = STATUS_MAP.THINKING
+  currentStatus.value = isResume ? '执行中' : STATUS_MAP.THINKING
   
   // Ensure keyboard on mobile doesn't hide input
   nextTick(() => {
@@ -1488,7 +1819,7 @@ async function sendMessage(text?: string) {
      if (!isConnected.value) {
         messages.value.push({ 
             role: 'assistant', 
-            content: '❌ 无法连接到 AI 服务。请确保后台服务 (Port 8765) 正在运行。',
+            content: '无法连接到 AI 服务。请确保后端服务 (Port 8765) 正在运行。',
             isError: true,
             timestamp: new Date()
         })
@@ -1511,30 +1842,32 @@ async function sendMessage(text?: string) {
     const activeNoteId = includeActiveNote.value ? (noteStore.currentNote?.id || null) : null
     
     // Detection for knowledge search in text
-    const kbTrigger = "@笔记知识库 "
+    const kbTrigger = "@笔记知识库"
     let finalMessage = messageText
     let explicitKnowledge = false
     
-    if (messageText.startsWith(kbTrigger)) {
+    if (!isResume && messageText.startsWith(kbTrigger)) {
       explicitKnowledge = true
       finalMessage = messageText.substring(kbTrigger.length).trim()
     }
 
     // Note: We no longer send full history. Backend manages state via session_id.
     const payload: any = {
-      message: finalMessage,
+      message: isResume ? '__resume__' : finalMessage,
       session_id: currentSessionId.value,
       history: [], // Deprecated client-side history
       note_context: noteContext,
       active_note_id: activeNoteId,
-      use_knowledge: explicitKnowledge  // @ knowledge search flag
+      use_knowledge: explicitKnowledge,  // @ knowledge search flag
+      auto_accept_writes: autoAcceptEdits.value,
+      resume: options?.resume || null
     }
 
     // Add context info if selected
-    if (selectedContextNote.value) {
+    if (!isResume && selectedContextNote.value) {
       payload.context_note_id = selectedContextNote.value.id
       payload.context_note_title = selectedContextNote.value.title
-    } else if (noteStore.currentNote && includeActiveNote.value) {
+    } else if (!isResume && noteStore.currentNote && includeActiveNote.value) {
       // If no context explicitly selected, fallback to current note if applicable
       payload.current_note_id = noteStore.currentNote.id
       payload.active_note_title = noteStore.currentNote.title
@@ -1581,8 +1914,28 @@ async function sendMessage(text?: string) {
               
               // 1. Status Update
               if (chunk.type === 'status') {
-                  currentStatus.value = chunk.text
-              } 
+                  const statusText = String(chunk.text || '')
+                  if (pendingExecutionApproval.value) {
+                      currentStatus.value = ''
+                  } else if (approvalBusy.value) {
+                      currentStatus.value = '执行中'
+                  } else if (isResume && statusText.toLowerCase().includes('thinking')) {
+                      currentStatus.value = '执行中'
+                  } else {
+                      currentStatus.value = statusText
+                  }
+              }
+              else if (chunk.type === 'approval_required') {
+                  const approval = normalizeExecutionApproval(chunk.approval)
+                  if (approval) {
+                      pendingExecutionApproval.value = approval
+                      showApprovalPreview.value = true
+                      touchedNoteId = approval.noteId || touchedNoteId
+                      markToolPartPendingByApproval(approval)
+                      currentStatus.value = ''
+                      streamInterruptedForApproval = true
+                  }
+              }
               // NEW: Part-Based Events
               else if (chunk.part_type) {
                   console.log('[SSE] Part event:', chunk.part_type)
@@ -1618,12 +1971,14 @@ async function sendMessage(text?: string) {
                       msg.content += chunk.delta
                   } 
                   else if (chunk.part_type === 'tool') {
-                      if (chunk.status === 'running') {
+                      if (chunk.status === 'running' || chunk.status === 'pending') {
                           if (!autoAcceptEdits.value && chunk.tool === 'update_note') {
                               const toolNoteId = extractNoteIdFromToolInputPreview(chunk.input_preview)
                               if (toolNoteId) {
+                                  touchedNoteId = toolNoteId
                                   await capturePreUpdateSnapshot(toolNoteId)
                               } else if (includeActiveNote.value && noteStore.currentNote?.id) {
+                                  touchedNoteId = noteStore.currentNote.id
                                   await capturePreUpdateSnapshot(noteStore.currentNote.id)
                               }
                           }
@@ -1632,28 +1987,35 @@ async function sendMessage(text?: string) {
                               type: 'tool',
                               tool: chunk.tool,
                               toolId: chunk.tool_id,
-                              status: 'running',
+                              status: chunk.status === 'pending' ? 'pending' : 'running',
                               title: chunk.title,
                               inputPreview: chunk.input_preview
                           } as ToolPart)
                       } 
                       else if (chunk.status === 'completed') {
-                          // Update existing tool part to completed - prefer matching by toolId
-                          let toolPart: ToolPart | undefined
+                          // Update existing tool part globally - completion may arrive in a resumed stream
+                          let toolPart: ToolPart | null = null
                           if (chunk.tool_id) {
-                              toolPart = [...msg.parts].reverse().find(
-                                  p => p.type === 'tool' && (p as ToolPart).toolId === chunk.tool_id
-                              ) as ToolPart | undefined
+                              toolPart = findToolPartForCompletion(chunk.tool_id, chunk.tool)
                           }
-                          // Fallback: match by tool name + running status
                           if (!toolPart) {
-                              toolPart = [...msg.parts].reverse().find(
-                                  p => p.type === 'tool' && (p as ToolPart).tool === chunk.tool && (p as ToolPart).status === 'running'
-                              ) as ToolPart | undefined
+                              toolPart = findToolPartForCompletion(undefined, chunk.tool)
                           }
                           if (toolPart) {
                               toolPart.status = 'completed'
                               toolPart.output = chunk.output
+                          }
+                          if (chunk.tool === 'update_note') {
+                              const previousContent =
+                                noteStore.currentNote?.id === (pendingExecutionApproval.value?.noteId || noteStore.currentNote?.id)
+                                  ? (noteStore.currentNote?.content || '')
+                                  : undefined
+                              const noteId =
+                                extractNoteIdFromToolInputPreview(toolPart?.inputPreview) ||
+                                pendingExecutionApproval.value?.noteId ||
+                                (includeActiveNote.value ? (noteStore.currentNote?.id || null) : null)
+                              touchedNoteId = noteId || touchedNoteId
+                              await refreshUpdatedNoteRealtime(noteId, previousContent)
                           }
                       }
                   }
@@ -1713,7 +2075,7 @@ async function sendMessage(text?: string) {
                       messages.value.push({ role: 'assistant', content: '', parts: [], timestamp: new Date(), isError: true })
                       messageIndex = messages.value.length - 1
                    }
-                   messages.value[messageIndex].content += `❌ ${chunk.error}`
+                   messages.value[messageIndex].content += `错误：${chunk.error}`
               }
           } catch (e) {
               console.warn("Failed to parse SSE JSON:", rawData, e)
@@ -1759,17 +2121,27 @@ async function sendMessage(text?: string) {
             const newNote = await noteRepository.getById(data.note_id)
             if (newNote) noteStore.currentNote = newNote
           }
-          finalMsg.content = data.message || `✅ 已成功创建笔记！`
+          finalMsg.content = data.message || '已成功创建笔记。'
         } else if (data.tool_call === 'note_updated') {
           await noteStore.loadNotes()
-          finalMsg.content = data.message || '✅ 笔记已更新！'
+          // Refresh editor content if the updated note is currently open
+          if (data.note_id && data.note_id !== 'unknown' && noteStore.currentNote?.id === data.note_id) {
+            const updatedNote = await noteRepository.getById(data.note_id)
+            if (updatedNote) {
+              noteStore.currentNote = { ...updatedNote }
+              if (setEditorContent) {
+                setEditorContent(updatedNote.content)
+              }
+            }
+          }
+          finalMsg.content = data.message || '笔记已更新。'
         } else if (data.tool_call === 'note_deleted') {
           await noteStore.loadNotes()
-          finalMsg.content = data.message || '🗑️ 笔记已移至回收站。'
+          finalMsg.content = data.message || '笔记已移动到回收站。'
         } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
           const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: true, gfm: true })
           setEditorContent(renderedHtml)
-          finalMsg.content = finalMsg.content || data.message || '✨ 笔记同步完成。'
+          finalMsg.content = finalMsg.content || data.message || '笔记同步完成。'
         } else if (data.tool_call === 'note_summarized') {
           finalMsg.content = data.message || data.content
         }
@@ -1784,13 +2156,20 @@ async function sendMessage(text?: string) {
     if (error.name === 'AbortError') {
       if (streamingMessage.value) streamingMessage.value.content += ' \n\n*(已由用户停止生成)*'
     } else {
-      if (streamingMessage.value) streamingMessage.value.content = '❌ 无法连接到 AI 服务。请确保后台服务 (Port 8765) 正在运行。'
+      if (streamingMessage.value) streamingMessage.value.content = '无法连接到 AI 服务。请确保后端服务 (Port 8765) 正在运行。'
     }
     // Mark all running tools as completed/aborted on error
-    finalizeRunningTools(streamingMessage.value)
+    finalizeRunningTools(streamingMessage.value, { completeRunning: !streamInterruptedForApproval })
   } finally {
+    if (touchedNoteId) {
+      try {
+        await refreshUpdatedNoteRealtime(touchedNoteId)
+      } catch (err) {
+        console.warn('[Agent] Final realtime refresh failed:', err)
+      }
+    }
     // Always finalize any remaining running tools
-    finalizeRunningTools(streamingMessage.value)
+    finalizeRunningTools(streamingMessage.value, { completeRunning: !streamInterruptedForApproval })
     
     isTyping.value = false
     streamingMessage.value = null
@@ -1801,13 +2180,19 @@ async function sendMessage(text?: string) {
 }
 
 // Helper: Mark all "running" tool parts as completed when stream ends
-function finalizeRunningTools(msg: ChatMessage | null) {
+function finalizeRunningTools(
+  msg: ChatMessage | null,
+  options?: { completeRunning?: boolean }
+) {
   if (!msg || !msg.parts) return
+  const completeRunning = options?.completeRunning ?? true
   let changed = false
   for (const part of msg.parts) {
     if (part.type === 'tool' && (part as ToolPart).status === 'running') {
-      (part as ToolPart).status = 'completed'
-      changed = true
+      if (completeRunning) {
+        (part as ToolPart).status = 'completed'
+        changed = true
+      }
     }
   }
   if (changed) {
@@ -1822,10 +2207,6 @@ async function handleToolCallEvent(data: any, msg: any) {
       if (data.note_id) {
         const newNote = await noteRepository.getById(data.note_id)
         if (newNote) noteStore.currentNote = newNote
-      }
-      // Only append log if there's already content (don't start with log)
-      if (msg.content) {
-        msg.content += `\n\n> [SYSTEM_LOG] Created Note ID: ${data.note_id}`
       }
     } else if (data.tool_call === 'note_updated') {
       const targetNoteId = data.note_id || noteStore.currentNote?.id || null
@@ -1847,9 +2228,6 @@ async function handleToolCallEvent(data: any, msg: any) {
             afterPreview: previewText(snapshotToText(after)),
             createdAt: Date.now()
           })
-          if (msg.content) {
-            msg.content += `\n\n> [SYSTEM_LOG] Pending approval for note update`
-          }
           delete preUpdateSnapshots.value[targetNoteId]
           messages.value = [...messages.value]
           return
@@ -1870,9 +2248,6 @@ async function handleToolCallEvent(data: any, msg: any) {
         delete preUpdateSnapshots.value[targetNoteId]
       }
 
-      if (msg.content) {
-        msg.content += `\n\n> [SYSTEM_LOG] Updated Note`
-      }
     } else if (data.tool_call === 'note_deleted') {
       try {
         await noteStore.loadNotes()
@@ -1887,14 +2262,8 @@ async function handleToolCallEvent(data: any, msg: any) {
           }
         }
       }
-      if (msg.content) {
-        msg.content += `\n\n> [SYSTEM_LOG] Deleted Note ID: ${data.note_id}`
-      }
     } else if (data.tool_call === 'note_categorized') {
       await noteStore.loadNotes()
-      if (msg.content) {
-        msg.content += `\n\n> [SYSTEM_LOG] Categorized Note ${data.note_id} as '${data.category_id}'`
-      }
     } else if (data.tool_call === 'note_renamed') {
       // Refresh note list to show new title
       await noteStore.loadNotes()
@@ -1902,9 +2271,6 @@ async function handleToolCallEvent(data: any, msg: any) {
       if (noteStore.currentNote?.id) {
         const fresh = await noteRepository.getById(noteStore.currentNote.id)
         if (fresh) noteStore.currentNote = fresh
-      }
-      if (msg.content) {
-        msg.content += `\n\n> [SYSTEM_LOG] Renamed Note`
       }
     } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
       // Fix: 'breaks: false' to prevent double spacing (newlines becoming <br>)
@@ -1972,15 +2338,12 @@ function forceScrollToBottom() {
 function renderMarkdown(text: string): string {
   if (!text) return ''
   
-  // Hide system logs from UI but keep them in history for AI context
-  const displayContent = text.split(/\n\n> \[SYSTEM_LOG\]/)[0]
-  
   try {
     const mathBlocks: string[] = []
     const mathInlines: string[] = []
 
     // 1. Double escape certain math chars and protect blocks
-    let tmp = displayContent
+    let tmp = text
       .replace(/\$\$([\s\S]+?)\$\$/g, (_, f) => {
         mathBlocks.push(f)
         return `__MATH_BLOCK_${mathBlocks.length - 1}__`
@@ -1993,7 +2356,7 @@ function renderMarkdown(text: string): string {
     // 2. Render Markdown
     const renderer = new marked.Renderer()
     
-    // 🔗 Enterprise Link Handling: Force open in external browser
+    // 馃敆 Enterprise Link Handling: Force open in external browser
     // Updated for marked v17+ compatibility
     renderer.link = (token) => {
       const href = token.href || ''
@@ -2053,10 +2416,10 @@ function adjustHeight() {
 
 function handleContextMenu(event: MouseEvent, content: string) {
   event.preventDefault()
-  
-  // 先移除已存在的右键菜单
+
+  // Remove existing context menus first
   const existingMenus = document.querySelectorAll('.agent-context-menu')
-  existingMenus.forEach(m => m.remove())
+  existingMenus.forEach((m: Element) => m.remove())
   
   const selection = window.getSelection()
   const selectedText = selection?.toString() || content
@@ -2064,7 +2427,7 @@ function handleContextMenu(event: MouseEvent, content: string) {
   menu.className = 'agent-context-menu'
   menu.style.cssText = `position: fixed; left: ${event.clientX}px; top: ${event.clientY}px; background: white; border: 1px solid #E8E4DF; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; z-index: 10000; min-width: 120px;`
   const copyItem = document.createElement('div')
-  copyItem.textContent = '📋 复制'
+  copyItem.textContent = '复制'
   copyItem.style.cssText = `padding: 8px 16px; cursor: pointer; font-size: 14px; color: #2D2A26;`
   copyItem.onmouseover = () => { copyItem.style.background = '#F5F1EC' }
   copyItem.onmouseout = () => { copyItem.style.background = 'transparent' }
@@ -2079,6 +2442,11 @@ function handleContextMenu(event: MouseEvent, content: string) {
 onMounted(() => {
   checkConnection()
   setInterval(checkConnection, 30000)
+  if (isSidebarMode.value) {
+    isOpen.value = true
+    hasUnread.value = false
+  }
+  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: isSidebarMode.value } }))
 })
 
 watch(inputText, () => {
@@ -2092,6 +2460,14 @@ watch(autoAcceptEdits, (enabled) => {
   localStorage.setItem(AUTO_ACCEPT_EDITS_KEY, enabled ? '1' : '0')
 })
 
+watch(isSidebarMode, (enabled) => {
+  if (enabled) {
+    isOpen.value = true
+    hasUnread.value = false
+  }
+  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled } }))
+})
+
 watch(messages, () => {
   schedulePersistUiState()
 }, { deep: true })
@@ -2100,13 +2476,36 @@ watch(pendingApprovals, () => {
   schedulePersistUiState()
 }, { deep: true })
 
+watch(pendingExecutionApproval, () => {
+  schedulePersistUiState()
+}, { deep: true })
+
 watch(showApprovalPreview, () => {
   schedulePersistUiState()
 })
+
+watch(executionExpanded, () => {
+  schedulePersistUiState()
+})
+
+watch(
+  [pendingExecutionApproval, pendingApprovals],
+  ([executionApproval, diffApprovals]) => {
+    if (executionApproval) {
+      showApprovalPreview.value = true
+      return
+    }
+    if (!diffApprovals || diffApprovals.length === 0) {
+      showApprovalPreview.value = false
+      showUnchangedDiff.value = false
+    }
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
-/* ===== 🎨 Theme: Warm Glass (Claude-Inspired) with Dark Mode Support ===== */
+/* ===== 馃帹 Theme: Warm Glass (Claude-Inspired) with Dark Mode Support ===== */
 .agent-container {
   /* Light Theme Variables (Default) */
   --theme-bg: rgba(250, 248, 245, 0.85);
@@ -2146,6 +2545,24 @@ watch(showApprovalPreview, () => {
   --theme-suggestion-bg: #2A2A2E;
 }
 
+/* Classic Theme Override */
+[data-theme="classic"] .agent-container {
+  --theme-bg: rgba(255, 255, 255, 1);
+  --theme-bg-solid: #FFFFFF;
+  --theme-text: #1F1F1F;
+  --theme-text-secondary: #666666;
+  --theme-accent: #D97D54;
+  --theme-accent-light: #FEF3EE;
+  --theme-border: rgba(0, 0, 0, 0.06);
+  --theme-input-bg: rgba(0, 0, 0, 0.02);
+  --theme-code-bg: #FAFAFA;
+  --theme-bubble-bg: rgba(255, 255, 255, 0.98);
+  --theme-bubble-active: rgba(255, 255, 255, 1);
+  --theme-header-bg: rgba(255, 255, 255, 1);
+  --theme-footer-bg: #FFFFFF;
+  --theme-suggestion-bg: #FFFFFF;
+}
+
 /* Glassmorphism Panel Base */
 .glass-panel {
   background: var(--theme-bg);
@@ -2155,7 +2572,7 @@ watch(showApprovalPreview, () => {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== 🟢 Bubble: Draggable & Dockable ===== */
+/* ===== 馃煝 Bubble: Draggable & Dockable ===== */
 .agent-bubble {
   width: 50px;
   height: 50px;
@@ -2218,7 +2635,7 @@ watch(showApprovalPreview, () => {
   border: 2px solid white;
 }
 
-/* ===== 💬 Chat Window ===== */
+/* ===== 馃挰 Chat Window ===== */
 .agent-chat {
   position: absolute;
   bottom: 60px;
@@ -2237,23 +2654,42 @@ watch(showApprovalPreview, () => {
   transition: background 0.3s ease;
 }
 
+.agent-container--sidebar {
+  z-index: 10000;
+}
+
+.agent-chat.sidebar-mode {
+  position: fixed;
+  top: var(--app-titlebar-height, 32px);
+  bottom: 0;
+  right: 0;
+  width: var(--agent-sidebar-width, 460px);
+  height: auto;
+  max-height: none;
+  left: auto;
+  border-radius: 0;
+  border-left: 1px solid var(--theme-border);
+  box-shadow: none;
+  transform-origin: top right;
+}
+
 /* Responsive Chat Window - Scale up on larger screens */
 @media (min-width: 1200px) {
-  .agent-chat:not(.maximized) {
+  .agent-chat:not(.maximized):not(.sidebar-mode) {
     width: 420px;
     height: 580px;
   }
 }
 
 @media (min-width: 1600px) {
-  .agent-chat:not(.maximized) {
+  .agent-chat:not(.maximized):not(.sidebar-mode) {
     width: 480px;
     height: 650px;
   }
 }
 
 @media (min-width: 1920px) {
-  .agent-chat:not(.maximized) {
+  .agent-chat:not(.maximized):not(.sidebar-mode) {
     width: 520px;
     height: 720px;
   }
@@ -2281,7 +2717,7 @@ watch(showApprovalPreview, () => {
   transform-origin: bottom left;
 }
 
-/* Animation - 苹果风格丝滑弹出 */
+/* Animation - 鑻规灉椋庢牸涓濇粦寮瑰嚭 */
 .chat-window-enter-active,
 .chat-window-leave-active {
   transition: opacity 0.25s cubic-bezier(0.25, 0.1, 0.25, 1),
@@ -2531,6 +2967,10 @@ watch(showApprovalPreview, () => {
   color: var(--theme-text-secondary);
 }
 
+.tool-part--pending {
+  color: #c27c00;
+}
+
 .tool-part--error {
   color: #e74c3c;
 }
@@ -2560,6 +3000,11 @@ watch(showApprovalPreview, () => {
 .tool-part__check {
   color: var(--theme-text-secondary);
   font-size: 11px;
+}
+
+.tool-part__pending {
+  font-size: 11px;
+  color: #c27c00;
 }
 
 .tool-part__output {
@@ -2895,9 +3340,25 @@ watch(showApprovalPreview, () => {
 
 /* Context Bar (Mini Pills) */
 .agent-chat__context-bar {
-  padding: 2px 12px 6px;
+  padding: 2px 12px 4px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.agent-chat__context-bar + .agent-chat__context-bar {
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 4px;
+  justify-content: flex-end;
+}
+
+.agent-chat__context-left,
+.agent-chat__context-right {
+  display: flex;
+  align-items: center;
   gap: 4px;
 }
 
@@ -2920,6 +3381,21 @@ watch(showApprovalPreview, () => {
 
 .approval-mode-pill {
   margin-left: auto;
+}
+
+.pill-text-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pill-text-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .inspecting-pill.inactive {
@@ -3015,6 +3491,103 @@ watch(showApprovalPreview, () => {
   border-top: 1px solid var(--theme-border);
   margin: 0 12px 6px;
   padding-top: 8px;
+}
+
+.agent-task-card {
+  margin: 0 12px 6px;
+  padding: 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-bg-solid);
+}
+
+.agent-task-card__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text);
+  margin-bottom: 6px;
+}
+
+.agent-task-card__row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+  line-height: 1.4;
+}
+
+.agent-task-card__row + .agent-task-card__row {
+  margin-top: 3px;
+}
+
+.agent-execution-panel {
+  margin: 0 12px 6px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-bg-solid);
+  overflow: hidden;
+}
+
+.agent-execution-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.agent-execution-panel__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text);
+}
+
+.agent-execution-list {
+  max-height: 132px;
+  overflow: auto;
+}
+
+.agent-execution-item {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+  padding: 6px 8px;
+  border-top: 1px solid var(--theme-border);
+}
+
+.agent-execution-item:first-child {
+  border-top: none;
+}
+
+.agent-execution-item__status {
+  font-weight: 600;
+}
+
+.agent-execution-item__title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-execution-item__time {
+  opacity: 0.8;
+}
+
+.agent-execution-item--running .agent-execution-item__status {
+  color: #f59e0b;
+}
+
+.agent-execution-item--completed .agent-execution-item__status {
+  color: #10b981;
+}
+
+.agent-execution-item--error .agent-execution-item__status {
+  color: #ef4444;
 }
 
 .agent-approval-preview__summary {
@@ -3387,3 +3960,4 @@ watch(showApprovalPreview, () => {
   opacity: 0;
 }
 </style>
+

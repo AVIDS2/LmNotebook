@@ -2,6 +2,7 @@
 Chat API endpoints.
 """
 from typing import Optional, List
+import sys
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,14 +12,31 @@ from agent.supervisor import AgentSupervisor
 router = APIRouter()
 
 
-# Safe print for Windows GBK encoding (removes emoji that can't be encoded)
+# Ensure UTF-8 logs in Windows terminals.
+def configure_utf8_stdio():
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+# Safe print without GBK fallback transcoding.
 def safe_print(msg: str):
-    """Print message safely on Windows by handling encoding errors."""
+    """Print message safely while preserving UTF-8 text."""
     try:
         print(msg)
     except UnicodeEncodeError:
-        # Replace unencodable characters
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            sys.stdout.buffer.write((msg + "\n").encode("utf-8", errors="replace"))
+            sys.stdout.flush()
+        except Exception:
+            print(msg.encode("ascii", errors="replace").decode("ascii"))
+
+
+configure_utf8_stdio()
 
 
 class ChatMessage(BaseModel):
@@ -42,6 +60,8 @@ class ChatRequest(BaseModel):
     context_note_id: Optional[str] = Field(None, description="Explicitly referenced note ID (@)")
     context_note_title: Optional[str] = Field(None, description="Explicitly referenced note Title (@)")
     use_knowledge: bool = Field(False, description="Whether to search knowledge base first (@)")
+    auto_accept_writes: bool = Field(True, description="Whether write tools are auto-approved without interrupt")
+    resume: Optional[dict] = Field(None, description="Resume payload for LangGraph interrupt")
 
     @property
     def history_dicts(self) -> List[dict]:
@@ -106,7 +126,9 @@ async def stream_agent(request: ChatRequest):
                 active_note_title=request.active_note_title,
                 context_note_id=request.context_note_id,
                 context_note_title=request.context_note_title,
-                use_knowledge=request.use_knowledge
+                use_knowledge=request.use_knowledge,
+                auto_accept_writes=request.auto_accept_writes,
+                resume=request.resume
             ):
                 chunk_count += 1
                 elapsed = time.time() - start_time

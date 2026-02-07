@@ -58,6 +58,7 @@ class NoteAgentState(TypedDict, total=False):
     
     # Feature flags
     use_knowledge: bool
+    auto_accept_writes: bool
     
     # Workflow state machine
     workflow_done: bool       # System-level task completion flag
@@ -74,6 +75,7 @@ def create_initial_state(
     note_content: Optional[str] = None,
     selected_text: Optional[str] = None,
     use_knowledge: bool = False,
+    auto_accept_writes: bool = True,
 ) -> NoteAgentState:
     """Create an initial state with default values."""
     return NoteAgentState(
@@ -90,6 +92,7 @@ def create_initial_state(
         last_tool_input_hash=None,
         session_id=session_id,
         use_knowledge=use_knowledge,
+        auto_accept_writes=auto_accept_writes,
         workflow_done=False,
         next_tool_call=None,
     )
