@@ -4,6 +4,12 @@
 
 Origin Notes 是一款本地优先的 AI 笔记应用，基于 Electron + Vue 3 + Python 构建，数据默认保存在本机。
 
+## 项目概览
+
+- Electron 主进程负责窗口/托盘、SQLite 数据库、图片存储与备份，数据目录默认在 `Documents/OriginNotes`（可在应用内迁移）。
+- 预加载脚本通过 `window.electronAPI` 暴露 IPC 能力，渲染进程使用 Vue 3 + Pinia + TipTap 实现笔记 UI。
+- AI 后端为 FastAPI + LangGraph，默认监听 `127.0.0.1:8765`，处理聊天、向量同步与 RAG 检索，前端通过 HTTP 调用。
+
 ## 核心功能
 
 ### 笔记
