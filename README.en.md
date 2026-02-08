@@ -4,6 +4,12 @@
 
 Origin Notes is a local-first AI note app built with Electron + Vue 3 + Python. All data stays on your machine by default.
 
+## Project Overview
+
+- The Electron main process handles window/tray management, the SQLite store, image storage, and backups. The default data directory is `Documents/OriginNotes` (configurable in-app).
+- The preload layer exposes IPC via `window.electronAPI`, and the renderer uses Vue 3 + Pinia + TipTap for the note UI.
+- The AI backend is FastAPI + LangGraph on `127.0.0.1:8765`, handling chat, vector sync, and RAG search. The renderer calls it over HTTP.
+
 ## Key Features
 
 ### Notes
