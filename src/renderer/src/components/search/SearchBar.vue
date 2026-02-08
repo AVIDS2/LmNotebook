@@ -8,7 +8,7 @@
       v-model="searchValue"
       class="search-bar__input"
       type="text"
-      placeholder="搜索笔记..."
+      :placeholder="t('search.placeholder')"
       @input="handleSearch"
     />
     <button
@@ -26,8 +26,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useNoteStore } from '@/stores/noteStore'
+import { useI18n } from '@/i18n'
 
 const noteStore = useNoteStore()
+const { t } = useI18n()
 const searchValue = ref('')
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null

@@ -1,0 +1,352 @@
+﻿{
+  "zh-CN": {
+    "language": {
+      "zh-CN": "中文",
+      "en-US": "English",
+      "switchLabel": "语言",
+      "toggleTitle": "切换语言"
+    },
+    "app": {
+      "previewStartup": "预览启动页",
+      "exitStartupPreview": "返回工作区",
+      "layout": {
+        "cycleTitle": "切换布局预设（写作/均衡/研究）"
+      }
+    },
+    "startup": {
+      "title": "企业知识，从第一条笔记开始",
+      "subtitle": "为个人与小团队提供本地优先的结构化笔记工作台，兼顾编辑效率、检索效率与 AI 协作效率。",
+      "quickStart": "快速开始",
+      "importBackup": "导入备份",
+      "openDataDirectory": "打开数据目录",
+      "stats": {
+        "notes": "笔记",
+        "categories": "分类",
+        "mode": "模式",
+        "localFirst": "本地优先"
+      },
+      "features": {
+        "editor": {
+          "title": "结构化编辑",
+          "desc": "支持标题、列表、表格、公式与 Markdown 渲染，适配技术文档与业务记录。"
+        },
+        "search": {
+          "title": "知识检索",
+          "desc": "通过关键词与上下文快速定位信息，减少重复查找与知识分散。"
+        },
+        "agent": {
+          "title": "可控 AI 辅助",
+          "desc": "支持手动审核与自动接受两种流程，确保修改过程可追溯、可确认。"
+        }
+      }
+    },
+    "common": {
+      "untitled": "无标题",
+      "cancel": "取消",
+      "confirm": "确定",
+      "delete": "删除",
+      "restore": "恢复",
+      "expand": "展开",
+      "collapse": "收起"
+    },
+    "search": {
+      "placeholder": "搜索笔记..."
+    },
+    "sidebar": {
+      "newNote": "新建笔记",
+      "allNotes": "全部笔记",
+      "pinnedNotes": "置顶笔记",
+      "categories": "分类",
+      "recycleBin": "回收站",
+      "exportBackup": "导出备份",
+      "importBackup": "导入备份",
+      "exportAllMd": "导出全部 MD",
+      "dataSettings": "数据设置",
+      "theme": {
+        "light": "暖色主题",
+        "classic": "默认主题",
+        "dark": "深色主题",
+        "switchToLight": "切换到暖色主题",
+        "switchToClassic": "切换到默认主题",
+        "switchToDark": "切换到深色主题"
+      },
+      "newCategory": "新建分类",
+      "categoryName": "分类名称",
+      "rename": "重命名"
+    },
+    "noteList": {
+      "all": "全部笔记",
+      "pinned": "置顶笔记",
+      "trash": "回收站",
+      "category": "分类笔记",
+      "notesCount": "{{count}} 篇",
+      "selectedCount": "已选 {{count}} 项",
+      "batchManage": "批量管理",
+      "exitBatchManage": "退出管理",
+      "permanentDelete": "永久删除",
+      "emptySearch": "没有找到匹配的笔记",
+      "emptyTrash": "回收站是空的",
+      "emptyPinned": "没有置顶笔记",
+      "emptyDefault": "点击上方按钮创建第一篇笔记",
+      "confirmBatchDelete": "确定要删除选中的 {{count}} 篇笔记吗？",
+      "confirmBatchPermanentDelete": "确定要永久删除选中的 {{count}} 篇笔记吗？此操作不可恢复。",
+      "collapseList": "收起笔记列表",
+      "expandList": "展开笔记列表"
+    },
+    "editor": {
+      "emptyHint": "选择一篇笔记或创建新笔记",
+      "fontSize": "字体大小",
+      "undo": "撤销",
+      "redo": "重做",
+      "bold": "加粗",
+      "italic": "斜体",
+      "underline": "下划线",
+      "strike": "删除线",
+      "textColor": "文字颜色",
+      "clearColor": "清除颜色",
+      "highlight": "背景高亮",
+      "clearHighlight": "清除高亮",
+      "heading": "标题",
+      "paragraph": "正文",
+      "heading1": "标题 1",
+      "heading2": "标题 2",
+      "heading3": "标题 3",
+      "list": "列表",
+      "bulletList": "无序列表",
+      "orderedList": "有序列表",
+      "taskList": "任务列表",
+      "quote": "引用",
+      "inlineCode": "行内代码",
+      "insert": "插入",
+      "table": "表格",
+      "image": "图片",
+      "math": "公式",
+      "deleteTable": "删除表格",
+      "categoryNone": "无分类",
+      "renderMarkdown": "渲染 Markdown 内容",
+      "pin": "置顶",
+      "more": "更多操作",
+      "titlePlaceholder": "标题",
+      "unsaved": "未保存",
+      "noteInfo": {
+        "category": "所属分类：",
+        "createdAt": "创建时间：",
+        "updatedAt": "修改时间：",
+        "wordCount": "笔记字数：",
+        "backlinks": "反向链接：",
+        "loadingBacklinks": "正在加载反向链接...",
+        "noBacklinks": "暂无反向链接"
+      }
+    },
+    "agent": {
+      "title": "Origin Agent",
+      "modelSettings": "模型设置",
+      "history": "历史对话",
+      "newSession": "开始新对话",
+      "sidebarMode": "侧栏模式",
+      "exitSidebarMode": "退出侧栏模式",
+      "maximize": "最大化",
+      "restore": "还原",
+      "emptyHistory": "暂无历史对话",
+      "welcomeTitle": "Hello, explorer",
+      "welcomeSubtitle": "我是 Origin，你的笔记助手。",
+      "pendingConfirm": "等待确认",
+      "scrollBottom": "滚动到底部",
+      "manualReview": "手动审核",
+      "autoAccept": "自动接受",
+      "pendingExecution": "待执行：{{operation}} ({{target}})",
+      "pendingReview": "待审核：{{target}}",
+      "hideChanges": "隐藏变更",
+      "viewChanges": "查看变更",
+      "showUnchanged": "显示未变更",
+      "hideUnchanged": "隐藏未变更",
+      "executionLog": "执行记录",
+      "inputPlaceholder": "输入消息...",
+      "awaitingExecution": "等待确认执行",
+      "running": "执行中",
+      "rejected": "已拒绝执行",
+      "thinking": "思考中",
+      "searching": "正在搜索知识库",
+      "writing": "正在撰写",
+      "error": "出错了"
+      ,
+      "completed": "已完成",
+      "failed": "失败"
+    }
+  },
+  "en-US": {
+    "language": {
+      "zh-CN": "Chinese",
+      "en-US": "English",
+      "switchLabel": "Language",
+      "toggleTitle": "Switch language"
+    },
+    "app": {
+      "previewStartup": "Preview startup page",
+      "exitStartupPreview": "Back to workspace",
+      "layout": {
+        "cycleTitle": "Switch layout preset (Writing/Balanced/Research)"
+      }
+    },
+    "startup": {
+      "title": "Enterprise knowledge starts with the first note",
+      "subtitle": "A local-first workspace for individuals and small teams, balancing editing speed, retrieval speed, and AI collaboration.",
+      "quickStart": "Quick Start",
+      "importBackup": "Import Backup",
+      "openDataDirectory": "Open Data Directory",
+      "stats": {
+        "notes": "Notes",
+        "categories": "Categories",
+        "mode": "Mode",
+        "localFirst": "Local-first"
+      },
+      "features": {
+        "editor": {
+          "title": "Structured editing",
+          "desc": "Supports headings, lists, tables, formulas, and Markdown rendering for both technical and business content."
+        },
+        "search": {
+          "title": "Knowledge retrieval",
+          "desc": "Find information quickly with keywords and context to reduce repeated searching and scattered knowledge."
+        },
+        "agent": {
+          "title": "Controllable AI assistance",
+          "desc": "Supports manual review and auto-accept flows, so every change remains traceable and confirmable."
+        }
+      }
+    },
+    "common": {
+      "untitled": "Untitled",
+      "cancel": "Cancel",
+      "confirm": "Confirm",
+      "delete": "Delete",
+      "restore": "Restore",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
+    "search": {
+      "placeholder": "Search notes..."
+    },
+    "sidebar": {
+      "newNote": "New Note",
+      "allNotes": "All Notes",
+      "pinnedNotes": "Pinned Notes",
+      "categories": "Categories",
+      "recycleBin": "Recycle Bin",
+      "exportBackup": "Export Backup",
+      "importBackup": "Import Backup",
+      "exportAllMd": "Export All MD",
+      "dataSettings": "Data Settings",
+      "theme": {
+        "light": "Warm Theme",
+        "classic": "Default Theme",
+        "dark": "Dark Theme",
+        "switchToLight": "Switch to Warm Theme",
+        "switchToClassic": "Switch to Default Theme",
+        "switchToDark": "Switch to Dark Theme"
+      },
+      "newCategory": "New Category",
+      "categoryName": "Category name",
+      "rename": "Rename"
+    },
+    "noteList": {
+      "all": "All Notes",
+      "pinned": "Pinned Notes",
+      "trash": "Recycle Bin",
+      "category": "Category Notes",
+      "notesCount": "{{count}} notes",
+      "selectedCount": "{{count}} selected",
+      "batchManage": "Batch Manage",
+      "exitBatchManage": "Exit Batch",
+      "permanentDelete": "Delete Permanently",
+      "emptySearch": "No matching notes found",
+      "emptyTrash": "Recycle bin is empty",
+      "emptyPinned": "No pinned notes",
+      "emptyDefault": "Create your first note from the button above",
+      "confirmBatchDelete": "Delete {{count}} selected notes?",
+      "confirmBatchPermanentDelete": "Permanently delete {{count}} selected notes? This cannot be undone.",
+      "collapseList": "Collapse note list",
+      "expandList": "Expand note list"
+    },
+    "editor": {
+      "emptyHint": "Select a note or create a new one",
+      "fontSize": "Font size",
+      "undo": "Undo",
+      "redo": "Redo",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strike": "Strikethrough",
+      "textColor": "Text color",
+      "clearColor": "Clear color",
+      "highlight": "Highlight",
+      "clearHighlight": "Clear highlight",
+      "heading": "Heading",
+      "paragraph": "Paragraph",
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "list": "List",
+      "bulletList": "Bullet list",
+      "orderedList": "Ordered list",
+      "taskList": "Task list",
+      "quote": "Quote",
+      "inlineCode": "Inline code",
+      "insert": "Insert",
+      "table": "Table",
+      "image": "Image",
+      "math": "Formula",
+      "deleteTable": "Delete table",
+      "categoryNone": "No category",
+      "renderMarkdown": "Render Markdown content",
+      "pin": "Pin",
+      "more": "More actions",
+      "titlePlaceholder": "Title",
+      "unsaved": "Unsaved",
+      "noteInfo": {
+        "category": "Category:",
+        "createdAt": "Created:",
+        "updatedAt": "Updated:",
+        "wordCount": "Words:",
+        "backlinks": "Backlinks:",
+        "loadingBacklinks": "Loading backlinks...",
+        "noBacklinks": "No backlinks yet"
+      }
+    },
+    "agent": {
+      "title": "Origin Agent",
+      "modelSettings": "Model settings",
+      "history": "History",
+      "newSession": "New session",
+      "sidebarMode": "Sidebar mode",
+      "exitSidebarMode": "Exit sidebar mode",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "emptyHistory": "No chat history",
+      "welcomeTitle": "Hello, explorer",
+      "welcomeSubtitle": "I am Origin, your note assistant.",
+      "pendingConfirm": "Waiting for approval",
+      "scrollBottom": "Scroll to bottom",
+      "manualReview": "Manual Review",
+      "autoAccept": "Auto Accept",
+      "pendingExecution": "Pending execution: {{operation}} ({{target}})",
+      "pendingReview": "Pending review: {{target}}",
+      "hideChanges": "Hide changes",
+      "viewChanges": "View changes",
+      "showUnchanged": "Show unchanged",
+      "hideUnchanged": "Hide unchanged",
+      "executionLog": "Execution log",
+      "inputPlaceholder": "Type a message...",
+      "awaitingExecution": "Awaiting execution approval",
+      "running": "Running",
+      "rejected": "Execution rejected",
+      "thinking": "Thinking",
+      "searching": "Searching knowledge",
+      "writing": "Writing",
+      "error": "Error"
+      ,
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  }
+}

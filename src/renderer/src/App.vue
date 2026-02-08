@@ -5,6 +5,30 @@
       <div class="titlebar__drag-region"></div>
       <div class="titlebar__title">Origin Notes</div>
       <div class="titlebar__controls">
+        <button
+          class="titlebar__utility-btn"
+          @click.stop="forceShowStartup = !forceShowStartup"
+          :title="forceShowStartup ? t('app.exitStartupPreview') : t('app.previewStartup')"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+        <button
+          class="titlebar__utility-btn titlebar__layout-btn"
+          @click.stop="handleCycleLayoutPreset"
+          :title="t('app.layout.cycleTitle')"
+        >
+          {{ layoutPresetLabel }}
+        </button>
+        <button
+          class="titlebar__utility-btn titlebar__locale-btn"
+          @click.stop="toggleLocale"
+          :title="t('language.toggleTitle')"
+        >
+          {{ locale === 'zh-CN' ? 'EN' : '中' }}
+        </button>
         <button class="titlebar__btn" @click="handleMinimize">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="1" y="5.5" width="10" height="1" fill="currentColor"/>
@@ -24,6 +48,20 @@
     </header>
 
     <main
+      v-if="showStartupPage"
+      class="startup-shell"
+    >
+      <StartupPage
+        :note-count="noteStore.totalNotesCount"
+        :category-count="categoryStore.categories.length"
+        @create-first-note="handleCreateFirstNote"
+        @import-backup="handleImportBackup"
+        @open-data-directory="handleOpenDataDirectory"
+      />
+    </main>
+
+    <main
+      v-else
       class="main-content"
       :class="{
         'main-content--resizing': isResizing,
@@ -44,10 +82,11 @@
 
       <div
         class="panel panel--notelist"
-        :style="{ width: `${uiStore.noteListWidth}px` }"
+        :style="{ width: uiStore.noteListCollapsed ? '44px' : `${uiStore.noteListWidth}px` }"
       >
-        <NoteList />
+        <NoteList :collapsed="uiStore.noteListCollapsed" @toggle-collapse="uiStore.toggleNoteListCollapsed" />
         <div
+          v-if="!uiStore.noteListCollapsed"
           class="resizer"
           @mousedown="startResize('notelist', $event)"
         ></div>
@@ -59,34 +98,70 @@
     </main>
 
     <div
-      v-if="isAgentSidebarMode"
+      v-if="isAgentSidebarMode && !showStartupPage"
       class="agent-sidebar-resizer"
       @mousedown="startResize('agent', $event)"
     ></div>
 
-    <AgentBubble />
+    <AgentBubble v-if="!showStartupPage" />
     <ToastHost />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, provide } from 'vue'
+import { computed, ref, onMounted, onUnmounted, provide, watch } from 'vue'
 import TheSidebar from '@/components/sidebar/TheSidebar.vue'
 import NoteList from '@/components/notes/NoteList.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
 import AgentBubble from '@/components/agent/AgentBubble.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
+import StartupPage from '@/components/common/StartupPage.vue'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { noteRepository } from '@/database/noteRepository'
+import { exportService } from '@/services/exportService'
+import { useI18n } from '@/i18n'
+import { shouldShowStartupPage } from '@/utils/startupVisibility'
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
+const { t, locale, toggleLocale } = useI18n()
+const layoutPresetLabel = computed(() => {
+  if (locale.value === 'zh-CN') {
+    if (uiStore.layoutPreset === 'writing') return '写'
+    if (uiStore.layoutPreset === 'balanced') return '衡'
+    if (uiStore.layoutPreset === 'research') return '研'
+    return '自'
+  }
+  if (uiStore.layoutPreset === 'writing') return 'W'
+  if (uiStore.layoutPreset === 'balanced') return 'B'
+  if (uiStore.layoutPreset === 'research') return 'R'
+  return 'C'
+})
 const isAgentSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
+const isBootstrapped = ref(false)
+const forceShowStartup = ref(false)
+const showStartupPage = computed(() =>
+  shouldShowStartupPage({
+    isBootstrapped: isBootstrapped.value,
+    totalNotesCount: noteStore.totalNotesCount,
+    hasCurrentNote: !!noteStore.currentNote,
+    forceShow: forceShowStartup.value
+  })
+)
 const syncAgentSidebarMode = () => {
   isAgentSidebarMode.value = localStorage.getItem('origin_agent_sidebar_mode') === '1'
+}
+const applyAdaptiveLayout = () => {
+  uiStore.adaptLayoutForViewport(window.innerWidth, isAgentSidebarMode.value)
+}
+const handleCycleLayoutPreset = () => {
+  uiStore.cycleLayoutPreset({
+    viewportWidth: window.innerWidth,
+    hasAgentSidebar: isAgentSidebarMode.value
+  })
 }
 
 type ResizeTarget = 'sidebar' | 'notelist' | 'agent' | null
@@ -165,6 +240,24 @@ function handleClose(): void {
   window.electronAPI?.closeWindow()
 }
 
+async function handleCreateFirstNote(): Promise<void> {
+  forceShowStartup.value = false
+  await noteStore.createNote()
+}
+
+async function handleImportBackup(): Promise<void> {
+  const result = await exportService.importBackup()
+  if (result.success) {
+    await categoryStore.loadCategories()
+    await noteStore.initialize()
+  }
+}
+
+async function handleOpenDataDirectory(): Promise<void> {
+  const currentPath = await window.electronAPI.db.getDataPath()
+  await window.electronAPI.shell.openPath(currentPath)
+}
+
 onMounted(async () => {
   let retryCount = 0
   while (!window.electronAPI?.db && retryCount < 50) {
@@ -174,21 +267,32 @@ onMounted(async () => {
 
   if (!window.electronAPI?.db) {
     console.error('数据库服务连接超时，请检查主进程状态')
+    isBootstrapped.value = true
     return
   }
 
   try {
     await categoryStore.loadCategories()
     await noteStore.initialize()
+    isBootstrapped.value = true
   } catch (err) {
     console.error('数据加载失败:', err)
+    isBootstrapped.value = true
   }
 
   noteRepository.cleanupOldDeleted().catch(console.error)
 
   window.addEventListener('origin-agent-sidebar-mode-changed', syncAgentSidebarMode as EventListener)
   window.addEventListener('storage', syncAgentSidebarMode)
+  window.addEventListener('resize', applyAdaptiveLayout)
   syncAgentSidebarMode()
+  if (uiStore.layoutPreset !== 'custom') {
+    uiStore.applyLayoutPreset(uiStore.layoutPreset, {
+      viewportWidth: window.innerWidth,
+      hasAgentSidebar: isAgentSidebarMode.value
+    })
+  }
+  applyAdaptiveLayout()
 })
 
 onUnmounted(() => {
@@ -196,6 +300,18 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', stopResize)
   window.removeEventListener('origin-agent-sidebar-mode-changed', syncAgentSidebarMode as EventListener)
   window.removeEventListener('storage', syncAgentSidebarMode)
+  window.removeEventListener('resize', applyAdaptiveLayout)
+})
+
+watch(isAgentSidebarMode, () => {
+  if (uiStore.layoutPreset !== 'custom') {
+    uiStore.applyLayoutPreset(uiStore.layoutPreset, {
+      viewportWidth: window.innerWidth,
+      hasAgentSidebar: isAgentSidebarMode.value
+    })
+    return
+  }
+  applyAdaptiveLayout()
 })
 </script>
 
@@ -226,7 +342,7 @@ onUnmounted(() => {
     position: absolute;
     top: 0;
     left: 0;
-    right: 140px;
+    right: 220px;
     height: 100%;
     -webkit-app-region: drag;
   }
@@ -241,8 +357,42 @@ onUnmounted(() => {
 
   &__controls {
     display: flex;
+    align-items: center;
+    gap: 4px;
     margin-left: auto;
     -webkit-app-region: no-drag;
+  }
+
+  &__utility-btn {
+    width: 30px;
+    height: 24px;
+    border: 1px solid var(--color-border-light);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.16s ease, border-color 0.16s ease;
+
+    &:hover {
+      background: var(--color-bg-hover);
+      border-color: var(--color-border);
+    }
+  }
+
+  &__locale-btn {
+    width: 34px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  &__layout-btn {
+    width: 30px;
+    font-size: 11px;
+    font-weight: 700;
   }
 
   &__btn {
@@ -291,6 +441,13 @@ onUnmounted(() => {
       pointer-events: auto;
     }
   }
+}
+
+.startup-shell {
+  flex: 1;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-primary) 90%, #000 10%) 0%, var(--color-bg-primary) 100%);
 }
 
 .panel {

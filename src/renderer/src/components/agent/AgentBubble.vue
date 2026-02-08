@@ -42,38 +42,38 @@
         <div class="agent-chat__header">
           <div class="agent-chat__title" @mousedown="startDrag" style="cursor: grab;">
             <span class="agent-chat__avatar">✦</span>
-            <span>Origin Agent</span>
+            <span>{{ t('agent.title') }}</span>
           </div>
           <div class="agent-chat__actions">
             <button 
               class="header-btn" 
               @click="showModelSettings = true; console.log('Settings toggle')" 
-              title="模型设置"
+              :title="t('agent.modelSettings')"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="3"/>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </button>
-            <button class="header-btn" @mousedown.stop @click="toggleSessionHistory" title="历史对话">
+            <button class="header-btn" @mousedown.stop @click="toggleSessionHistory" :title="t('agent.history')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
             </button>
-            <button class="header-btn" @mousedown.stop @click="clearChat" title="开始新对话">
+            <button class="header-btn" @mousedown.stop @click="clearChat" :title="t('agent.newSession')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M23 4v6h-6"/>
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
               </svg>
             </button>
-            <button class="header-btn" @mousedown.stop @click="toggleSidebarMode" :title="isSidebarMode ? '退出侧栏模式' : '侧栏模式'">
+            <button class="header-btn" @mousedown.stop @click="toggleSidebarMode" :title="isSidebarMode ? t('agent.exitSidebarMode') : t('agent.sidebarMode')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="16" rx="2"/>
                 <line x1="9" y1="4" x2="9" y2="20"/>
               </svg>
             </button>
-            <button class="header-btn" @mousedown.stop @click="toggleMaximizeMode" :title="isMaximized ? '还原' : '最大化'">
+            <button class="header-btn" @mousedown.stop @click="toggleMaximizeMode" :title="isMaximized ? t('agent.restore') : t('agent.maximize')">
               <svg v-if="!isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
               </svg>
@@ -93,12 +93,12 @@
         <Transition name="slide-panel">
           <div v-if="showSessionHistory" class="session-history-panel">
             <div class="session-history__header">
-              <span>历史对话</span>
+              <span>{{ t('agent.history') }}</span>
               <button class="close-btn" @click="showSessionHistory = false">×</button>
             </div>
             <div class="session-history__list">
               <div v-if="sessionList.length === 0" class="session-history__empty">
-                暂无历史对话
+                {{ t('agent.emptyHistory') }}
               </div>
               <div 
                 v-for="session in sessionList" 
@@ -154,8 +154,8 @@
           <div v-if="messages.length === 0" class="agent-chat__empty">
             <div class="agent-chat__welcome">
               <span class="welcome-icon">✦</span>
-              <h3>Hello, explorer</h3>
-              <p>我是 Origin，你的笔记助手。</p>
+              <h3>{{ t('agent.welcomeTitle') }}</h3>
+              <p>{{ t('agent.welcomeSubtitle') }}</p>
             </div>
             <div class="agent-chat__suggestions">
               <button
@@ -195,7 +195,7 @@
                       <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
                       <span class="tool-part__name">{{ part.title || part.tool }}</span>
                       <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
-                      <span v-else-if="part.status === 'pending'" class="tool-part__pending">等待确认</span>
+                      <span v-else-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
                       <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
                       <span v-if="part.output && part.status === 'completed'" class="tool-part__output">{{ part.output }}</span>
                     </div>
@@ -232,7 +232,7 @@
             v-if="showScrollToBottom" 
             class="scroll-to-bottom-btn"
             @click="forceScrollToBottom"
-            title="滚动到底部"
+            :title="t('agent.scrollBottom')"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="6 9 12 15 18 9" />
@@ -273,22 +273,22 @@
                 </svg>
               </button>
               <button class="pill-text-btn" @click="handleReviewPillClick" :disabled="!hasReviewData">
-                {{ autoAcceptEdits ? 'Auto-Accept' : 'Manual Review' }}
+                {{ autoAcceptEdits ? t('agent.autoAccept') : t('agent.manualReview') }}
               </button>
             </div>
           </div>
         </div>
         <div v-if="isExecutionAwaitingApproval || pendingApprovals.length > 0" class="agent-approval-bar">
           <template v-if="isExecutionAwaitingApproval && pendingExecutionApproval">
-            <span class="agent-approval-bar__label">待执行：{{ pendingExecutionApproval.operation }} ({{ pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }})</span>
+            <span class="agent-approval-bar__label">{{ t('agent.pendingExecution', { operation: pendingExecutionApproval.operation, target: pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }) }}</span>
             <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="respondExecutionApproval('approve')">接受</button>
             <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="respondExecutionApproval('reject')">拒绝</button>
             <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
           </template>
           <template v-else>
-            <span class="agent-approval-bar__label">待审核：{{ pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }}</span>
+            <span class="agent-approval-bar__label">{{ t('agent.pendingReview', { target: pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }) }}</span>
             <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
-              {{ showApprovalPreview ? '隐藏变更' : '查看变更' }}
+              {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
             </button>
             <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">接受</button>
             <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">拒绝</button>
@@ -305,9 +305,9 @@
 
         <div v-if="executionRecords.length > 0" class="agent-execution-panel">
           <div class="agent-execution-panel__head">
-            <span class="agent-execution-panel__title">执行记录</span>
+            <span class="agent-execution-panel__title">{{ t('agent.executionLog') }}</span>
             <button class="agent-approval-btn" @click="executionExpanded = !executionExpanded">
-              {{ executionExpanded ? '收起' : '展开' }}
+              {{ executionExpanded ? t('common.collapse') : t('common.expand') }}
             </button>
           </div>
           <div v-if="executionExpanded" class="agent-execution-list">
@@ -329,7 +329,7 @@
           <div class="agent-approval-preview__title-row">
             <div class="agent-approval-preview__title">结构化差异</div>
             <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
-              {{ showUnchangedDiff ? '隐藏未变更' : '显示未变更' }}
+              {{ showUnchangedDiff ? t('agent.hideUnchanged') : t('agent.showUnchanged') }}
             </button>
           </div>
           <div class="agent-approval-diff">
@@ -413,7 +413,7 @@
               v-model="inputText"
               @keydown.enter.exact.prevent="sendMessage()"
               @input="autoResizeInput"
-              placeholder="输入消息..."
+              :placeholder="t('agent.inputPlaceholder')"
               rows="1"
               ref="inputRef"
             ></textarea>
@@ -462,6 +462,7 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { useNoteStore } from '@/stores/noteStore'
 import { noteRepository, type Note } from '@/database/noteRepository'
+import { useI18n } from '@/i18n'
 import ModelSettings from './ModelSettings.vue'
 
 // Inject dependencies
@@ -492,15 +493,9 @@ interface ToolPart {
 
 type MessagePart = TextPart | ToolPart
 
-const STATUS_MAP = {
-  THINKING: '思考中',
-  SEARCHING: '正在搜索知识库',
-  WRITING: '正在撰写',
-  ERROR: '出错了'
-}
-
 // Stores
 const noteStore = useNoteStore()
+const { t, locale } = useI18n()
 const setEditorContent = inject<(html: string) => void>('setEditorContent')
 
 // Config
@@ -1246,9 +1241,9 @@ async function respondExecutionApproval(action: 'approve' | 'reject'): Promise<v
   showApprovalPreview.value = false
   if (action === 'approve') {
     markToolPartRunningByApproval(approval)
-    currentStatus.value = '执行中'
+    currentStatus.value = t('agent.running')
   } else {
-    currentStatus.value = '已拒绝执行'
+    currentStatus.value = t('agent.rejected')
   }
   try {
     await sendMessage('', {
@@ -1351,12 +1346,12 @@ const executionRecords = computed<ExecutionRecord[]>(() => {
       const toolPart = part as ToolPart
       const statusText =
         toolPart.status === 'running'
-          ? '执行中'
+          ? t('agent.running')
           : toolPart.status === 'pending'
-            ? '等待确认'
+            ? t('agent.pendingConfirm')
             : toolPart.status === 'completed'
-            ? '完成'
-            : '失败'
+            ? t('agent.completed')
+            : t('agent.failed')
       if (toolPart.status === 'pending') return
       records.push({
         id: `${msgIndex}-${partIndex}-${toolPart.toolId || toolPart.tool}`,
@@ -1372,10 +1367,10 @@ const executionRecords = computed<ExecutionRecord[]>(() => {
 
 const displayStatusText = computed(() => {
   if (approvalBusy.value && !pendingExecutionApproval.value) {
-    return '执行中'
+    return t('agent.running')
   }
   if (pendingExecutionApproval.value) {
-    return '等待确认执行'
+    return t('agent.awaitingExecution')
   }
   return currentStatus.value
 })
@@ -1566,12 +1561,12 @@ onUnmounted(() => {
 })
 // ----------------------
 
-const suggestions = [
-  '@笔记知识库 查找关于...',
-  '帮我写一篇关于...的笔记',
-  '总结一下这篇笔记的要点',
-  '整理一下当前笔记的格式'
-]
+const suggestions = computed(() => [
+  locale.value === 'zh-CN' ? '@笔记知识库 查找关于...' : '@Knowledge Base find about...',
+  locale.value === 'zh-CN' ? '帮我写一篇关于...的笔记' : 'Help me write a note about...',
+  locale.value === 'zh-CN' ? '总结一下这篇笔记的要点' : 'Summarize the key points of this note',
+  locale.value === 'zh-CN' ? '整理一下当前笔记的格式' : 'Clean up the formatting of this note'
+])
 
 // Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
 const TOOL_ICONS: Record<string, string> = {
@@ -1801,7 +1796,7 @@ async function sendMessage(
     })
   }
   
-  currentStatus.value = isResume ? '执行中' : STATUS_MAP.THINKING
+  currentStatus.value = isResume ? t('agent.running') : t('agent.thinking')
   
   // Ensure keyboard on mobile doesn't hide input
   nextTick(() => {
@@ -1918,9 +1913,9 @@ async function sendMessage(
                   if (pendingExecutionApproval.value) {
                       currentStatus.value = ''
                   } else if (approvalBusy.value) {
-                      currentStatus.value = '执行中'
+                      currentStatus.value = t('agent.running')
                   } else if (isResume && statusText.toLowerCase().includes('thinking')) {
-                      currentStatus.value = '执行中'
+                      currentStatus.value = t('agent.running')
                   } else {
                       currentStatus.value = statusText
                   }
@@ -3960,4 +3955,3 @@ watch(
   opacity: 0;
 }
 </style>
-

@@ -30,6 +30,12 @@ export interface UpdateNoteInput {
   order?: number
 }
 
+export interface BacklinkSummary {
+  id: string
+  title: string
+  updatedAt: number
+}
+
 // 笔记仓库 - 使用 SQLite
 export const noteRepository = {
   // 获取所有未删除的笔记
@@ -182,6 +188,28 @@ export const noteRepository = {
       return this.getAllSorted()
     }
     return await db.searchNotes(keyword)
+  },
+
+  async getBacklinks(noteId: string, noteTitle: string, limit: number = 50): Promise<BacklinkSummary[]> {
+    const title = noteTitle.trim()
+    if (!title) return []
+
+    const strictToken = `[[${title}]]`
+    const candidates = await db.getBacklinkNotes(noteId, title, limit)
+    return candidates
+      .filter((note) =>
+        note.id !== noteId &&
+        (
+          (note.plainText || '').includes(strictToken) ||
+          (note.markdownSource || '').includes(strictToken) ||
+          (note.content || '').includes(strictToken)
+        )
+      )
+      .map((note) => ({
+        id: note.id,
+        title: note.title?.trim() || 'Untitled',
+        updatedAt: note.updatedAt
+      }))
   }
 }
 

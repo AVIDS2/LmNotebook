@@ -6,7 +6,7 @@
         <rect x="12" y="8" width="40" height="48" rx="4" stroke="currentColor" stroke-width="2"/>
         <path d="M22 22H42M22 32H38M22 42H34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
-      <p>选择一篇笔记或创建新笔记</p>
+      <p>{{ t('editor.emptyHint') }}</p>
     </div>
 
     <!-- 编辑器 -->
@@ -20,7 +20,7 @@
               class="toolbar-dropdown__trigger"
               :class="{ 'toolbar-dropdown__trigger--active': fontSizeDropdownOpen }"
               @click.stop="toggleFontSizeDropdown"
-              title="字体大小"
+              :title="t('editor.fontSize')"
             >
               <span class="toolbar-dropdown__label">{{ currentFontSizeLabel }}</span>
               <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
@@ -41,7 +41,7 @@
           <!-- 撤销 / 重做（仅当前笔记编辑历史） -->
           <button
             class="note-editor__tool toolbar-hide-sm"
-            title="撤销 (Ctrl+Z)"
+            :title="`${t('editor.undo')} (Ctrl+Z)`"
             :disabled="!canUndo"
             @click="handleUndo"
           >
@@ -52,7 +52,7 @@
           </button>
           <button
             class="note-editor__tool toolbar-hide-sm"
-            title="重做 (Ctrl+Y)"
+            :title="`${t('editor.redo')} (Ctrl+Y)`"
             :disabled="!canRedo"
             @click="handleRedo"
           >
@@ -65,17 +65,17 @@
           <div class="toolbar-divider toolbar-hide-sm"></div>
 
           <!-- 基础格式：加粗、斜体、下划线 -->
-          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('bold') }" title="加粗" @click="editor?.chain().focus().toggleBold().run()">
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('bold') }" :title="t('editor.bold')" @click="editor?.chain().focus().toggleBold().run()">
             <strong>B</strong>
           </button>
-          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('italic') }" title="斜体" @click="editor?.chain().focus().toggleItalic().run()">
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('italic') }" :title="t('editor.italic')" @click="editor?.chain().focus().toggleItalic().run()">
             <em>I</em>
           </button>
-          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('underline') }" title="下划线" @click="editor?.chain().focus().toggleUnderline().run()">
+          <button class="note-editor__tool" :class="{ 'note-editor__tool--active': editor?.isActive('underline') }" :title="t('editor.underline')" @click="editor?.chain().focus().toggleUnderline().run()">
             <u>U</u>
           </button>
           <!-- 删除线 - 小屏幕隐藏 -->
-          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('strike') }" title="删除线" @click="editor?.chain().focus().toggleStrike().run()">
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('strike') }" :title="t('editor.strike')" @click="editor?.chain().focus().toggleStrike().run()">
             <s>S</s>
           </button>
 
@@ -86,7 +86,7 @@
             <button 
               class="toolbar-dropdown__trigger toolbar-dropdown__trigger--color"
               @click.stop="toggleTextColorDropdown"
-              title="文字颜色"
+              :title="t('editor.textColor')"
             >
               <span class="color-icon" :style="{ '--underline-color': currentTextColor }">A</span>
               <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
@@ -100,7 +100,7 @@
                 :title="color.label"
                 @click="setTextColor(color.value)"
               ></button>
-              <button class="color-swatch color-swatch--clear" title="清除颜色" @click="clearTextColor">
+              <button class="color-swatch color-swatch--clear" :title="t('editor.clearColor')" @click="clearTextColor">
                 <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
               </button>
             </div>
@@ -111,7 +111,7 @@
             <button 
               class="toolbar-dropdown__trigger toolbar-dropdown__trigger--color"
               @click.stop="toggleHighlightDropdown"
-              title="背景高亮"
+              :title="t('editor.highlight')"
             >
               <span class="highlight-icon" :style="{ '--bg-color': currentHighlightColor }">
                 <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 10L5 3H9L12 10H9L8 8H6L5 10H2Z" fill="currentColor"/></svg>
@@ -127,7 +127,7 @@
                 :title="color.label"
                 @click="setHighlight(color.value)"
               ></button>
-              <button class="color-swatch color-swatch--clear" title="清除高亮" @click="clearHighlight">
+              <button class="color-swatch color-swatch--clear" :title="t('editor.clearHighlight')" @click="clearHighlight">
                 <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
               </button>
             </div>
@@ -140,16 +140,16 @@
             <button 
               class="toolbar-dropdown__trigger"
               @click.stop="toggleHeadingDropdown"
-              title="标题"
+              :title="t('editor.heading')"
             >
               <span class="toolbar-dropdown__label">{{ currentHeadingLabel }}</span>
               <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
             </button>
             <div v-show="headingDropdownOpen" class="toolbar-dropdown__menu">
-              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': !editor?.isActive('heading') }" @click="setParagraph">正文</button>
-              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 1 }) }" @click="setHeading(1)">标题 1</button>
-              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 2 }) }" @click="setHeading(2)">标题 2</button>
-              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 3 }) }" @click="setHeading(3)">标题 3</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': !editor?.isActive('heading') }" @click="setParagraph">{{ t('editor.paragraph') }}</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 1 }) }" @click="setHeading(1)">{{ t('editor.heading1') }}</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 2 }) }" @click="setHeading(2)">{{ t('editor.heading2') }}</button>
+              <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('heading', { level: 3 }) }" @click="setHeading(3)">{{ t('editor.heading3') }}</button>
             </div>
           </div>
 
@@ -161,7 +161,7 @@
               class="toolbar-dropdown__trigger"
               :class="{ 'toolbar-dropdown__trigger--active': editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList') }"
               @click.stop="toggleListDropdown"
-              title="列表"
+              :title="t('editor.list')"
             >
               <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="3" cy="4" r="1.5" fill="currentColor"/><circle cx="3" cy="8" r="1.5" fill="currentColor"/><circle cx="3" cy="12" r="1.5" fill="currentColor"/><line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5"/></svg>
               <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
@@ -169,26 +169,26 @@
             <div v-show="listDropdownOpen" class="toolbar-dropdown__menu">
               <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('bulletList') }" @click="toggleBulletList">
                 <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="2" cy="3" r="1.2" fill="currentColor"/><circle cx="2" cy="7" r="1.2" fill="currentColor"/><circle cx="2" cy="11" r="1.2" fill="currentColor"/><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
-                无序列表
+                {{ t('editor.bulletList') }}
               </button>
               <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('orderedList') }" @click="toggleOrderedList">
                 <svg width="14" height="14" viewBox="0 0 14 14"><text x="1" y="5" font-size="5" fill="currentColor">1</text><text x="1" y="9" font-size="5" fill="currentColor">2</text><text x="1" y="13" font-size="5" fill="currentColor">3</text><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
-                有序列表
+                {{ t('editor.orderedList') }}
               </button>
               <button class="toolbar-dropdown__item" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('taskList') }" @click="toggleTaskList">
                 <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><path d="M2 3L2.8 3.8L4.2 2.2" stroke="currentColor" stroke-width="0.8"/><rect x="1" y="5" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><rect x="1" y="9" width="4" height="4" rx="0.5" stroke="currentColor" fill="none"/><line x1="7" y1="3" x2="13" y2="3" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="11" x2="13" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
-                任务列表
+                {{ t('editor.taskList') }}
               </button>
             </div>
           </div>
 
           <!-- 引用 - 小屏幕隐藏 -->
-          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('blockquote') }" title="引用" @click="editor?.chain().focus().toggleBlockquote().run()">
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('blockquote') }" :title="t('editor.quote')" @click="editor?.chain().focus().toggleBlockquote().run()">
             <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 4C2.5 4 2 5 2 6.5C2 8 2.5 9 4 9C5.5 9 6 8 6 6.5C6 4 4 11 4 11" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M11 4C9.5 4 9 5 9 6.5C9 8 9.5 9 11 9C12.5 9 13 8 13 6.5C13 4 11 11 11 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
           </button>
 
           <!-- 代码 - 小屏幕隐藏 -->
-          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('code') }" title="行内代码" @click="editor?.chain().focus().toggleCode().run()">
+          <button class="note-editor__tool toolbar-hide-sm" :class="{ 'note-editor__tool--active': editor?.isActive('code') }" :title="t('editor.inlineCode')" @click="editor?.chain().focus().toggleCode().run()">
             &lt;/&gt;
           </button>
 
@@ -199,7 +199,7 @@
             <button 
               class="toolbar-dropdown__trigger"
               @click.stop="toggleInsertDropdown"
-              title="插入"
+              :title="t('editor.insert')"
             >
               <svg width="16" height="16" viewBox="0 0 16 16"><line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="1.5"/></svg>
               <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
@@ -207,28 +207,28 @@
             <div v-show="insertDropdownOpen" class="toolbar-dropdown__menu">
               <button class="toolbar-dropdown__item" @click="insertTable">
                 <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="1" y1="5" x2="13" y2="5" stroke="currentColor"/><line x1="5" y1="1" x2="5" y2="13" stroke="currentColor"/></svg>
-                表格
+                {{ t('editor.table') }}
               </button>
               <button class="toolbar-dropdown__item" @click="insertImage">
                 <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="2" width="12" height="10" rx="1" stroke="currentColor" fill="none"/><circle cx="4" cy="5" r="1.2" fill="currentColor"/><path d="M1 10L4 7L7 10L10 6L13 9" stroke="currentColor" stroke-width="1" fill="none"/></svg>
-                图片
+                {{ t('editor.image') }}
               </button>
               <button class="toolbar-dropdown__item" @click="insertMath">
                 <svg width="14" height="14" viewBox="0 0 14 14"><text x="1" y="11" font-size="9" font-style="italic" fill="currentColor">∑</text><text x="8" y="7" font-size="5" fill="currentColor">x²</text></svg>
-                公式
+                {{ t('editor.math') }}
               </button>
               <button class="toolbar-dropdown__item" @click="deleteTable" v-if="editor?.isActive('table')">
                 <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" fill="none"/><line x1="1" y1="5" x2="13" y2="5" stroke="currentColor"/><line x1="5" y1="1" x2="5" y2="13" stroke="currentColor"/><line x1="3" y1="3" x2="11" y2="11" stroke="#e74c3c" stroke-width="1.5"/><line x1="11" y1="3" x2="3" y2="11" stroke="#e74c3c" stroke-width="1.5"/></svg>
-                删除表格
+                {{ t('editor.deleteTable') }}
               </button>
               <!-- 小屏幕下显示更多格式选项 -->
               <div class="toolbar-dropdown__divider toolbar-show-sm"></div>
               <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('strike') }" @click="editor?.chain().focus().toggleStrike().run(); insertDropdownOpen = false">
-                <s>S</s> 删除线
+                <s>S</s> {{ t('editor.strike') }}
               </button>
               <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('blockquote') }" @click="editor?.chain().focus().toggleBlockquote().run(); insertDropdownOpen = false">
                 <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3C1.8 3 1.5 3.8 1.5 5C1.5 6.2 1.8 7 3 7C4.2 7 4.5 6.2 4.5 5C4.5 3 3 9 3 9" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 3C7.8 3 7.5 3.8 7.5 5C7.5 6.2 7.8 7 9 7C10.2 7 10.5 6.2 10.5 5C10.5 3 9 9 9 9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-                引用
+                {{ t('editor.quote') }}
               </button>
               <button class="toolbar-dropdown__item toolbar-show-sm" :class="{ 'toolbar-dropdown__item--active': editor?.isActive('code') }" @click="editor?.chain().focus().toggleCode().run(); insertDropdownOpen = false">
                 &lt;/&gt; 代码
@@ -244,7 +244,7 @@
               :value="noteStore.currentNote.categoryId || ''"
               @change="handleCategoryChange"
             >
-              <option value="">无分类</option>
+              <option value="">{{ t('editor.categoryNone') }}</option>
               <option
                 v-for="cat in categoryStore.categories"
                 :key="cat.id"
@@ -259,7 +259,7 @@
           <button
             v-if="noteStore.currentView !== 'trash'"
             class="note-editor__tool"
-            title="渲染 Markdown 内容"
+            :title="t('editor.renderMarkdown')"
             @click="handleRenderMarkdown"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -273,7 +273,7 @@
             v-if="noteStore.currentView !== 'trash'"
             class="note-editor__tool"
             :class="{ 'note-editor__tool--active': noteStore.currentNote.isPinned }"
-            title="置顶"
+            :title="t('editor.pin')"
             @click="handleTogglePin"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -287,7 +287,7 @@
               ref="moreMenuButtonRef"
               class="note-editor__tool"
               @click.stop="toggleMoreMenu"
-              title="更多操作"
+              :title="t('editor.more')"
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                 <circle cx="9" cy="4" r="1.5" fill="currentColor"/>
@@ -306,12 +306,12 @@
           :value="localTitle"
           class="note-editor__title"
           type="text"
-          placeholder="标题"
+          :placeholder="t('editor.titlePlaceholder')"
           :readonly="noteStore.currentView === 'trash'"
           @input="handleTitleInput"
           @blur="handleTitleBlur"
         />
-        <span v-if="isDirty" class="note-editor__dirty-indicator" title="未保存">*</span>
+        <span v-if="isDirty" class="note-editor__dirty-indicator" :title="t('editor.unsaved')">*</span>
       </div>
 
       <!-- 富文本编辑器 -->
@@ -549,23 +549,44 @@
       <h3 class="note-info-modal__title">笔记信息</h3>
       <div class="note-info-modal__body">
         <div class="note-info-modal__row">
-          <span class="note-info-modal__label">所属分类：</span>
+          <span class="note-info-modal__label">{{ t('editor.noteInfo.category') }}</span>
           <span class="note-info-modal__value">{{ noteInfoData.category }}</span>
         </div>
         <div class="note-info-modal__row">
-          <span class="note-info-modal__label">创建时间：</span>
+          <span class="note-info-modal__label">{{ t('editor.noteInfo.createdAt') }}</span>
           <span class="note-info-modal__value">{{ noteInfoData.createdAt }}</span>
         </div>
         <div class="note-info-modal__row">
-          <span class="note-info-modal__label">修改时间：</span>
+          <span class="note-info-modal__label">{{ t('editor.noteInfo.updatedAt') }}</span>
           <span class="note-info-modal__value">{{ noteInfoData.updatedAt }}</span>
         </div>
         <div class="note-info-modal__row">
-          <span class="note-info-modal__label">笔记字数：</span>
+          <span class="note-info-modal__label">{{ t('editor.noteInfo.wordCount') }}</span>
           <span class="note-info-modal__value">{{ noteInfoData.wordCount }}</span>
         </div>
+        <div class="note-info-modal__row">
+          <span class="note-info-modal__label">{{ t('editor.noteInfo.backlinks') }}</span>
+          <span class="note-info-modal__value">{{ backlinks.length }}</span>
+        </div>
+        <div class="note-info-modal__backlinks">
+          <div v-if="backlinksLoading" class="note-info-modal__backlinks-loading">
+            {{ t('editor.noteInfo.loadingBacklinks') }}
+          </div>
+          <div v-else-if="backlinks.length === 0" class="note-info-modal__backlinks-empty">
+            {{ t('editor.noteInfo.noBacklinks') }}
+          </div>
+          <button
+            v-for="item in backlinks"
+            :key="item.id"
+            class="note-info-modal__backlink-item"
+            type="button"
+            @click="handleOpenBacklink(item.id)"
+          >
+            <span class="note-info-modal__backlink-title">{{ item.title }}</span>
+          </button>
+        </div>
       </div>
-      <button class="note-info-modal__btn" @click="noteInfoVisible = false">知道了</button>
+      <button class="note-info-modal__btn" @click="noteInfoVisible = false">{{ t('common.confirm') }}</button>
     </div>
   </div>
 
@@ -669,9 +690,10 @@ import { common, createLowlight } from 'lowlight'
 import DOMPurify from 'dompurify'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
-import { noteRepository } from '@/database/noteRepository'
+import { noteRepository, type BacklinkSummary } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
 import { Extension } from '@tiptap/core'
+import { useI18n } from '@/i18n'
 
 // 自定义字体大小扩展
 const FontSize = Extension.create({
@@ -710,6 +732,7 @@ const lowlight = createLowlight(common)
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
+const { t } = useI18n()
 const editorStateVersion = ref(0)
 
 // Register AI format brush action
@@ -827,6 +850,8 @@ const noteInfoData = reactive({
   updatedAt: '',
   wordCount: 0
 })
+const backlinks = ref<BacklinkSummary[]>([])
+const backlinksLoading = ref(false)
 const moreMenuPosition = reactive({
   top: 0,
   left: 0,
@@ -894,11 +919,11 @@ const currentHighlightColor = computed(() => {
 
 // 当前标题级别
 const currentHeadingLabel = computed(() => {
-  if (!editor.value) return '正文'
+  if (!editor.value) return t('editor.paragraph')
   if (editor.value.isActive('heading', { level: 1 })) return 'H1'
   if (editor.value.isActive('heading', { level: 2 })) return 'H2'
   if (editor.value.isActive('heading', { level: 3 })) return 'H3'
-  return '正文'
+  return t('editor.paragraph')
 })
 const moreMenuStyle = computed(() => ({
   top: `${moreMenuPosition.top}px`,
@@ -1091,7 +1116,7 @@ function insertImage() {
 
 function insertMath() {
   insertDropdownOpen.value = false
-  const latex = prompt('输入 LaTeX 公式:', 'E=mc^2')
+  const latex = prompt(`${t('editor.math')}:`, 'E=mc^2')
   if (latex !== null) {
     const isBlock = confirm('是否作为独立行(Block)显示？')
     editor.value?.chain().focus().insertMath(latex, isBlock).run()
@@ -1913,7 +1938,7 @@ async function handleRenderMarkdown(): Promise<void> {
     
     // 检测是否有 Markdown 语法
     if (!markdownSyntaxRegex.test(selectedText)) {
-      alert('选中的文本未检测到 Markdown 语法。\n\n支持：# 标题、**粗体**、- 列表、```代码块、$公式$ 等')
+      alert(`${t('editor.renderMarkdown')}: # heading, **bold**, - list, \`\`\`code\`\`\`, $math$`)
       return
     }
     
@@ -2055,6 +2080,18 @@ watch(
     if (newTitle !== undefined && document.activeElement !== titleInputRef.value) {
       localTitle.value = newTitle
     }
+  }
+)
+
+watch(
+  () => [noteStore.currentNote?.id, noteStore.currentNote?.title, noteInfoVisible.value] as const,
+  async ([, , visible]) => {
+    if (!visible) {
+      backlinks.value = []
+      backlinksLoading.value = false
+      return
+    }
+    await loadBacklinks()
   }
 )
 
@@ -2232,13 +2269,13 @@ async function handleToggleLock(): Promise<void> {
 }
 
 // 显示笔记信息
-function showNoteInfo(): void {
+async function showNoteInfo(): Promise<void> {
   if (!noteStore.currentNote) return
   closeAllDropdowns()
   
   // 获取分类名称
   const category = categoryStore.categories.find(c => c.id === noteStore.currentNote?.categoryId)
-  noteInfoData.category = category?.name || '无分类'
+  noteInfoData.category = category?.name || t('editor.categoryNone')
   
   // 格式化时间
   const formatDate = (timestamp: number) => {
@@ -2252,8 +2289,34 @@ function showNoteInfo(): void {
   // 计算字数
   const plainText = noteStore.currentNote.plainText || ''
   noteInfoData.wordCount = plainText.replace(/\s/g, '').length
-  
+
+  await loadBacklinks()
   noteInfoVisible.value = true
+}
+
+async function loadBacklinks(): Promise<void> {
+  const current = noteStore.currentNote
+  if (!current || !current.title?.trim()) {
+    backlinks.value = []
+    return
+  }
+
+  backlinksLoading.value = true
+  try {
+    backlinks.value = await noteRepository.getBacklinks(current.id, current.title, 50)
+  } catch (error) {
+    console.error('Failed to load backlinks:', error)
+    backlinks.value = []
+  } finally {
+    backlinksLoading.value = false
+  }
+}
+
+async function handleOpenBacklink(noteId: string): Promise<void> {
+  const target = await noteRepository.getById(noteId)
+  if (!target) return
+  await noteStore.selectNote(target)
+  noteInfoVisible.value = false
 }
 
 onBeforeUnmount(() => {
@@ -3444,6 +3507,44 @@ onBeforeUnmount(() => {
       background: var(--color-bg-hover);
     }
   }
+
+  &__backlinks {
+    margin-top: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    border-top: 1px solid var(--color-border-light);
+    padding-top: 8px;
+  }
+
+  &__backlinks-loading,
+  &__backlinks-empty {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    padding: 6px 0;
+  }
+
+  &__backlink-item {
+    width: 100%;
+    border: 1px solid var(--color-border-light);
+    background: var(--color-bg-primary);
+    border-radius: $radius-sm;
+    color: var(--color-text-primary);
+    text-align: left;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+      border-color: var(--color-border);
+    }
+  }
+
+  &__backlink-title {
+    display: block;
+    font-size: 13px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
 }
 </style>
-

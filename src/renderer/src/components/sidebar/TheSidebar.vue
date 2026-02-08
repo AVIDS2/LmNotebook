@@ -1,23 +1,23 @@
-<template>
+﻿<template>
   <aside class="sidebar" :class="{ 'sidebar--collapsed': collapsed }">
-    <!-- 收缩按钮 -->
-    <button class="sidebar__toggle" @click="$emit('toggle')" :title="collapsed ? '展开' : '收起'">
+    <!-- 鏀剁缉鎸夐挳 -->
+    <button class="sidebar__toggle" @click="$emit('toggle')" :title="collapsed ? t('common.expand') : t('common.collapse')">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" :style="{ transform: collapsed ? 'rotate(180deg)' : '' }">
         <path d="M10 4L6 8L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
 
-    <!-- 展开状态内容 - 使用 CSS 过渡而非 v-if -->
+    <!-- 灞曞紑鐘舵€佸唴瀹?- 浣跨敤 CSS 杩囨浮鑰岄潪 v-if -->
     <div class="sidebar__expanded-content" :class="{ 'sidebar__expanded-content--hidden': collapsed }">
-      <!-- 新建笔记按钮 -->
+      <!-- 鏂板缓绗旇鎸夐挳 -->
       <button class="sidebar__new-btn" @click="handleNewNote" :tabindex="collapsed ? -1 : 0">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <span>新建笔记</span>
+        <span>{{ t('sidebar.newNote') }}</span>
       </button>
 
-      <!-- 导航菜单 -->
+      <!-- 瀵艰埅鑿滃崟 -->
       <nav class="sidebar__nav">
         <div
           class="sidebar__item"
@@ -29,7 +29,7 @@
             <rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.3"/>
             <path d="M5 6H13M5 9H13M5 12H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           </svg>
-          <span>全部笔记</span>
+          <span>{{ t('sidebar.allNotes') }}</span>
           <span class="sidebar__count">{{ allNotesCount }}</span>
         </div>
 
@@ -42,14 +42,14 @@
           <svg class="sidebar__icon" width="18" height="18" viewBox="0 0 18 18" fill="none">
             <path d="M9 2L10.5 6.5L15 7L11.5 10L12.5 15L9 12.5L5.5 15L6.5 10L3 7L7.5 6.5L9 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
           </svg>
-          <span>置顶笔记</span>
+          <span>{{ t('sidebar.pinnedNotes') }}</span>
         </div>
       </nav>
 
-      <!-- 分类 -->
+      <!-- 鍒嗙被 -->
       <div class="sidebar__section">
         <div class="sidebar__section-header">
-          <span>分类</span>
+          <span>{{ t('sidebar.categories') }}</span>
           <button class="sidebar__add-btn" @click="showAddCategory = true" :tabindex="collapsed ? -1 : 0">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -103,7 +103,7 @@
         </div>
       </div>
 
-      <!-- 底部 -->
+      <!-- 搴曢儴 -->
       <div class="sidebar__footer">
         <div
           class="sidebar__item"
@@ -114,23 +114,23 @@
           <svg class="sidebar__icon" width="18" height="18" viewBox="0 0 18 18" fill="none">
             <path d="M3 5H15M6 5V4C6 3.44772 6.44772 3 7 3H11C11.5523 3 12 3.44772 12 4V5M14 5V14C14 14.5523 13.5523 15 13 15H5C4.44772 15 4 14.5523 4 14V5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
           </svg>
-          <span>回收站</span>
+          <span>{{ t('sidebar.recycleBin') }}</span>
         </div>
 
         <div class="sidebar__footer-actions">
-          <button class="sidebar__footer-btn" @click="handleExportBackup" :tabindex="collapsed ? -1 : 0">导出备份</button>
-          <button class="sidebar__footer-btn" @click="handleImportBackup" :tabindex="collapsed ? -1 : 0">导入备份</button>
-          <button class="sidebar__footer-btn" @click="handleExportAllMarkdown" :tabindex="collapsed ? -1 : 0">导出全部 MD</button>
+          <button class="sidebar__footer-btn" @click="handleExportBackup" :tabindex="collapsed ? -1 : 0">{{ t('sidebar.exportBackup') }}</button>
+          <button class="sidebar__footer-btn" @click="handleImportBackup" :tabindex="collapsed ? -1 : 0">{{ t('sidebar.importBackup') }}</button>
+          <button class="sidebar__footer-btn" @click="handleExportAllMarkdown" :tabindex="collapsed ? -1 : 0">{{ t('sidebar.exportAllMd') }}</button>
           <button class="sidebar__footer-btn sidebar__footer-btn--settings" @click="showDataSettings = true" :tabindex="collapsed ? -1 : 0">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 9C8.10457 9 9 8.10457 9 7C9 5.89543 8.10457 5 7 5C5.89543 5 5 5.89543 5 7C5 8.10457 5.89543 9 7 9Z" stroke="currentColor" stroke-width="1.2"/>
               <path d="M11.4 8.4C11.3 8.6 11.3 8.9 11.4 9.1L12.1 10.1C12.2 10.2 12.2 10.4 12.1 10.5L11.1 12.2C11 12.3 10.8 12.4 10.7 12.3L9.5 11.9C9.3 11.8 9 11.8 8.8 11.9L8.5 12C8.3 12.1 8.1 12.3 8 12.5L7.8 13.8C7.8 13.9 7.7 14 7.5 14H5.5C5.3 14 5.2 13.9 5.2 13.8L5 12.5C4.9 12.3 4.7 12.1 4.5 12L4.2 11.9C4 11.8 3.7 11.8 3.5 11.9L2.3 12.3C2.2 12.4 2 12.3 1.9 12.2L0.9 10.5C0.8 10.4 0.8 10.2 0.9 10.1L1.6 9.1C1.7 8.9 1.7 8.6 1.6 8.4L1.5 8.1C1.4 7.9 1.2 7.7 1 7.6L0.2 7.2C0.1 7.2 0 7.1 0 6.9V5.1C0 4.9 0.1 4.8 0.2 4.8L1 4.4C1.2 4.3 1.4 4.1 1.5 3.9L1.6 3.6C1.7 3.4 1.7 3.1 1.6 2.9L0.9 1.9C0.8 1.8 0.8 1.6 0.9 1.5L1.9 0.8C2 0.7 2.2 0.6 2.3 0.7L3.5 1.1C3.7 1.2 4 1.2 4.2 1.1L4.5 1C4.7 0.9 4.9 0.7 5 0.5L5.2 0.2C5.2 0.1 5.3 0 5.5 0H7.5C7.7 0 7.8 0.1 7.8 0.2L8 0.5C8.1 0.7 8.3 0.9 8.5 1L8.8 1.1C9 1.2 9.3 1.2 9.5 1.1L10.7 0.7C10.8 0.6 11 0.7 11.1 0.8L12.1 1.5C12.2 1.6 12.2 1.8 12.1 1.9L11.4 2.9C11.3 3.1 11.3 3.4 11.4 3.6L11.5 3.9C11.6 4.1 11.8 4.3 12 4.4L12.8 4.8C12.9 4.8 13 4.9 13 5.1V6.9C13 7.1 12.9 7.2 12.8 7.2L12 7.6C11.8 7.7 11.6 7.9 11.5 8.1L11.4 8.4Z" stroke="currentColor" stroke-width="1.2"/>
             </svg>
-            数据设置
+            {{ t('sidebar.dataSettings') }}
           </button>
         </div>
         
-        <!-- 主题切换 -->
+        <!-- 涓婚鍒囨崲 -->
         <button class="sidebar__theme-btn" @click="uiStore.toggleTheme" :tabindex="collapsed ? -1 : 0" :title="themeToggleTitle">
           <svg v-if="uiStore.theme === 'light'" width="18" height="18" viewBox="0 0 18 18" fill="none">
             <circle cx="9" cy="9" r="4" stroke="currentColor" stroke-width="1.3"/>
@@ -148,22 +148,22 @@
       </div>
     </div>
 
-    <!-- 收缩状态下的图标 - 使用 CSS 过渡 -->
+    <!-- 鏀剁缉鐘舵€佷笅鐨勫浘鏍?- 浣跨敤 CSS 杩囨浮 -->
     <div class="sidebar__collapsed-content" :class="{ 'sidebar__collapsed-content--visible': collapsed }">
       <div class="sidebar__collapsed-items">
-        <!-- 新建笔记 -->
-        <button class="sidebar__collapsed-btn sidebar__collapsed-btn--primary" @click="handleNewNote" title="新建笔记" :tabindex="collapsed ? 0 : -1">
+        <!-- 鏂板缓绗旇 -->
+        <button class="sidebar__collapsed-btn sidebar__collapsed-btn--primary" @click="handleNewNote" :title="t('sidebar.newNote')" :tabindex="collapsed ? 0 : -1">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </button>
         
-        <!-- 全部笔记 -->
+        <!-- 鍏ㄩ儴绗旇 -->
         <button
           class="sidebar__collapsed-btn"
           :class="{ 'sidebar__collapsed-btn--active': noteStore.currentView === 'all' }"
           @click="noteStore.setView('all')"
-          title="全部笔记"
+          :title="t('sidebar.allNotes')"
           :tabindex="collapsed ? 0 : -1"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -172,12 +172,12 @@
           </svg>
         </button>
         
-        <!-- 置顶笔记 -->
+        <!-- 缃《绗旇 -->
         <button
           class="sidebar__collapsed-btn"
           :class="{ 'sidebar__collapsed-btn--active': noteStore.currentView === 'pinned' }"
           @click="noteStore.setView('pinned')"
-          title="置顶笔记"
+          :title="t('sidebar.pinnedNotes')"
           :tabindex="collapsed ? 0 : -1"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -185,10 +185,10 @@
           </svg>
         </button>
         
-        <!-- 分隔线 -->
+        <!-- 鍒嗛殧绾?-->
         <div class="sidebar__collapsed-divider"></div>
         
-        <!-- 分类列表 -->
+        <!-- 鍒嗙被鍒楄〃 -->
         <div
           v-for="category in categoryStore.categories"
           :key="category.id"
@@ -202,15 +202,15 @@
           <span class="sidebar__collapsed-tooltip">{{ category.name }}</span>
         </div>
         
-        <!-- 分隔线 -->
+        <!-- 鍒嗛殧绾?-->
         <div class="sidebar__collapsed-divider"></div>
         
-        <!-- 回收站 -->
+        <!-- 鍥炴敹绔?-->
         <button
           class="sidebar__collapsed-btn"
           :class="{ 'sidebar__collapsed-btn--active': noteStore.currentView === 'trash' }"
           @click="noteStore.setView('trash')"
-          title="回收站"
+          :title="t('sidebar.recycleBin')"
           :tabindex="collapsed ? 0 : -1"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -218,10 +218,10 @@
           </svg>
         </button>
         
-        <!-- 分隔线 -->
+        <!-- 鍒嗛殧绾?-->
         <div class="sidebar__collapsed-divider"></div>
         
-        <!-- 主题切换 -->
+        <!-- 涓婚鍒囨崲 -->
         <button
           class="sidebar__collapsed-btn"
           @click="uiStore.toggleTheme"
@@ -243,7 +243,7 @@
       </div>
     </div>
 
-    <!-- 分类右键菜单 -->
+    <!-- 鍒嗙被鍙抽敭鑿滃崟 -->
     <Teleport to="body">
       <div 
         v-if="categoryContextMenu.visible" 
@@ -255,26 +255,26 @@
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
-          <span>重命名</span>
+          <span>{{ t('sidebar.rename') }}</span>
         </div>
         <div class="context-menu__item context-menu__item--danger" @click="deleteCategory">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
           </svg>
-          <span>删除</span>
+          <span>{{ t('common.delete') }}</span>
         </div>
       </div>
       <div v-if="categoryContextMenu.visible" class="context-menu-overlay" @click="hideCategoryContextMenu"></div>
     </Teleport>
 
-    <!-- 添加分类对话框 -->
+    <!-- 娣诲姞鍒嗙被瀵硅瘽妗?-->
     <div v-if="showAddCategory" class="modal-overlay" @click.self="showAddCategory = false">
       <div class="modal">
-        <h3 class="modal__title">新建分类</h3>
+        <h3 class="modal__title">{{ t('sidebar.newCategory') }}</h3>
         <input
           v-model="newCategoryName"
           class="input"
-          placeholder="分类名称"
+          :placeholder="t('sidebar.categoryName')"
           @keyup.enter="handleAddCategory"
         />
         <div class="modal__colors">
@@ -288,13 +288,13 @@
           ></button>
         </div>
         <div class="modal__actions">
-          <button class="btn" @click="showAddCategory = false">取消</button>
-          <button class="btn btn--primary" @click="handleAddCategory">确定</button>
+          <button class="btn" @click="showAddCategory = false">{{ t('common.cancel') }}</button>
+          <button class="btn btn--primary" @click="handleAddCategory">{{ t('common.confirm') }}</button>
         </div>
       </div>
     </div>
 
-    <!-- 数据设置对话框 -->
+    <!-- 鏁版嵁璁剧疆瀵硅瘽妗?-->
     <DataSettings v-if="showDataSettings" @close="showDataSettings = false" />
   </aside>
 </template>
@@ -305,8 +305,8 @@ import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { exportService } from '@/services/exportService'
+import { useI18n } from '@/i18n'
 import DataSettings from './DataSettings.vue'
-
 defineProps<{
   collapsed: boolean
 }>()
@@ -318,13 +318,12 @@ defineEmits<{
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
-
+const { t } = useI18n()
 const showAddCategory = ref(false)
 const showDataSettings = ref(false)
 const newCategoryName = ref('')
 const newCategoryColor = ref('#C4A882')
 
-// 分类编辑状态
 const editingCategoryId = ref<string | null>(null)
 const editingCategoryName = ref('')
 const categoryContextMenu = ref({
@@ -335,51 +334,48 @@ const categoryContextMenu = ref({
 })
 
 const categoryColors = [
-  '#6366F1', // 靛蓝 - Indigo
-  '#8B5CF6', // 紫罗兰 - Violet  
-  '#EC4899', // 粉红 - Pink
-  '#F59E0B', // 琥珀 - Amber
-  '#10B981', // 翠绿 - Emerald
-  '#06B6D4', // 青色 - Cyan
-  '#F97316', // 橙色 - Orange
-  '#EF4444', // 红色 - Red
+  '#6366F1', // 闈涜摑 - Indigo
+  '#8B5CF6', // 绱綏鍏?- Violet  
+  '#EC4899', // 绮夌孩 - Pink
+  '#F59E0B', // 鐞ョ弨 - Amber
+  '#10B981', // 缈犵豢 - Emerald
+  '#06B6D4', // 闈掕壊 - Cyan
+  '#F97316', // 姗欒壊 - Orange
+  '#EF4444', // 绾㈣壊 - Red
 ]
 
-// 获取分类名称首字母（支持中英文）
+// 鑾峰彇鍒嗙被鍚嶇О棣栧瓧姣嶏紙鏀寔涓嫳鏂囷級
 function getCategoryInitial(name: string): string {
   if (!name) return '?'
   const firstChar = name.charAt(0)
-  // 如果是中文，直接返回第一个字
+  // 濡傛灉鏄腑鏂囷紝鐩存帴杩斿洖绗竴涓瓧
   if (/[\u4e00-\u9fa5]/.test(firstChar)) {
     return firstChar
   }
-  // 英文返回大写首字母
   return firstChar.toUpperCase()
 }
 
-// 使用 store 的 totalNotesCount（全部笔记总数）
 const allNotesCount = computed(() => noteStore.totalNotesCount)
 const themeButtonLabel = computed(() => {
-  if (uiStore.theme === 'light') return '暖色主题'
-  if (uiStore.theme === 'classic') return '默认主题'
-  return '深色主题'
+  if (uiStore.theme === 'light') return t('sidebar.theme.light')
+  if (uiStore.theme === 'classic') return t('sidebar.theme.classic')
+  return t('sidebar.theme.dark')
 })
 const themeToggleTitle = computed(() => {
-  if (uiStore.theme === 'light') return '切换到默认主题'
-  if (uiStore.theme === 'classic') return '切换到深色主题'
-  return '切换到暖色主题'
+  if (uiStore.theme === 'light') return t('sidebar.theme.switchToClassic')
+  if (uiStore.theme === 'classic') return t('sidebar.theme.switchToDark')
+  return t('sidebar.theme.switchToLight')
 })
 
-// 拖拽相关状态
 const draggedCategoryId = ref<string | null>(null)
 const dragOverCategoryId = ref<string | null>(null)
 
-// 新建笔记
+// 鏂板缓绗旇
 async function handleNewNote(): Promise<void> {
   await noteStore.createNote()
 }
 
-// 添加分类
+// 娣诲姞鍒嗙被
 async function handleAddCategory(): Promise<void> {
   if (newCategoryName.value.trim()) {
     await categoryStore.addCategory(newCategoryName.value.trim(), newCategoryColor.value)
@@ -389,7 +385,7 @@ async function handleAddCategory(): Promise<void> {
   }
 }
 
-// 分类菜单
+// 鍒嗙被鑿滃崟
 function toggleCategoryMenu(categoryId: string, e: MouseEvent): void {
   if (categoryContextMenu.value.visible && categoryContextMenu.value.categoryId === categoryId) {
     hideCategoryContextMenu()
@@ -409,7 +405,7 @@ function hideCategoryContextMenu(): void {
   categoryContextMenu.value.visible = false
 }
 
-// 开始重命名分类
+// 寮€濮嬮噸鍛藉悕鍒嗙被
 function startRenameCategory(): void {
   const category = categoryStore.categories.find(c => c.id === categoryContextMenu.value.categoryId)
   if (category) {
@@ -419,7 +415,6 @@ function startRenameCategory(): void {
   }
 }
 
-// 确认重命名
 async function confirmRenameCategory(): Promise<void> {
   if (editingCategoryId.value && editingCategoryName.value.trim()) {
     await categoryStore.updateCategory(editingCategoryId.value, { name: editingCategoryName.value.trim() })
@@ -428,19 +423,18 @@ async function confirmRenameCategory(): Promise<void> {
   editingCategoryName.value = ''
 }
 
-// 取消重命名
 function cancelRenameCategory(): void {
   editingCategoryId.value = null
   editingCategoryName.value = ''
 }
 
-// 删除分类
+// 鍒犻櫎鍒嗙被
 async function deleteCategory(): Promise<void> {
   const categoryId = categoryContextMenu.value.categoryId
   hideCategoryContextMenu()
   
   if (categoryId) {
-    // 如果当前正在查看这个分类，切换到全部笔记
+    // 濡傛灉褰撳墠姝ｅ湪鏌ョ湅杩欎釜鍒嗙被锛屽垏鎹㈠埌鍏ㄩ儴绗旇
     if (noteStore.currentView === 'category' && noteStore.currentCategoryId === categoryId) {
       await noteStore.setView('all')
     }
@@ -448,16 +442,15 @@ async function deleteCategory(): Promise<void> {
   }
 }
 
-// 拖拽开始
 function handleDragStart(categoryId: string): void {
   draggedCategoryId.value = categoryId
 }
 
-// 拖拽经过
+// 鎷栨嫿缁忚繃
 function handleDragOver(e: DragEvent, categoryId: string): void {
   e.preventDefault()
   
-  // 检查是否在拖拽笔记
+  // 妫€鏌ユ槸鍚﹀湪鎷栨嫿绗旇
   const isNote = e.dataTransfer?.types.includes('source/type')
   if (isNote) {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
@@ -466,22 +459,20 @@ function handleDragOver(e: DragEvent, categoryId: string): void {
   dragOverCategoryId.value = categoryId
 }
 
-// 拖拽离开
+// 鎷栨嫿绂诲紑
 function handleDragLeave(): void {
   dragOverCategoryId.value = null
 }
 
-// 拖拽放下
+// 鎷栨嫿鏀句笅
 async function handleDrop(targetCategoryId: string): Promise<void> {
-  // 处理分类重排序
   if (draggedCategoryId.value && draggedCategoryId.value !== targetCategoryId) {
     await categoryStore.reorderCategories(draggedCategoryId.value, targetCategoryId)
     draggedCategoryId.value = null
-  } 
-  // 处理笔记移动到分类
-  else {
-    const noteId = document.querySelector('.note-card--dragging')?.getAttribute('data-id') 
-                   || (window as any)._draggedNoteId // 兜底
+  } else {
+    const noteId = document.querySelector('.note-card--dragging')?.getAttribute('data-id')
+                   || (window as any)._draggedNoteId // fallback
+
     
     if (noteId) {
       await noteStore.updateNote(noteId, { categoryId: targetCategoryId })
@@ -491,13 +482,13 @@ async function handleDrop(targetCategoryId: string): Promise<void> {
   dragOverCategoryId.value = null
 }
 
-// 拖拽结束
+// 鎷栨嫿缁撴潫
 function handleDragEnd(): void {
   draggedCategoryId.value = null
   dragOverCategoryId.value = null
 }
 
-// 导出/导入
+// 瀵煎嚭/瀵煎叆
 async function handleExportBackup(): Promise<void> {
   await exportService.exportBackup()
 }
@@ -526,7 +517,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   padding: $spacing-md;
   position: relative;
   overflow: hidden;
-  // 苹果风格丝滑过渡
+  // 鑻规灉椋庢牸涓濇粦杩囨浮
   transition: padding 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
               background-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   will-change: padding;
@@ -537,7 +528,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 展开状态内容容器
 .sidebar__expanded-content {
   display: flex;
   flex-direction: column;
@@ -545,7 +535,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   min-width: 0;
   opacity: 1;
   transform: translateX(0);
-  // 苹果风格丝滑过渡
+  // 鑻规灉椋庢牸涓濇粦杩囨浮
   transition: opacity 0.18s cubic-bezier(0.25, 0.1, 0.25, 1),
               transform 0.18s cubic-bezier(0.25, 0.1, 0.25, 1),
               visibility 0.18s;
@@ -562,7 +552,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 收缩状态内容容器
 .sidebar__collapsed-content {
   position: absolute;
   top: 0;
@@ -575,7 +564,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   padding-top: 48px;
   opacity: 0;
   transform: translateX(8px);
-  // 优化过渡：更快的动画
+  // 浼樺寲杩囨浮锛氭洿蹇殑鍔ㄧ敾
   transition: opacity 0.15s ease-out 0.03s,
               transform 0.15s ease-out 0.03s,
               visibility 0.15s 0.03s;
@@ -668,7 +657,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   color: var(--color-text-secondary);
   cursor: pointer;
   white-space: nowrap;
-  // 优化过渡：只过渡必要属性，使用更快的时间
   transition: background-color 0.1s ease,
               color 0.1s ease;
 
@@ -808,7 +796,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 主题切换按钮
+// 涓婚鍒囨崲鎸夐挳
 .sidebar__theme-btn {
   display: flex;
   align-items: center;
@@ -842,7 +830,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 收缩状态下的图标按钮
 .sidebar__collapsed-items {
   display: flex;
   flex-direction: column;
@@ -890,7 +877,6 @@ async function handleExportAllMarkdown(): Promise<void> {
     }
   }
   
-  // 分类按钮 - 更小更紧凑
   &--category {
     width: 32px;
     height: 32px;
@@ -908,7 +894,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 分类圆点
+// 鍒嗙被鍦嗙偣
 .sidebar__collapsed-dot {
   width: 12px;
   height: 12px;
@@ -917,7 +903,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   transition: transform 0.15s ease;
 }
 
-// 收缩状态分类按钮 - 首字母样式
 .sidebar__collapsed-category {
   position: relative;
   display: flex;
@@ -981,7 +966,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   z-index: 100;
   pointer-events: none;
   
-  // 小三角箭头
   &::before {
     content: '';
     position: absolute;
@@ -993,7 +977,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   }
 }
 
-// 分隔线
 .sidebar__collapsed-divider {
   width: 24px;
   height: 1px;
@@ -1001,7 +984,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   margin: $spacing-xs 0;
 }
 
-// 模态框
+// 妯℃€佹
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1057,7 +1040,7 @@ async function handleExportAllMarkdown(): Promise<void> {
     box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
     
     &::after {
-      content: '✓';
+      content: '\\2713';
       position: absolute;
       top: 50%;
       left: 50%;
@@ -1077,7 +1060,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   margin-top: $spacing-lg;
 }
 
-// 分类内联编辑输入框
 .sidebar__category-input {
   flex: 1;
   background: var(--color-bg-primary);
@@ -1097,7 +1079,6 @@ async function handleExportAllMarkdown(): Promise<void> {
   white-space: nowrap;
 }
 
-// 分类项更多按钮
 .sidebar__item--category {
   position: relative;
 }
@@ -1126,7 +1107,7 @@ async function handleExportAllMarkdown(): Promise<void> {
   opacity: 1;
 }
 
-// 右键菜单
+// 鍙抽敭鑿滃崟
 .context-menu {
   position: fixed;
   background: var(--color-bg-secondary);

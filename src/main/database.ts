@@ -301,6 +301,30 @@ export function searchNotes(query: string): Note[] {
   `).all(pattern, pattern) as Note[]
 }
 
+function escapeLike(input: string): string {
+    return input.replace(/[\\%_]/g, '\\$&')
+}
+
+export function getBacklinkNotes(noteId: string, noteTitle: string, limit: number = 50): Note[] {
+    const title = noteTitle.trim()
+    if (!title) return []
+    const safeLimit = Math.max(1, Math.min(limit, 200))
+
+    const strictPattern = `%[[${escapeLike(title)}]]%`
+    return db.prepare(`
+    SELECT * FROM notes
+    WHERE isDeleted = 0
+      AND id != ?
+      AND (
+        plainText LIKE ? ESCAPE '\\'
+        OR markdownSource LIKE ? ESCAPE '\\'
+        OR content LIKE ? ESCAPE '\\'
+      )
+    ORDER BY updatedAt DESC
+    LIMIT ?
+  `).all(noteId, strictPattern, strictPattern, strictPattern, safeLimit) as Note[]
+}
+
 // ==================== 分类操作 ====================
 
 export function getAllCategories(): Category[] {

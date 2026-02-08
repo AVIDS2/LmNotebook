@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 平台信息
   platform: process.platform,
 
-  // ==================== SQLite 数据库 API ====================
+  // ==================== SQLite 数据�?API ====================
   db: {
     // 笔记操作
     getAllNotes: () => ipcRenderer.invoke('db-get-all-notes'),
@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     permanentDeleteNote: (id: string) => ipcRenderer.invoke('db-permanent-delete-note', id),
     cleanupOldDeleted: (daysAgo?: number) => ipcRenderer.invoke('db-cleanup-old-deleted', daysAgo),
     searchNotes: (query: string) => ipcRenderer.invoke('db-search-notes', query),
+    getBacklinkNotes: (noteId: string, noteTitle: string, limit?: number) =>
+      ipcRenderer.invoke('db-get-backlink-notes', noteId, noteTitle, limit),
 
     // 分类操作
     getAllCategories: () => ipcRenderer.invoke('db-get-all-categories'),
@@ -48,8 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     importData: (data: { notes: unknown[]; categories: unknown[] }) =>
       ipcRenderer.invoke('db-import-data', data),
 
-    // 获取数据库路径
-    getPath: () => ipcRenderer.invoke('db-get-path'),
+    // 获取数据库路�?    getPath: () => ipcRenderer.invoke('db-get-path'),
     
     // 获取数据目录路径
     getDataPath: () => ipcRenderer.invoke('db-get-data-path'),
@@ -57,11 +58,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 获取默认数据目录
     getDefaultDataPath: () => ipcRenderer.invoke('db-get-default-data-path'),
     
-    // 获取数据库统计
-    getStats: () => ipcRenderer.invoke('db-get-stats')
+    // 获取数据库统�?    getStats: () => ipcRenderer.invoke('db-get-stats')
   },
 
-  // ==================== 配置和备份 API ====================
+  // ==================== 配置和备�?API ====================
   config: {
     get: () => ipcRenderer.invoke('config-get'),
     save: (config: Record<string, unknown>) => ipcRenderer.invoke('config-save', config)

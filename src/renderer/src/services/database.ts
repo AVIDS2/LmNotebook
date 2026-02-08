@@ -97,6 +97,11 @@ export async function searchNotes(query: string): Promise<Note[]> {
     return notes.map(convertNote)
 }
 
+export async function getBacklinkNotes(noteId: string, noteTitle: string, limit?: number): Promise<Note[]> {
+    const notes = await window.electronAPI.db.getBacklinkNotes(noteId, noteTitle, limit)
+    return notes.map(convertNote)
+}
+
 // ==================== 分类操作 ====================
 
 export async function getAllCategories(): Promise<Category[]> {

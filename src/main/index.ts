@@ -326,6 +326,10 @@ ipcMain.handle('db-search-notes', (_event, query: string) => {
   return database.searchNotes(query)
 })
 
+ipcMain.handle('db-get-backlink-notes', (_event, noteId: string, noteTitle: string, limit?: number) => {
+  return database.getBacklinkNotes(noteId, noteTitle, limit)
+})
+
 // 分类操作
 ipcMain.handle('db-get-all-categories', () => {
   return database.getAllCategories()
