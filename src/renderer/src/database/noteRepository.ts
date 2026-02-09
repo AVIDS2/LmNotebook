@@ -1,13 +1,38 @@
 import { v4 as uuidv4 } from 'uuid'
 import * as db from '@/services/database'
 import type { Note, Category } from '@/services/database'
+import { createVectorSyncScheduler } from '@/utils/vectorSyncScheduler.mjs'
+import { createVectorDeleteScheduler } from '@/utils/vectorDeleteScheduler.mjs'
 
-// 提取纯文本
 function extractPlainText(html: string): string {
   const div = document.createElement('div')
   div.innerHTML = html
   return div.textContent || div.innerText || ''
 }
+
+const VECTOR_SYNC_ENDPOINT = 'http://127.0.0.1:8765/api/notes/vector/sync'
+const VECTOR_DELETE_ENDPOINT = 'http://127.0.0.1:8765/api/notes'
+const vectorSyncScheduler = createVectorSyncScheduler(async (payload: {
+  noteId: string
+  title: string
+  content: string
+}) => {
+  await fetch(VECTOR_SYNC_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      note_id: payload.noteId,
+      title: payload.title,
+      content: payload.content
+    })
+  })
+}, 1800)
+
+const vectorDeleteScheduler = createVectorDeleteScheduler(async (noteId: string) => {
+  await fetch(`${VECTOR_DELETE_ENDPOINT}/${noteId}/vector`, {
+    method: 'DELETE'
+  })
+})
 
 // 创建笔记参数
 export interface CreateNoteInput {
@@ -96,14 +121,10 @@ export const noteRepository = {
       try {
         const note = await db.getNoteById(id)
         if (note) {
-          await fetch('http://127.0.0.1:8765/api/notes/vector/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              note_id: id,
-              title: note.title,
-              content: note.plainText || ''
-            })
+          vectorSyncScheduler.schedule({
+            noteId: id,
+            title: note.title,
+            content: note.plainText || ''
           })
         }
       } catch (e) {
@@ -135,14 +156,8 @@ export const noteRepository = {
   // 永久删除
   async permanentDelete(id: string): Promise<void> {
     await db.permanentDeleteNote(id)
-    // 同步清理向量索引
-    try {
-      await fetch('http://127.0.0.1:8765/api/notes/' + id + '/vector', {
-        method: 'DELETE'
-      })
-    } catch (e) {
-      console.warn('Failed to remove vector for note:', id, e)
-    }
+    // Async cleanup avoids blocking note switching on empty-note auto deletion.
+    vectorDeleteScheduler.schedule(id)
   },
 
   // 清空回收站

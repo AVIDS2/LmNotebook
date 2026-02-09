@@ -58,6 +58,55 @@ WRITE_TOOLS = {
 
 _note_service = NoteService()
 
+INTERNAL_CONTROL_LABELS = {
+    "CHAT",
+    "TASK",
+    "ALLOW_WRITE",
+    "DENY_WRITE",
+    "WRITE",
+    "READ",
+    "UNCLEAR",
+    "YES",
+    "NO",
+}
+
+
+def _is_internal_control_text(text: str) -> bool:
+    """
+    Filter internal classifier/control outputs that should never be user-visible.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    normalized = text.strip().upper()
+    if normalized in INTERNAL_CONTROL_LABELS:
+        return True
+    # Handle variants like "DENY_WRITE." or "ALLOW_WRITE:" etc.
+    compact = re.sub(r"[^A-Z_]", "", normalized)
+    return compact in INTERNAL_CONTROL_LABELS
+
+
+_CONTROL_PREFIX_RE = re.compile(
+    r"^\s*(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|WRITE|READ|UNCLEAR|YES|NO)\s*[:：\-]?\s*",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_user_visible_text(text: str) -> str:
+    """
+    Remove leaked internal control labels when they are prefixed to normal content,
+    e.g. "DENY_WRITE该笔记..." -> "该笔记..."
+    """
+    if not text or not isinstance(text, str):
+        return ""
+    cleaned = text
+    # Strip repeated control prefixes defensively.
+    for _ in range(3):
+        next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
+        if next_cleaned == cleaned:
+            break
+        cleaned = next_cleaned
+    return cleaned
+
 
 def _build_note_title_lookup(input_state: Any) -> Dict[str, str]:
     """
@@ -199,8 +248,11 @@ async def langgraph_stream_to_sse(
                 if isinstance(message, (AIMessage, AIMessageChunk)):
                     content = message.content
                     if content and isinstance(content, str):
-                        # Skip classifications
-                        if content.strip().upper() in ["CHAT", "TASK"]:
+                        content = _sanitize_user_visible_text(content)
+                        if not content.strip():
+                            continue
+                        # Skip internal control labels (router/policy/classifier outputs).
+                        if _is_internal_control_text(content):
                             continue
                         
                         # Accumulate text into buffer
@@ -213,11 +265,18 @@ async def langgraph_stream_to_sse(
                             chunk_text = text_buffer
                             if chunk_text.strip():
                                 final_clean = chunk_text.strip()
+                                final_clean = _sanitize_user_visible_text(final_clean)
+                                if not final_clean:
+                                    text_buffer = ""
+                                    continue
+                                if _is_internal_control_text(final_clean):
+                                    text_buffer = ""
+                                    continue
                                 # Record this content to avoid duplicates in 'updates' mode
                                 seen_content_hashes.add(final_clean)
                                 yield json.dumps({
                                     "part_type": "text",
-                                    "delta": chunk_text
+                                    "delta": final_clean
                                 })
                             text_buffer = ""
                 
@@ -331,14 +390,18 @@ async def langgraph_stream_to_sse(
                             if isinstance(msg, (AIMessage, AIMessageChunk)):
                                 content = msg.content
                                 if content and isinstance(content, str):
-                                    clean_content = content.strip()
+                                    clean_content = _sanitize_user_visible_text(content.strip())
+                                    if not clean_content:
+                                        continue
+                                    if _is_internal_control_text(clean_content):
+                                        continue
                                     # Strict Deduplication: check if this exact or similar string was already seen
                                     is_duplicate = any(clean_content in seen or seen in clean_content for seen in [s for s in seen_content_hashes if isinstance(s, str)])
                                     if not is_duplicate:
                                         seen_content_hashes.add(clean_content)
                                         yield json.dumps({
                                             "part_type": "text",
-                                            "delta": content
+                                            "delta": clean_content
                                         })
     
     except asyncio.CancelledError:
@@ -360,8 +423,8 @@ async def langgraph_stream_to_sse(
     finally:
         # Flush any remaining text in buffer at stream end
         if text_buffer:
-            clean_text = text_buffer.strip()
-            if clean_text and len(clean_text) > 2:
+            clean_text = _sanitize_user_visible_text(text_buffer.strip())
+            if clean_text and len(clean_text) > 2 and not _is_internal_control_text(clean_text):
                 yield json.dumps({
                     "part_type": "text",
                     "delta": clean_text
@@ -415,10 +478,14 @@ def _extract_tool_events(tool_name: str, content: str) -> list:
             "note_id": note_id
         }))
     
-    elif tool_name == "set_note_category" and "Successfully assigned" in content:
-        events.append(json.dumps({
-            "tool_call": "note_categorized"
-        }))
+    elif tool_name == "set_note_category":
+        # Emit category refresh event for any successful category operation
+        # (assign/clear), not just one exact success phrase.
+        normalized = (content or "").strip().lower()
+        if normalized and not normalized.startswith("error"):
+            events.append(json.dumps({
+                "tool_call": "note_categorized"
+            }))
     
     return events
 
@@ -450,4 +517,3 @@ async def invoke_and_stream(
     
     except Exception as e:
         yield json.dumps({"error": str(e)})
-

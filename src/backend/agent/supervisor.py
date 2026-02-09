@@ -54,6 +54,26 @@ from core.session_manager import SessionManager
 _shared_graph = None
 _shared_checkpointer = None
 
+async def invalidate_agent_runtime_cache():
+    """
+    Invalidate cached LangGraph runtime so provider/model switches apply immediately.
+    Called by model settings APIs after provider mutations.
+    """
+    global _shared_graph, _shared_checkpointer
+
+    # Best effort: close underlying sqlite connection before dropping references.
+    if _shared_checkpointer is not None:
+        try:
+            conn = getattr(_shared_checkpointer, "conn", None)
+            if conn is not None:
+                await conn.close()
+        except Exception as e:
+            safe_print(f"[Agent] Failed to close cached checkpointer cleanly: {e}")
+
+    _shared_graph = None
+    _shared_checkpointer = None
+    safe_print("[Agent] Runtime cache invalidated (graph/checkpointer)")
+
 async def get_agent_graph():
     """Return a singleton instance of the compiled graph with SQLite checkpointer."""
     global _shared_graph, _shared_checkpointer
@@ -203,7 +223,8 @@ class AgentSupervisor:
                 note = await ns.get_note(context_note_id)
                 if note:
                     title = context_note_title or note.get('title', 'Referenced Note')
-                    content = note.get('content') or note.get('plainText') or "(Empty)"
+                    # Prefer markdownSource for structured reasoning/editing context.
+                    content = note.get('markdownSource') or note.get('plainText') or note.get('content') or "(Empty)"
                     context_notes_info += f"\n[EXPLICITLY REFERENCED NOTE (@)]\nTitle: {title}\nID: {context_note_id}\nContent:\n{content}\n---\n"
                     safe_print(f"[Agent] Loaded explicit context: {title}")
             except Exception as e:
@@ -248,7 +269,21 @@ class AgentSupervisor:
             except Exception as e:
                 safe_print(f"[Agent] Resume checkpoint check failed (non-fatal): {e}")
 
-            graph_input = Command(resume=resume)
+            # IMPORTANT:
+            # Resume should also carry "live" UI/runtime state updates.
+            # Without this, toggles changed during a pending approval (e.g. auto_accept_writes)
+            # only take effect on the NEXT user turn, not the current resumed workflow.
+            resume_update = {
+                "auto_accept_writes": auto_accept_writes,
+                "active_note_id": active_note_id,
+                "active_note_title": active_note_title,
+                "context_note_id": context_note_id,
+                "context_note_title": context_note_title,
+                "note_content": context_notes_info if context_notes_info else note_context,
+                "selected_text": selected_text,
+                "use_knowledge": use_knowledge,
+            }
+            graph_input = Command(resume=resume, update=resume_update)
         else:
             initial_state["messages"] = [HumanMessage(content=message)]
             graph_input = initial_state
@@ -406,6 +441,11 @@ class AgentSupervisor:
         
         format_prompt = f"""Please format and optimize the following text while preserving its meaning.
 Output in Markdown format.
+Do not add or remove factual content.
+Preserve semantic relationships strictly, especially for table-like content:
+- keep row/column alignment
+- keep header-to-value mapping
+- do not swap or remap cells
 
 {context_section}Text to format:
 {text}
@@ -419,4 +459,3 @@ Formatted text:
         except Exception as e:
             safe_print(f"[Agent] Format error: {e}")
             return text
-

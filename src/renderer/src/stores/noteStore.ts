@@ -1,31 +1,29 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { noteRepository, type Note, type CreateNoteInput, type UpdateNoteInput } from '@/database/noteRepository'
+import { createDeferredEmptyNoteCleanup } from '@/utils/deferredNoteCleanup.mjs'
 
 export type ViewType = 'all' | 'pinned' | 'category' | 'trash'
 
-// 从内容生成标题（取前30个字符）
+// 娴犲骸鍞寸€瑰湱鏁撻幋鎰垼妫版﹫绱欓崣鏍у30娑擃亜鐡х粭锔肩礆
 function generateTitleFromContent(content: string): string {
-  // 移除 HTML 标签
   const div = document.createElement('div')
   div.innerHTML = content
   const plainText = (div.textContent || div.innerText || '').trim()
 
   if (!plainText) return ''
 
-  // 取前30个字符，如果超过则加省略号
   const maxLength = 30
   if (plainText.length <= maxLength) {
     return plainText
   }
 
-  // 尝试在单词/标点处截断
   let truncated = plainText.slice(0, maxLength)
   const lastSpace = truncated.lastIndexOf(' ')
   const lastPunctuation = Math.max(
-    truncated.lastIndexOf('，'),
-    truncated.lastIndexOf('。'),
-    truncated.lastIndexOf('、'),
+    truncated.lastIndexOf('\uFF0C'),
+    truncated.lastIndexOf('\u3002'),
+    truncated.lastIndexOf('\u3001'),
     truncated.lastIndexOf(','),
     truncated.lastIndexOf('.')
   )
@@ -36,10 +34,9 @@ function generateTitleFromContent(content: string): string {
     truncated = truncated.slice(0, lastSpace)
   }
 
-  return truncated + '...'
+  return `${truncated}...`
 }
-
-// 检查笔记是否为空
+// Check whether a note has no title and no plain text.
 function isNoteEmpty(note: Note): boolean {
   const hasTitle = note.title.trim().length > 0
   const hasContent = note.plainText.trim().length > 0
@@ -47,20 +44,19 @@ function isNoteEmpty(note: Note): boolean {
 }
 
 export const useNoteStore = defineStore('notes', () => {
-  // 状态
+  // State
   const notes = ref<Note[]>([])
   const currentNote = ref<Note | null>(null)
   const currentView = ref<ViewType>('all')
   const currentCategoryId = ref<string | null>(null)
   const searchKeyword = ref('')
   const isLoading = ref(false)
-  const totalNotesCount = ref(0) // 全部笔记总数（不包括已删除）
-
-  // 批量选择状态
+  const totalNotesCount = ref(0) // 閸忋劑鍎寸粭鏃囶唶閹粯鏆熼敍鍫滅瑝閸栧懏瀚鎻掑灩闂勩倧绱?
+  // Batch selection state
   const isSelectionMode = ref(false)
   const selectedNoteIds = ref<Set<string>>(new Set())
 
-  // 计算属性
+  // Computed values
   const noteCount = computed(() => notes.value.length)
   const pinnedNotes = computed(() => notes.value.filter(n => n.isPinned))
   const selectedCount = computed(() => selectedNoteIds.value.size)
@@ -68,12 +64,26 @@ export const useNoteStore = defineStore('notes', () => {
     notes.value.length > 0 && selectedNoteIds.value.size === notes.value.length
   )
 
-  // 更新全部笔记总数（排除空笔记）
+  function removeNoteFromLocalList(noteId: string): void {
+    notes.value = notes.value.filter(note => note.id !== noteId)
+  }
+
+  const deferredEmptyCleanup = createDeferredEmptyNoteCleanup({
+    getCurrentNoteId: () => currentNote.value?.id || null,
+    getById: (noteId: string) => noteRepository.getById(noteId),
+    isEmpty: (note: Note) => isNoteEmpty(note),
+    removeById: async (noteId: string) => {
+      await noteRepository.permanentDelete(noteId)
+      removeNoteFromLocalList(noteId)
+    }
+  })
+
+  // Update total non-empty note count.
   async function updateTotalCount(): Promise<void> {
     totalNotesCount.value = await noteRepository.countNonEmpty()
   }
 
-  // 加载笔记列表
+  // Load notes for current view.
   async function loadNotes(options: { updateTotalCount?: boolean } = {}): Promise<void> {
     isLoading.value = true
     try {
@@ -185,16 +195,16 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 切换视图（会清理空笔记）
+  // 閸掑洦宕茬憴鍡楁禈閿涘牅绱板〒鍛倞缁岃櫣鐟拋甯礆
   async function setView(view: ViewType, categoryId?: string): Promise<void> {
-    // 切换前检查当前笔记是否为空，如果是则删除
+    // 閸掑洦宕查崜宥嗩梾閺屻儱缍嬮崜宥囩應鐠佺増妲搁崥锔胯礋缁岀尨绱濇俊鍌涚亯閺勵垰鍨崚鐘绘珟
     await cleanupEmptyCurrentNote()
 
     currentView.value = view
     currentCategoryId.value = categoryId || null
     searchKeyword.value = ''
     
-    // 保存当前视图位置到 localStorage
+    // 娣囨繂鐡ㄨぐ鎾冲鐟欏棗娴樻担宥囩枂閿?localStorage
     localStorage.setItem('lastView', view)
     if (categoryId) {
       localStorage.setItem('lastCategoryId', categoryId)
@@ -204,7 +214,7 @@ export const useNoteStore = defineStore('notes', () => {
     
     await loadNotes()
 
-    // 选中第一个笔记
+    // Select first note in current list.
     if (notes.value.length > 0) {
       currentNote.value = notes.value[0]
     } else {
@@ -212,37 +222,42 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 清理空笔记
-  async function cleanupEmptyCurrentNote(): Promise<void> {
+  // Cleanup current empty note synchronously for view-switch/create flows.
+  async function cleanupEmptyCurrentNote(): Promise<boolean> {
     if (currentNote.value && !Boolean(currentNote.value.isDeleted)) {
-      // 重新获取最新状态
+      // Re-fetch latest state before deleting.
       const latest = await noteRepository.getById(currentNote.value.id)
       if (latest && isNoteEmpty(latest)) {
         await noteRepository.permanentDelete(latest.id)
+        removeNoteFromLocalList(latest.id)
+        return true
       }
     }
+    return false
   }
 
-  // 搜索
+  // Search notes.
   async function search(keyword: string): Promise<void> {
     searchKeyword.value = keyword
     await loadNotes({ updateTotalCount: false })
   }
 
-  // 选择笔记（切换时检查空笔记）
+  // Select note and defer empty-draft cleanup for responsiveness.
   async function selectNote(note: Note): Promise<void> {
-    // 如果切换到不同的笔记，检查当前笔记是否为空
-    if (currentNote.value && currentNote.value.id !== note.id) {
-      await cleanupEmptyCurrentNote()
-      await loadNotes({ updateTotalCount: false })
-    }
-
+    const previous = currentNote.value
     currentNote.value = note
+
+    // Keep note switching instant and cleanup stale empty drafts in background.
+    if (previous && previous.id !== note.id && !Boolean(previous.isDeleted)) {
+      void deferredEmptyCleanup(previous).catch((error: unknown) => {
+        console.warn('Deferred empty note cleanup failed:', error)
+      })
+    }
   }
 
-  // 创建新笔记
+  // Create note
   async function createNote(input: CreateNoteInput = {}): Promise<Note> {
-    // 创建前先清理可能存在的空笔记
+    // Cleanup possible empty draft before creating a new note.
     await cleanupEmptyCurrentNote()
 
     const note = await noteRepository.create(input)
@@ -252,9 +267,9 @@ export const useNoteStore = defineStore('notes', () => {
     return note
   }
 
-  // 更新笔记（支持自动生成标题）
+  // Update note.
   async function updateNote(id: string, input: UpdateNoteInput): Promise<void> {
-    // 如果更新了内容且没有标题，自动生成标题
+    // Generate title from content when title is empty.
     if (input.content !== undefined) {
       const note = await noteRepository.getById(id)
       if (note && !note.title.trim()) {
@@ -267,7 +282,7 @@ export const useNoteStore = defineStore('notes', () => {
 
     await noteRepository.update(id, input)
 
-    // 更新当前笔记
+    // Refresh current note cache.
     const updated = await noteRepository.getById(id)
     if (updated) {
       applyNoteUpdate(updated)
@@ -277,7 +292,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 切换置顶
+  // Toggle pin state.
   async function togglePin(id: string): Promise<void> {
     await noteRepository.togglePin(id)
     const updated = await noteRepository.getById(id)
@@ -289,7 +304,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 删除笔记（移到回收站）
+  // Move note to trash.
   async function deleteNote(id: string): Promise<void> {
     await noteRepository.softDelete(id)
     const updated = await noteRepository.getById(id)
@@ -304,7 +319,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 恢复笔记
+  // 閹垹顦茬粭鏃囶唶
   async function restoreNote(id: string): Promise<void> {
     await noteRepository.restore(id)
     const updated = await noteRepository.getById(id)
@@ -313,7 +328,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 永久删除
+  // 濮橀晲绠欓崚鐘绘珟
   async function permanentDeleteNote(id: string): Promise<void> {
     const existing = await noteRepository.getById(id)
     await noteRepository.permanentDelete(id)
@@ -331,13 +346,13 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 清空回收站
+  // Empty trash.
   async function emptyTrash(): Promise<void> {
-    // 获取所有已删除笔记的内容，用于提取图片引用
+    // Get all deleted notes first to collect image references.
     const deletedNotes = await noteRepository.getDeleted()
     const imageRefs: string[] = []
     
-    // 提取所有 origin-image:// 引用
+    // Collect all origin-image:// refs.
     for (const note of deletedNotes) {
       const matches = note.content.match(/origin-image:\/\/[^"'\s]+/g)
       if (matches) {
@@ -345,15 +360,15 @@ export const useNoteStore = defineStore('notes', () => {
       }
     }
     
-    // 清空回收站（会同步清理向量索引）
+    // 濞撳懐鈹栭崶鐐存暪缁旀瑱绱欐导姘倱濮濄儲绔婚悶鍡楁倻闁插繒鍌ㄥ鏇礆
     await noteRepository.emptyTrash()
     notes.value = []
     currentNote.value = null
     
-    // 清理未使用的图片
+    // 濞撳懐鎮婇張顏冨▏閻劎娈戦崶鍓у
     if (imageRefs.length > 0 && window.electronAPI?.image?.cleanup) {
       try {
-        // 获取所有笔记中仍在使用的图片
+        // Gather currently used image refs from all notes.
         const allNotes = await noteRepository.getAll()
         const usedRefs: string[] = []
         for (const note of allNotes) {
@@ -369,9 +384,9 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // ========== 批量操作 ==========
+  // ========== 閹靛綊鍣洪幙宥勭稊 ==========
   
-  // 进入/退出选择模式
+  // 鏉╂稑鍙?闁偓閸戞椽鈧瀚ㄥΟ鈥崇础
   function toggleSelectionMode(): void {
     isSelectionMode.value = !isSelectionMode.value
     if (!isSelectionMode.value) {
@@ -379,24 +394,24 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 退出选择模式
+  // 闁偓閸戞椽鈧瀚ㄥΟ鈥崇础
   function exitSelectionMode(): void {
     isSelectionMode.value = false
     selectedNoteIds.value.clear()
   }
 
-  // 切换单个笔记选中状态
+  // Toggle single note selection in batch mode.
   function toggleNoteSelection(id: string): void {
     if (selectedNoteIds.value.has(id)) {
       selectedNoteIds.value.delete(id)
     } else {
       selectedNoteIds.value.add(id)
     }
-    // 触发响应式更新
+    // Trigger reactive update.
     selectedNoteIds.value = new Set(selectedNoteIds.value)
   }
 
-  // 全选/取消全选
+  // Select/Deselect all notes.
   function toggleSelectAll(): void {
     if (isAllSelected.value) {
       selectedNoteIds.value.clear()
@@ -405,7 +420,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 批量删除（移到回收站）
+  // Batch move selected notes to trash.
   async function batchDelete(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
     for (const id of ids) {
@@ -414,13 +429,13 @@ export const useNoteStore = defineStore('notes', () => {
     await loadNotes()
     selectedNoteIds.value.clear()
     
-    // 更新当前笔记
+    // Update current note if it was deleted.
     if (currentNote.value && ids.includes(currentNote.value.id)) {
       currentNote.value = notes.value[0] || null
     }
   }
 
-  // 批量永久删除
+  // Batch permanent delete.
   async function batchPermanentDelete(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
     for (const id of ids) {
@@ -434,7 +449,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 批量恢复
+  // 閹靛綊鍣洪幁銏狀槻
   async function batchRestore(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
     for (const id of ids) {
@@ -444,7 +459,7 @@ export const useNoteStore = defineStore('notes', () => {
     selectedNoteIds.value.clear()
   }
 
-  // 批量移动到分类
+  // Batch move selected notes to category.
   async function batchMoveToCategory(categoryId: string | null): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
     for (const id of ids) {
@@ -454,20 +469,20 @@ export const useNoteStore = defineStore('notes', () => {
     selectedNoteIds.value.clear()
   }
 
-  // 重新排序（拖拽）
+  // 闁插秵鏌婇幒鎺戠碍閿涘牊瀚嬮幏鏂ょ礆
   async function reorderNotes(draggedId: string, targetId: string): Promise<void> {
     const draggedIndex = notes.value.findIndex(n => n.id === draggedId)
     const targetIndex = notes.value.findIndex(n => n.id === targetId)
 
     if (draggedIndex === -1 || targetIndex === -1) return
 
-    // 如果涉及置顶状态不同，不处理手动排序（置顶始终在顶部）
+    // 婵″倹鐏夊☉澶婂挤缂冾噣銆婇悩鑸碘偓浣风瑝閸氬矉绱濇稉宥咁槱閻炲棙澧滈崝銊﹀笓鎼村骏绱欑純顕€銆婃慨瀣矒閸︺劑銆婇柈顭掔礆
     if (notes.value[draggedIndex].isPinned !== notes.value[targetIndex].isPinned) return
 
     const [draggedNote] = notes.value.splice(draggedIndex, 1)
     notes.value.splice(targetIndex, 0, draggedNote)
 
-    // 更新所有笔记的 order 值（受当前模式限制，只更新可见列表）
+    // Persist reordered order values.
     for (let i = 0; i < notes.value.length; i++) {
       if (notes.value[i].order !== i) {
         await noteRepository.update(notes.value[i].id, { order: i })
@@ -476,9 +491,9 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 初始化
+  // Initialize store data and last-view state.
   async function initialize(): Promise<void> {
-    // 恢复上次的视图位置
+    // Restore last view state from localStorage.
     const lastView = localStorage.getItem('lastView') as ViewType | null
     const lastCategoryId = localStorage.getItem('lastCategoryId')
     
@@ -496,8 +511,7 @@ export const useNoteStore = defineStore('notes', () => {
   }
 
   return {
-    // 状态
-    notes,
+    // 閻樿鎷?    notes,
     currentNote,
     currentView,
     currentCategoryId,
@@ -507,14 +521,12 @@ export const useNoteStore = defineStore('notes', () => {
     isSelectionMode,
     selectedNoteIds,
 
-    // 计算属性
-    noteCount,
+    // 鐠侊紕鐣荤仦鐑囨嫹?    noteCount,
     pinnedNotes,
     selectedCount,
     isAllSelected,
 
-    // 方法
-    loadNotes,
+    // 閺傝纭?    loadNotes,
     setView,
     search,
     selectNote,
@@ -529,7 +541,7 @@ export const useNoteStore = defineStore('notes', () => {
     cleanupEmptyCurrentNote,
     reorderNotes,
     
-    // 批量操作
+    // 閹靛綊鍣洪幙宥勭稊
     toggleSelectionMode,
     exitSelectionMode,
     toggleNoteSelection,
@@ -540,3 +552,5 @@ export const useNoteStore = defineStore('notes', () => {
     batchMoveToCategory
   }
 })
+
+

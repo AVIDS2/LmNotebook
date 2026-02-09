@@ -13,7 +13,6 @@ const AGENT_SIDEBAR_MIN = 280
 const AGENT_SIDEBAR_MAX = 620
 const COLLAPSED_SIDEBAR_WIDTH = 56
 const COLLAPSED_NOTELIST_WIDTH = 44
-const MIN_EDITOR_WIDTH = 520
 
 const STORAGE_KEY_SIDEBAR = 'origin-notes-sidebar-width'
 const STORAGE_KEY_NOTELIST = 'origin-notes-notelist-width'
@@ -22,10 +21,26 @@ const STORAGE_KEY_THEME = 'origin-notes-theme'
 const STORAGE_KEY_LOCALE = 'origin-notes-locale'
 const STORAGE_KEY_LAYOUT_PRESET = 'origin-notes-layout-preset'
 const STORAGE_KEY_NOTELIST_COLLAPSED = 'origin-notes-notelist-collapsed'
+const STORAGE_KEY_NOTELIST_VIEW_MODE = 'origin-notes-notelist-view-mode'
 
 export type ThemeMode = 'light' | 'classic' | 'dark'
 export type LocaleCode = 'zh-CN' | 'en-US'
 export type LayoutPreset = 'writing' | 'balanced' | 'research' | 'custom'
+export type NoteListViewMode = 'card' | 'compact'
+
+type LayoutConstraint = {
+  minEditorWidth: number
+  minSidebarWidth: number
+  minNoteListWidth: number
+  minAgentSidebarWidth: number
+}
+
+type LayoutPanel = 'sidebar' | 'noteList' | 'agent'
+
+type LayoutAdaptPolicy = {
+  reduceOrder: LayoutPanel[]
+  collapseOrder: Array<'sidebar' | 'noteList'>
+}
 
 export const useUIStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(true)
@@ -36,6 +51,7 @@ export const useUIStore = defineStore('ui', () => {
   const theme = ref<ThemeMode>('light')
   const locale = ref<LocaleCode>('zh-CN')
   const layoutPreset = ref<LayoutPreset>('balanced')
+  const noteListViewMode = ref<NoteListViewMode>('card')
 
   const PRESET_VALUES: Record<Exclude<LayoutPreset, 'custom'>, {
     normal: { sidebarCollapsed: boolean; sidebarWidth: number; noteListWidth: number; agentSidebarWidth: number }
@@ -55,11 +71,58 @@ export const useUIStore = defineStore('ui', () => {
     }
   }
 
+  const PRESET_CONSTRAINTS: Record<LayoutPreset, LayoutConstraint> = {
+    writing: {
+      minEditorWidth: 640,
+      minSidebarWidth: COLLAPSED_SIDEBAR_WIDTH,
+      minNoteListWidth: NOTELIST_MIN,
+      minAgentSidebarWidth: 320
+    },
+    balanced: {
+      minEditorWidth: 580,
+      minSidebarWidth: SIDEBAR_MIN,
+      minNoteListWidth: NOTELIST_MIN,
+      minAgentSidebarWidth: 330
+    },
+    research: {
+      minEditorWidth: 440,
+      minSidebarWidth: SIDEBAR_MIN,
+      minNoteListWidth: 280,
+      minAgentSidebarWidth: 400
+    },
+    custom: {
+      minEditorWidth: 520,
+      minSidebarWidth: SIDEBAR_MIN,
+      minNoteListWidth: NOTELIST_MIN,
+      minAgentSidebarWidth: AGENT_SIDEBAR_MIN
+    }
+  }
+
+  const PRESET_ADAPT_POLICY: Record<LayoutPreset, LayoutAdaptPolicy> = {
+    writing: {
+      reduceOrder: ['noteList', 'sidebar', 'agent'],
+      collapseOrder: ['noteList', 'sidebar']
+    },
+    balanced: {
+      reduceOrder: ['noteList', 'sidebar', 'agent'],
+      collapseOrder: ['noteList', 'sidebar']
+    },
+    research: {
+      reduceOrder: ['sidebar', 'noteList', 'agent'],
+      collapseOrder: ['sidebar', 'noteList']
+    },
+    custom: {
+      reduceOrder: ['noteList', 'sidebar', 'agent'],
+      collapseOrder: ['noteList', 'sidebar']
+    }
+  }
+
   function loadSavedState(): void {
     const savedSidebar = localStorage.getItem(STORAGE_KEY_SIDEBAR)
     const savedNoteList = localStorage.getItem(STORAGE_KEY_NOTELIST)
     const savedAgentSidebar = localStorage.getItem(STORAGE_KEY_AGENT_SIDEBAR)
     const savedNoteListCollapsed = localStorage.getItem(STORAGE_KEY_NOTELIST_COLLAPSED)
+    const savedNoteListViewMode = localStorage.getItem(STORAGE_KEY_NOTELIST_VIEW_MODE) as NoteListViewMode | null
 
     if (savedSidebar) {
       const width = parseInt(savedSidebar, 10)
@@ -86,6 +149,10 @@ export const useUIStore = defineStore('ui', () => {
       noteListCollapsed.value = true
     } else if (savedNoteListCollapsed === '0') {
       noteListCollapsed.value = false
+    }
+
+    if (savedNoteListViewMode === 'card' || savedNoteListViewMode === 'compact') {
+      noteListViewMode.value = savedNoteListViewMode
     }
 
     const savedTheme = localStorage.getItem(STORAGE_KEY_THEME) as ThemeMode | null
@@ -143,6 +210,10 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem(STORAGE_KEY_NOTELIST_COLLAPSED, value ? '1' : '0')
   })
 
+  watch(noteListViewMode, (value) => {
+    localStorage.setItem(STORAGE_KEY_NOTELIST_VIEW_MODE, value)
+  })
+
   function markLayoutCustom(): void {
     if (layoutPreset.value !== 'custom') {
       layoutPreset.value = 'custom'
@@ -161,6 +232,14 @@ export const useUIStore = defineStore('ui', () => {
 
   function setNoteListCollapsed(collapsed: boolean): void {
     noteListCollapsed.value = collapsed
+  }
+
+  function toggleNoteListViewMode(): void {
+    noteListViewMode.value = noteListViewMode.value === 'card' ? 'compact' : 'card'
+  }
+
+  function setNoteListViewMode(mode: NoteListViewMode): void {
+    noteListViewMode.value = mode
   }
 
   function setSidebarCollapsed(collapsed: boolean): void {
@@ -182,52 +261,62 @@ export const useUIStore = defineStore('ui', () => {
     if (!options?.preservePreset) markLayoutCustom()
   }
 
-  function adaptLayoutForViewport(viewportWidth: number, hasAgentSidebar: boolean): void {
+  function adaptLayoutForViewport(
+    viewportWidth: number,
+    hasAgentSidebar: boolean,
+    presetHint?: LayoutPreset
+  ): void {
     if (viewportWidth <= 0) return
+    const activePreset = presetHint || layoutPreset.value
+    const constraint = PRESET_CONSTRAINTS[activePreset]
+    const policy = PRESET_ADAPT_POLICY[activePreset]
 
     const leftWidth = sidebarCollapsed.value ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth.value
     const listWidth = noteListCollapsed.value ? COLLAPSED_NOTELIST_WIDTH : noteListWidth.value
     const agentWidth = hasAgentSidebar ? agentSidebarWidth.value : 0
-    const maxReserved = Math.max(0, viewportWidth - MIN_EDITOR_WIDTH)
+    const maxReserved = Math.max(0, viewportWidth - constraint.minEditorWidth)
     let overflow = leftWidth + listWidth + agentWidth - maxReserved
 
     if (overflow <= 0) return
 
-    if (!noteListCollapsed.value) {
-      const reducible = noteListWidth.value - NOTELIST_MIN
-      const reduce = Math.min(reducible, overflow)
-      if (reduce > 0) {
-        setNoteListWidth(noteListWidth.value - reduce, { preservePreset: true })
-        overflow -= reduce
+    for (const panel of policy.reduceOrder) {
+      if (overflow <= 0) break
+      if (panel === 'noteList' && !noteListCollapsed.value) {
+        const reducible = noteListWidth.value - constraint.minNoteListWidth
+        const reduce = Math.min(reducible, overflow)
+        if (reduce > 0) {
+          setNoteListWidth(noteListWidth.value - reduce, { preservePreset: true })
+          overflow -= reduce
+        }
+      }
+      if (panel === 'sidebar' && !sidebarCollapsed.value) {
+        const reducible = sidebarWidth.value - constraint.minSidebarWidth
+        const reduce = Math.min(reducible, overflow)
+        if (reduce > 0) {
+          setSidebarWidth(sidebarWidth.value - reduce, { preservePreset: true })
+          overflow -= reduce
+        }
+      }
+      if (panel === 'agent' && hasAgentSidebar) {
+        const reducible = agentSidebarWidth.value - constraint.minAgentSidebarWidth
+        const reduce = Math.min(reducible, overflow)
+        if (reduce > 0) {
+          setAgentSidebarWidth(agentSidebarWidth.value - reduce, { preservePreset: true })
+          overflow -= reduce
+        }
       }
     }
 
-    if (overflow > 0 && !sidebarCollapsed.value) {
-      const reducible = sidebarWidth.value - SIDEBAR_MIN
-      const reduce = Math.min(reducible, overflow)
-      if (reduce > 0) {
-        setSidebarWidth(sidebarWidth.value - reduce, { preservePreset: true })
-        overflow -= reduce
+    for (const panel of policy.collapseOrder) {
+      if (overflow <= 0) break
+      if (panel === 'noteList' && !noteListCollapsed.value) {
+        noteListCollapsed.value = true
+        overflow -= Math.max(0, noteListWidth.value - COLLAPSED_NOTELIST_WIDTH)
       }
-    }
-
-    if (overflow > 0 && hasAgentSidebar) {
-      const reducible = agentSidebarWidth.value - AGENT_SIDEBAR_MIN
-      const reduce = Math.min(reducible, overflow)
-      if (reduce > 0) {
-        setAgentSidebarWidth(agentSidebarWidth.value - reduce, { preservePreset: true })
-        overflow -= reduce
+      if (panel === 'sidebar' && !sidebarCollapsed.value) {
+        sidebarCollapsed.value = true
+        overflow -= Math.max(0, sidebarWidth.value - COLLAPSED_SIDEBAR_WIDTH)
       }
-    }
-
-    if (overflow > 0 && !noteListCollapsed.value) {
-      noteListCollapsed.value = true
-      overflow -= Math.max(0, noteListWidth.value - COLLAPSED_NOTELIST_WIDTH)
-    }
-
-    if (overflow > 0 && !sidebarCollapsed.value) {
-      sidebarCollapsed.value = true
-      overflow -= Math.max(0, sidebarWidth.value - COLLAPSED_SIDEBAR_WIDTH)
     }
   }
 
@@ -243,7 +332,7 @@ export const useUIStore = defineStore('ui', () => {
     setNoteListWidth(value.noteListWidth, { preservePreset: true })
     setAgentSidebarWidth(value.agentSidebarWidth, { preservePreset: true })
     if (typeof context?.viewportWidth === 'number') {
-      adaptLayoutForViewport(context.viewportWidth, Boolean(context?.hasAgentSidebar))
+      adaptLayoutForViewport(context.viewportWidth, Boolean(context?.hasAgentSidebar), preset)
     }
     layoutPreset.value = preset
   }
@@ -284,6 +373,7 @@ export const useUIStore = defineStore('ui', () => {
   return {
     sidebarCollapsed,
     noteListCollapsed,
+    noteListViewMode,
     sidebarWidth,
     noteListWidth,
     agentSidebarWidth,
@@ -292,6 +382,8 @@ export const useUIStore = defineStore('ui', () => {
     layoutPreset,
     toggleSidebar,
     toggleNoteListCollapsed,
+    toggleNoteListViewMode,
+    setNoteListViewMode,
     setNoteListCollapsed,
     setSidebarCollapsed,
     setSidebarWidth,

@@ -59,6 +59,7 @@ class NoteAgentState(TypedDict, total=False):
     # Feature flags
     use_knowledge: bool
     auto_accept_writes: bool
+    write_authorized: Optional[bool]
     
     # Workflow state machine
     workflow_done: bool       # System-level task completion flag
@@ -93,6 +94,7 @@ def create_initial_state(
         session_id=session_id,
         use_knowledge=use_knowledge,
         auto_accept_writes=auto_accept_writes,
+        write_authorized=None,
         workflow_done=False,
         next_tool_call=None,
     )

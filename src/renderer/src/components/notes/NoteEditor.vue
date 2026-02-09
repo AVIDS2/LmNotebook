@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="note-editor">
+  <div class="note-editor" ref="editorRootRef">
     <!-- 无笔记状态 -->
     <div v-if="!noteStore.currentNote" class="note-editor__empty">
       <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
@@ -238,6 +238,23 @@
         </div>
 
         <div class="note-editor__actions">
+          <button
+            ref="outlineButtonRef"
+            class="note-editor__tool"
+            :class="{ 'note-editor__tool--active': showOutlinePanel }"
+            :title="t('editor.outline')"
+            @click="toggleOutlinePanel"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="3" cy="4" r="1.3" fill="currentColor" />
+              <circle cx="3" cy="8" r="1.3" fill="currentColor" />
+              <circle cx="3" cy="12" r="1.3" fill="currentColor" />
+              <line x1="6" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              <line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              <line x1="6" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          </button>
+
           <!-- 分类选择 -->
           <div class="note-editor__category-select">
             <select
@@ -322,6 +339,29 @@
       </div>
     </template>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="showOutlinePanel"
+      class="note-editor__outline note-editor__outline--floating"
+      :style="outlinePanelStyle"
+      @click.stop
+    >
+      <div class="note-editor__outline-header">{{ t('editor.outline') }}</div>
+      <div v-if="!outlineItems.length" class="note-editor__outline-empty">{{ t('editor.outlineEmpty') }}</div>
+      <button
+        v-for="item in outlineItems"
+        :key="item.id"
+        class="note-editor__outline-item"
+        :class="{ 'note-editor__outline-item--active': item.id === activeOutlineId }"
+        :style="{ '--outline-indent': `${(item.level - 1) * 12}px` }"
+        @click="jumpToHeading(item)"
+      >
+        <span class="note-editor__outline-level">H{{ item.level }}</span>
+        <span class="note-editor__outline-text">{{ item.text }}</span>
+      </button>
+    </div>
+  </Teleport>
   
   <!-- 图片右键菜单 -->
   <div 
@@ -508,7 +548,8 @@
     </div>
     <div v-if="aiProcessing" class="selection-ai-menu__loading">
       <span class="loading-dot"></span>
-      处理中...
+      <span>{{ aiStatusText }}</span>
+      <button class="selection-ai-menu__cancel" @click.stop="cancelAIProcessing">{{ t('common.cancel') }}</button>
     </div>
   </div>
 
@@ -521,19 +562,22 @@
   >
     <div class="ai-result-panel__header">
       <span class="ai-result-panel__action-label">{{ aiResult.actionLabel }}</span>
-      <button class="ai-result-panel__close" @click="closeAIResult" title="关闭">
-        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
-      </button>
+      <div class="ai-result-panel__header-actions">
+        <button v-if="aiProcessing" class="ai-result-panel__stop" @click="cancelAIProcessing">停止</button>
+        <button class="ai-result-panel__close" @click="closeAIResult" title="关闭">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+      </div>
     </div>
     <div class="ai-result-panel__content">
-      {{ aiResult.text }}
+      <div v-html="aiResultHtml"></div>
     </div>
     <div class="ai-result-panel__actions">
-      <button class="ai-result-panel__btn ai-result-panel__btn--primary" @click="applyAIResult('insert')">
+      <button class="ai-result-panel__btn ai-result-panel__btn--primary" :disabled="aiProcessing" @click="applyAIResult('insert')">
         <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         确认插入
       </button>
-      <button class="ai-result-panel__btn" @click="applyAIResult('replace')">
+      <button class="ai-result-panel__btn" :disabled="aiProcessing" @click="applyAIResult('replace')">
         <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6H10M6 2V10" stroke="currentColor" stroke-width="1.5"/></svg>
         替换选中
       </button>
@@ -694,6 +738,7 @@ import { noteRepository, type BacklinkSummary } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
 import { Extension } from '@tiptap/core'
 import { useI18n } from '@/i18n'
+import { findActiveHeadingId } from '@/utils/noteOutline.mjs'
 
 // 自定义字体大小扩展
 const FontSize = Extension.create({
@@ -818,7 +863,26 @@ if (registerEditorAction) {
 // 本地标题状态（用于减少渲染）
 const localTitle = ref('')
 const titleInputRef = ref<HTMLInputElement>()
+const editorRootRef = ref<HTMLElement>()
 const editorContainerRef = ref<HTMLElement>()
+const outlineButtonRef = ref<HTMLElement>()
+type NoteOutlineHeading = {
+  id: string
+  level: number
+  text: string
+  start: number
+  pos: number
+}
+const outlineItems = ref<NoteOutlineHeading[]>([])
+const activeOutlineId = ref('')
+const outlineOpen = ref(false)
+let outlineSyncRaf: number | null = null
+const outlinePanelPosition = reactive({
+  top: 0,
+  left: 0,
+  width: 320,
+  maxHeight: 320
+})
 
 // ========== 新版工具栏状态 ==========
 // 下拉菜单 refs
@@ -941,6 +1005,117 @@ const canRedo = computed(() => {
   void editorStateVersion.value
   return editor.value?.can().chain().focus().redo().run() ?? false
 })
+
+const showOutlinePanel = computed(() => outlineOpen.value)
+const outlinePanelStyle = computed(() => ({
+  top: `${outlinePanelPosition.top}px`,
+  left: `${outlinePanelPosition.left}px`,
+  width: `${outlinePanelPosition.width}px`,
+  maxHeight: `${outlinePanelPosition.maxHeight}px`
+}))
+
+function toggleOutlinePanel() {
+  outlineOpen.value = !outlineOpen.value
+  if (outlineOpen.value) {
+    nextTick(() => {
+      updateOutlinePanelPosition()
+      requestAnimationFrame(updateOutlinePanelPosition)
+    })
+  }
+}
+
+function scheduleOutlineSync(): void {
+  if (outlineSyncRaf !== null) return
+  outlineSyncRaf = requestAnimationFrame(() => {
+    outlineSyncRaf = null
+    syncOutlineFromEditor()
+  })
+}
+
+function syncOutlineFromEditor() {
+  if (!editor.value) {
+    outlineItems.value = []
+    activeOutlineId.value = ''
+    return
+  }
+
+  const headings: NoteOutlineHeading[] = []
+  editor.value.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'heading' && node.textContent.trim()) {
+      const level = Number(node.attrs?.level || 1)
+      headings.push({
+        id: `heading-${headings.length}`,
+        level: level >= 1 && level <= 3 ? level : 1,
+        text: node.textContent.trim(),
+        start: pos,
+        pos
+      })
+    }
+  })
+
+  outlineItems.value = headings
+  activeOutlineId.value = findActiveHeadingId(outlineItems.value, editor.value.state.selection.from)
+}
+
+function updateActiveOutlineByScroll() {
+  const host = editorContainerRef.value
+  if (!host || !outlineItems.value.length) return
+  const headingEls = host.querySelectorAll<HTMLElement>('.tiptap h1, .tiptap h2, .tiptap h3')
+  if (!headingEls.length) return
+
+  const viewportTop = host.getBoundingClientRect().top + 24
+  let activeId = outlineItems.value[0].id
+  for (let index = 0; index < headingEls.length; index += 1) {
+    const el = headingEls[index]
+    const id = outlineItems.value[index]?.id
+    if (!id) continue
+    if (el.getBoundingClientRect().top <= viewportTop) activeId = id
+    else break
+  }
+  activeOutlineId.value = activeId
+}
+
+function jumpToHeading(item: NoteOutlineHeading) {
+  if (!editor.value) return
+  const docSize = editor.value.state.doc.content.size
+  const targetPos = Math.max(1, Math.min(item.pos + 1, docSize))
+  editor.value.chain().focus().setTextSelection(targetPos).run()
+  activeOutlineId.value = item.id
+
+  const targetNode = editor.value.view.nodeDOM(item.pos) as HTMLElement | null
+  targetNode?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function updateOutlinePanelPosition() {
+  if (!outlineOpen.value || !outlineButtonRef.value) return
+
+  const rect = outlineButtonRef.value.getBoundingClientRect()
+  const margin = 8
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  const panelWidth = Math.min(420, Math.max(280, Math.floor(viewportWidth * 0.28)))
+  const compactWidth = viewportWidth < 900 ? Math.min(360, viewportWidth - margin * 2) : panelWidth
+  const width = Math.max(260, compactWidth)
+
+  let left = rect.right - width
+  const minLeft = margin
+  const maxLeft = viewportWidth - width - margin
+  left = Math.max(minLeft, Math.min(maxLeft, left))
+
+  let top = rect.bottom + 8
+  let maxHeight = viewportHeight - top - margin
+  if (maxHeight < 220) {
+    const fallbackHeight = Math.min(420, viewportHeight - margin * 2)
+    top = Math.max(margin, rect.top - fallbackHeight - 8)
+    maxHeight = viewportHeight - top - margin
+  }
+
+  outlinePanelPosition.left = left
+  outlinePanelPosition.top = top
+  outlinePanelPosition.width = width
+  outlinePanelPosition.maxHeight = Math.max(180, maxHeight)
+}
 
 // 关闭所有下拉菜单
 function closeAllDropdowns() {
@@ -1164,6 +1339,9 @@ const selectionMenu = reactive({
   selectionTo: 0
 })
 const aiProcessing = ref(false)
+const aiStatusText = ref('处理中...')
+const aiAbortController = ref<AbortController | null>(null)
+let aiTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
 // 自由提问状态
 const showAskInput = ref(false)
@@ -1179,6 +1357,15 @@ const aiResult = reactive({
   actionLabel: '',
   x: 0,
   y: 0
+})
+
+const aiResultHtml = computed(() => {
+  const source = aiResult.text || ''
+  const rendered = marked.parse(source, { gfm: true, breaks: true })
+  if (typeof rendered === 'string') {
+    return DOMPurify.sanitize(rendered)
+  }
+  return DOMPurify.sanitize(source.replace(/\n/g, '<br/>'))
 })
 
 // 操作标签映射
@@ -1406,6 +1593,7 @@ const editor = useEditor({
   editable: true,
   onSelectionUpdate({ editor }) {
     editorStateVersion.value += 1
+    activeOutlineId.value = findActiveHeadingId(outlineItems.value, editor.state.selection.from)
     const { selection } = editor.state
     if (selection instanceof NodeSelection && selection.node.type.name === 'image') {
       const dom = editor.view.nodeDOM(selection.from) as HTMLImageElement
@@ -1500,6 +1688,7 @@ const editor = useEditor({
   },
   onTransaction: () => {
     editorStateVersion.value += 1
+    scheduleOutlineSync()
   },
   // 使用 requestAnimationFrame 优化更新
   onUpdate: ({ editor }) => {
@@ -1628,9 +1817,17 @@ const attachImageListeners = (container: HTMLElement) => {
 }
 
 // 监听容器 DOM 变化，当笔记切换显现后绑定事件
-watch(editorContainerRef, (newVal) => {
+watch(editorContainerRef, (newVal, oldVal) => {
+  if (oldVal) {
+    oldVal.removeEventListener('scroll', updateActiveOutlineByScroll)
+  }
   if (newVal) {
     attachImageListeners(newVal)
+    newVal.addEventListener('scroll', updateActiveOutlineByScroll, { passive: true })
+    nextTick(() => {
+      scheduleOutlineSync()
+      updateActiveOutlineByScroll()
+    })
   }
 })
 
@@ -1645,6 +1842,13 @@ watch(moreMenuOpen, (open) => {
 onMounted(() => {
   window.addEventListener('resize', updateMoreMenuPosition)
   window.addEventListener('scroll', updateMoreMenuPosition, true)
+  window.addEventListener('resize', updateOutlinePanelPosition)
+  window.addEventListener('scroll', updateOutlinePanelPosition, true)
+  scheduleOutlineSync()
+  nextTick(() => {
+    updateActiveOutlineByScroll()
+    updateOutlinePanelPosition()
+  })
 
   // 全局点击关闭右键菜单和工具栏下拉
   document.addEventListener('click', (e) => {
@@ -1787,45 +1991,31 @@ async function handleAIAction(action: string): Promise<void> {
   if (!editor.value || !selectionMenu.selectedText || aiProcessing.value) return
   
   aiProcessing.value = true
+  const view = editor.value.view
+  const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
+  aiResult.text = ''
+  aiResult.action = action
+  aiResult.actionLabel = actionLabels[action] || action
+  aiResult.x = (selectionMenu.x + endCoords.right) / 2
+  aiResult.y = endCoords.bottom
+  aiResult.visible = true
+  selectionMenu.visible = false
   
   try {
-    const response = await fetch('http://127.0.0.1:8765/api/chat/process-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: selectionMenu.selectedText,
-        action: action,
-        target_lang: action === 'translate' ? 'zh' : undefined
-      })
+    const processed = await requestTextProcess({
+      text: selectionMenu.selectedText,
+      action,
+      target_lang: action === 'translate' ? 'zh' : undefined
+    }, (streamingText) => {
+      aiResult.text = streamingText
     })
-    
-    if (!response.ok) {
-      throw new Error('AI processing failed')
+
+    if (processed) {
+      aiResult.text = processed
     }
-    
-    const result = await response.json()
-    
-    if (result.processed) {
-      // 获取选区结束位置的坐标，用于显示结果面板
-      const view = editor.value.view
-      const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
-      
-      // 显示结果预览面板
-      aiResult.text = result.processed
-      aiResult.action = action
-      aiResult.actionLabel = actionLabels[action] || action
-      aiResult.x = (selectionMenu.x + endCoords.right) / 2
-      aiResult.y = endCoords.bottom
-      aiResult.visible = true
-      
-      // 隐藏选中菜单
-      selectionMenu.visible = false
-    }
-  } catch (error) {
-    console.error('AI action failed:', error)
-    alert('AI 处理失败，请检查后端服务是否运行')
   } finally {
     aiProcessing.value = false
+    aiStatusText.value = aiResult.text ? '已完成' : '处理中...'
   }
 }
 
@@ -1855,6 +2045,9 @@ function applyAIResult(mode: 'insert' | 'replace'): void {
 
 // 关闭 AI 结果面板
 function closeAIResult(): void {
+  if (aiProcessing.value) {
+    aiAbortController.value?.abort()
+  }
   aiResult.visible = false
   aiResult.text = ''
   aiResult.action = ''
@@ -1875,47 +2068,154 @@ async function handleAskSubmit(): Promise<void> {
   if (!editor.value || !selectionMenu.selectedText || !askInputText.value.trim() || aiProcessing.value) return
   
   aiProcessing.value = true
+  const view = editor.value.view
+  const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
+  aiResult.text = ''
+  aiResult.action = 'ask'
+  aiResult.actionLabel = '回答'
+  aiResult.x = (selectionMenu.x + endCoords.right) / 2
+  aiResult.y = endCoords.bottom
+  aiResult.visible = true
+  selectionMenu.visible = false
   
   try {
-    const response = await fetch('http://127.0.0.1:8765/api/chat/process-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: selectionMenu.selectedText,
-        action: 'ask',
-        question: askInputText.value.trim()
-      })
+    const processed = await requestTextProcess({
+      text: selectionMenu.selectedText,
+      action: 'ask',
+      question: askInputText.value.trim()
+    }, (streamingText) => {
+      aiResult.text = streamingText
     })
-    
-    if (!response.ok) {
-      throw new Error('AI processing failed')
-    }
-    
-    const result = await response.json()
-    
-    if (result.processed) {
-      // 获取选区结束位置的坐标，用于显示结果面板
-      const view = editor.value.view
-      const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
-      
-      // 显示结果预览面板
-      aiResult.text = result.processed
-      aiResult.action = 'ask'
-      aiResult.actionLabel = '回答'
-      aiResult.x = (selectionMenu.x + endCoords.right) / 2
-      aiResult.y = endCoords.bottom
-      aiResult.visible = true
-      
-      // 隐藏选中菜单和输入框
-      selectionMenu.visible = false
+
+    if (processed) {
+      aiResult.text = processed
       showAskInput.value = false
       askInputText.value = ''
     }
-  } catch (error) {
-    console.error('AI ask failed:', error)
-    alert('AI 处理失败，请检查后端服务是否运行')
   } finally {
     aiProcessing.value = false
+    aiStatusText.value = aiResult.text ? '已完成' : '处理中...'
+  }
+}
+
+function cancelAIProcessing(): void {
+  if (!aiProcessing.value) return
+  aiStatusText.value = '已取消'
+  aiAbortController.value?.abort()
+}
+
+async function requestTextProcess(
+  payload: Record<string, unknown>,
+  onStreamingText?: (fullText: string) => void
+): Promise<string | null> {
+  aiAbortController.value?.abort()
+  aiAbortController.value = new AbortController()
+  aiStatusText.value = '处理中...'
+
+  if (aiTimeoutTimer) {
+    clearTimeout(aiTimeoutTimer)
+    aiTimeoutTimer = null
+  }
+  aiTimeoutTimer = setTimeout(() => {
+    aiStatusText.value = '请求超时，已取消'
+    aiAbortController.value?.abort()
+  }, 45000)
+
+  try {
+    let streamFailed = false
+    try {
+      const response = await fetch('http://127.0.0.1:8765/api/chat/process-text/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: aiAbortController.value.signal,
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        throw new Error(`AI processing failed: ${response.status}`)
+      }
+
+      if (!response.body) {
+        streamFailed = true
+        throw new Error('No response stream body')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+      let accumulated = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+
+        for (const event of events) {
+          const lines = event.split('\n')
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data:')) continue
+            const payloadText = trimmed.slice(5).trim()
+            if (!payloadText) continue
+            if (payloadText === '[DONE]') {
+              return accumulated.trim()
+            }
+            const parsed = JSON.parse(payloadText)
+            if (parsed?.error) {
+              throw new Error(parsed.error)
+            }
+            if (typeof parsed?.delta === 'string') {
+              accumulated += parsed.delta
+              onStreamingText?.(accumulated)
+            }
+            if (typeof parsed?.final === 'string') {
+              accumulated = parsed.final
+              onStreamingText?.(accumulated)
+            }
+          }
+        }
+      }
+
+      return accumulated.trim()
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return null
+      }
+      console.error('AI text process stream failed, fallback to non-stream:', error)
+      streamFailed = true
+    }
+
+    if (streamFailed) {
+      try {
+        const response = await fetch('http://127.0.0.1:8765/api/chat/process-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: aiAbortController.value?.signal,
+          body: JSON.stringify(payload)
+        })
+        if (!response.ok) throw new Error(`AI processing failed: ${response.status}`)
+        const result = await response.json()
+        const finalText = typeof result?.processed === 'string' ? result.processed : null
+        if (finalText) onStreamingText?.(finalText)
+        return finalText
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return null
+        console.error('AI text process failed:', error)
+        alert('AI 处理失败，请检查后端服务是否运行')
+        return null
+      }
+    }
+
+    return null
+  } finally {
+    if (aiTimeoutTimer) {
+      clearTimeout(aiTimeoutTimer)
+      aiTimeoutTimer = null
+    }
+    aiAbortController.value = null
   }
 }
 
@@ -2046,15 +2346,17 @@ watch(
       // 切换笔记时设置内容
       let newContent = noteStore.currentNote.content || ''
       
-      // 自动识别并转换数学公式
-      newContent = newContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
-        const escaped = formula.replace(/"/g, '&quot;')
-        return `<div data-math="true" data-latex="${escaped}" data-display="true"></div>`
-      })
-      newContent = newContent.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
-        const escaped = formula.replace(/"/g, '&quot;')
-        return `<span data-math="true" data-latex="${escaped}"></span>`
-      })
+      // Fast-path: only run formula transforms when '$' exists.
+      if (newContent.includes('$')) {
+        newContent = newContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+          const escaped = formula.replace(/"/g, '&quot;')
+          return `<div data-math="true" data-latex="${escaped}" data-display="true"></div>`
+        })
+        newContent = newContent.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+          const escaped = formula.replace(/"/g, '&quot;')
+          return `<span data-math="true" data-latex="${escaped}"></span>`
+        })
+      }
       
       // 只在切换笔记时重置历史
       if (newId !== oldId) {
@@ -2064,6 +2366,10 @@ watch(
       }
       
       editor.value.commands.setContent(newContent, false, { preserveWhitespace: 'full' })
+      nextTick(() => {
+        scheduleOutlineSync()
+        updateActiveOutlineByScroll()
+      })
 
       // 设置可编辑状态
       const isTrash = noteStore.currentView === 'trash'
@@ -2322,6 +2628,18 @@ async function handleOpenBacklink(noteId: string): Promise<void> {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateMoreMenuPosition)
   window.removeEventListener('scroll', updateMoreMenuPosition, true)
+  window.removeEventListener('resize', updateOutlinePanelPosition)
+  window.removeEventListener('scroll', updateOutlinePanelPosition, true)
+  editorContainerRef.value?.removeEventListener('scroll', updateActiveOutlineByScroll)
+  aiAbortController.value?.abort()
+  if (aiTimeoutTimer) {
+    clearTimeout(aiTimeoutTimer)
+    aiTimeoutTimer = null
+  }
+  if (outlineSyncRaf !== null) {
+    cancelAnimationFrame(outlineSyncRaf)
+    outlineSyncRaf = null
+  }
   editor.value?.destroy()
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -2373,6 +2691,7 @@ onBeforeUnmount(() => {
   gap: $spacing-sm;
   position: relative;
   z-index: 10020;
+  overflow: visible;
 }
 
 .note-editor__tools {
@@ -2382,7 +2701,7 @@ onBeforeUnmount(() => {
   flex-wrap: nowrap;
   flex-shrink: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 // 工具栏分隔线
@@ -2996,6 +3315,73 @@ onBeforeUnmount(() => {
   }
 }
 
+.note-editor__outline {
+  position: fixed;
+  overflow: auto;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-light);
+  border-radius: $radius-md;
+  box-shadow: var(--shadow-lg);
+  z-index: 12040;
+  padding: 8px;
+}
+
+.note-editor__outline--floating {
+  backdrop-filter: blur(6px);
+}
+
+.note-editor__outline-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 4px 6px 8px;
+}
+
+.note-editor__outline-empty {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 6px;
+}
+
+.note-editor__outline-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px calc(6px + var(--outline-indent, 0px));
+  border-radius: $radius-sm;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  &--active {
+    background: var(--color-bg-active);
+    color: var(--color-text-primary);
+  }
+}
+
+.note-editor__outline-level {
+  flex-shrink: 0;
+  min-width: 20px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.note-editor__outline-text {
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 // 图片右键菜单（全局定位）
 .image-context-menu {
   position: fixed;
@@ -3204,6 +3590,22 @@ onBeforeUnmount(() => {
       50% { opacity: 1; }
     }
   }
+
+  &__cancel {
+    margin-left: auto;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-sm;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+  }
   
   // 分隔线
   &__divider {
@@ -3331,6 +3733,27 @@ onBeforeUnmount(() => {
     font-weight: 500;
     color: var(--color-text-secondary);
   }
+
+  &__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__stop {
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    color: var(--color-text-secondary);
+    border-radius: $radius-sm;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+  }
   
   &__close {
     display: flex;
@@ -3363,6 +3786,34 @@ onBeforeUnmount(() => {
     :root[data-theme="dark"] & {
       background: rgba(255, 251, 235, 0.08);
     }
+
+    :deep(p) {
+      margin: 0 0 8px;
+    }
+
+    :deep(p:last-child) {
+      margin-bottom: 0;
+    }
+
+    :deep(ul), :deep(ol) {
+      margin: 0 0 8px 18px;
+      padding: 0;
+    }
+
+    :deep(code) {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    :deep(pre) {
+      margin: 8px 0;
+      padding: 8px;
+      border-radius: 6px;
+      overflow: auto;
+      background: rgba(0, 0, 0, 0.06);
+    }
   }
   
   &__actions {
@@ -3389,6 +3840,13 @@ onBeforeUnmount(() => {
     &:hover {
       background: var(--color-bg-hover);
       color: var(--color-text-primary);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      background: var(--color-bg-card);
+      color: var(--color-text-muted);
     }
     
     &--primary {

@@ -9,6 +9,7 @@ from services.rag_service import RAGService
 import json
 import re
 import markdown
+import html as html_lib
 
 # Safe print for Windows GBK encoding
 def safe_print(msg: str):
@@ -21,6 +22,63 @@ def safe_print(msg: str):
 # Instantiate services
 note_service = NoteService()
 rag_service = RAGService()
+
+
+def _count_markdown_structures(text: str) -> dict:
+    if not text:
+        return {"headings": 0, "lists": 0, "tables": 0, "code_fences": 0}
+    headings = len(re.findall(r"(?m)^\s{0,3}#{1,6}\s+\S", text))
+    lists = len(re.findall(r"(?m)^\s{0,3}(?:[-*+]|\d+\.)\s+\S", text))
+    table_rows = len(re.findall(r"(?m)^\s*\|.+\|\s*$", text))
+    code_fences = len(re.findall(r"(?m)^\s*```", text))
+    return {"headings": headings, "lists": lists, "tables": table_rows, "code_fences": code_fences}
+
+
+def _looks_like_structure_regression(original: str, edited: str) -> bool:
+    """
+    Guardrail: if original has clear markdown structure and edited collapses to plain text,
+    force one strict retry before persisting.
+    """
+    if not original or not edited:
+        return False
+    if len(original) < 160:
+        return False
+
+    before = _count_markdown_structures(original)
+    after = _count_markdown_structures(edited)
+
+    # If source had meaningful structure, but output lost nearly all structure.
+    had_structure = (
+        before["headings"] >= 1
+        or before["lists"] >= 3
+        or before["tables"] >= 2
+        or before["code_fences"] >= 2
+    )
+    collapsed = (
+        after["headings"] == 0
+        and after["lists"] <= 1
+        and after["tables"] == 0
+        and after["code_fences"] == 0
+    )
+    return had_structure and collapsed
+
+
+def _html_to_editable_text(html_content: str) -> str:
+    """
+    Convert stored HTML into a readable multiline text fallback for editing/matching.
+    This is only used when markdownSource is missing.
+    """
+    if not html_content:
+        return ""
+    text = html_content
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div|li|tr|h[1-6]|blockquote|pre|table|ul|ol)>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html_lib.unescape(text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 @tool
 async def search_knowledge(query: str) -> str:
@@ -57,7 +115,8 @@ async def read_note_content(note_id: str) -> str:
     if not note:
         return f"Error: Note with ID {note_id} not found."
     
-    content = note.get('plainText') or note.get('content') or ""
+    # Prefer markdownSource so the agent sees real structure (headings/lists/tables).
+    content = note.get('markdownSource') or note.get('plainText') or note.get('content') or ""
     # Add instruction to prevent LLM from repeating content in response
     return f"Title: {note['title']}\nContent:\n{content}\n\n[SYSTEM: Content retrieved successfully. DO NOT repeat this content in your response.]"
 
@@ -120,7 +179,14 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
     if not note:
         return f"Error: Note {note_id} not found."
     
-    current_content = note.get('plainText') or note.get('content') or ""
+    # CRITICAL: use markdownSource as the editing baseline to preserve Markdown layout.
+    # plainText is whitespace-collapsed and will destroy structure if used as source.
+    current_content = (
+        note.get('markdownSource')
+        or _html_to_editable_text(note.get('content') or "")
+        or note.get('plainText')
+        or ""
+    )
     html_content_original = note.get('content') or ""
     
     # IMAGE PRESERVATION: Extract existing images from HTML content
@@ -168,11 +234,31 @@ If the user asks to "format", "organize", "tidy up", "整理格式", "排版", o
 - ONLY adjust structure: headings, lists, code blocks, emphasis, spacing
 - Create clear visual hierarchy
 - The output must contain the EXACT same words as input
-- IMPORTANT: If you see repeating patterns that look like table data (e.g., header words followed by corresponding values in groups), reconstruct them as Markdown tables using | syntax"""
+- IMPORTANT: Preserve semantic relationships between text blocks.
+- IMPORTANT: For table-like data, keep row/column mapping exactly:
+  - Do NOT swap cells across rows/columns
+  - Keep header-value alignment unchanged
+  - Do NOT merge/split rows unless it is pure syntax normalization with identical meaning
+- IMPORTANT: If content is already a valid table, keep the same data model and only normalize Markdown syntax.
+- IMPORTANT: If you see repeating patterns that look like table data (e.g., header words followed by corresponding values in groups), reconstruct them as Markdown tables using | syntax while preserving original mappings exactly."""
         user_prompt = f"Original content:\n---\n{current_content}\n---\nEdit instruction: {instruction}\n\nOutput the edited content directly:"
 
     response = await llm.ainvoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
     new_content = response.content.strip()
+
+    if (not force_rewrite) and _looks_like_structure_regression(current_content, new_content):
+        safe_print("[TOOL] Detected markdown structure regression, retrying with stricter preservation prompt")
+        strict_sys_prompt = sys_prompt + """
+
+STRICT OUTPUT QUALITY GATE:
+- Keep Markdown structure readable and renderable.
+- Preserve headings, lists, and tables when they exist in source.
+- Never flatten the entire note into one plain paragraph.
+- Return ONLY Markdown content, no commentary."""
+        retry = await llm.ainvoke([SystemMessage(content=strict_sys_prompt), HumanMessage(content=user_prompt)])
+        retry_content = retry.content.strip()
+        if retry_content:
+            new_content = retry_content
     
     # Strip markdown code blocks if present
     if new_content.startswith("```markdown"):
@@ -256,9 +342,18 @@ async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
     
     # Get both HTML content and plain text
     html_content = note.get('content') or ""
-    plain_text = note.get('plainText') or ""
+    plain_text = _html_to_editable_text(html_content) or note.get('plainText') or ""
+    markdown_source = note.get('markdownSource') or ""
     
-    # Try to find in plain text first (more reliable for user-visible text)
+    # Best path: patch markdownSource directly to preserve structure.
+    if markdown_source and old_text in markdown_source:
+        updated_md = markdown_source.replace(old_text, new_text, 1)
+        updated_html = markdown.markdown(updated_md, extensions=['fenced_code', 'tables'])
+        updated_html = re.sub(r'<p>\s*</p>', '', updated_html)
+        await note_service.update_note(note_id=note_id, content=updated_html, markdown_source=updated_md)
+        return f"Successfully patched note (ID: {note_id}). Replaced '{old_text[:30]}...' with '{new_text[:30]}...'"
+
+    # Try to find in plain text or html
     if old_text not in plain_text and old_text not in html_content:
         # Fuzzy match attempt: try with normalized whitespace
         import re
@@ -271,6 +366,7 @@ async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
     # Replace in HTML content (preserves formatting)
     if old_text in html_content:
         updated_html = html_content.replace(old_text, new_text, 1)
+        updated_md = markdown_source if markdown_source else None
     else:
         # If not found in HTML directly, we need to be more careful
         # This can happen when HTML has tags breaking up the text
@@ -278,8 +374,9 @@ async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
         updated_plain = plain_text.replace(old_text, new_text, 1)
         # Convert back to simple HTML paragraphs
         updated_html = ''.join(f'<p>{line}</p>' for line in updated_plain.split('\n') if line.strip())
+        updated_md = updated_plain
     
-    await note_service.update_note(note_id=note_id, content=updated_html, markdown_source="")
+    await note_service.update_note(note_id=note_id, content=updated_html, markdown_source=updated_md)
     
     return f"Successfully patched note (ID: {note_id}). Replaced '{old_text[:30]}...' with '{new_text[:30]}...'"
 

@@ -48,18 +48,6 @@ DOOM_LOOP_THRESHOLD = 3  # Same tool+input triggers safety stop (OpenCode style)
 # Write operations: success = workflow done
 WRITE_TOOLS = {"delete_note", "create_note", "rename_note", "update_note", "set_note_category"}
 
-# Intent cues for policy gating (global, reusable, non query-specific).
-WRITE_INTENT_CUES = {
-    "整理", "格式", "排版", "重写", "改写", "修改", "更新", "删除", "创建", "新建", "重命名", "改标题", "分类", "归类", "打标签",
-    "填补", "补充", "完善", "扩写", "丰富", "润色", "优化", "重构", "改成", "改为", "生成内容", "写一篇", "写个",
-    "format", "reformat", "tidy", "rewrite", "edit", "modify", "update", "delete", "remove", "create", "rename", "categorize", "tag",
-    "expand", "enrich", "improve", "refine", "polish", "fill", "complete", "draft",
-}
-READ_ONLY_INTENT_CUES = {
-    "总结", "摘要", "概括", "提炼", "要点", "解释", "说明", "翻译", "问答", "查找", "搜索", "看看", "读取",
-    "summarize", "summary", "analyze", "analysis", "explain", "what", "find", "search", "read", "list",
-}
-
 
 class ToolPolicyDecision(TypedDict):
     action: Literal["allow", "deny"]
@@ -118,12 +106,18 @@ class NoteAgentGraph:
         """
         self.llm = llm or get_llm()
         self.tools = tools
+        self.read_only_tools = [
+            tool for tool in tools
+            if getattr(tool, "name", "") not in WRITE_TOOLS
+        ]
         self.tool_node = ToolNode(tools)
         self.checkpointer = checkpointer  # Will be set during build()
         
         # Bind tools to LLM for function calling
         # parallel_tool_calls=False forces sequential execution: chat  -> tool  -> chat  -> tool
         self.model_with_tools = self.llm.bind_tools(tools, parallel_tool_calls=False)
+        # Read-only binding to reduce accidental write tool selection for non-write intents.
+        self.model_with_read_tools = self.llm.bind_tools(self.read_only_tools, parallel_tool_calls=False)
         
     async def build(self, checkpointer=None) -> StateGraph:
         """
@@ -352,12 +346,16 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 content="[SYSTEM]: Tool call limit reached. Stop calling tools and provide final answer."
             ))
         
+        # Pre-authorize write capability for this turn based on user semantics.
+        write_authorized = self._classify_write_authorization(filtered_history)
+        model_for_turn = self.model_with_tools if write_authorized else self.model_with_read_tools
+
         # Invoke LLM with tools
-        response = self.model_with_tools.invoke(messages)
+        response = model_for_turn.invoke(messages)
 
         # Standard tool-loop guard:
-        # For actionable TASK requests, first turn should enter tool loop immediately.
-        # If model returns plain text only, force one retry with explicit tool-call requirement.
+        # Only force tool call on turns that are truly tool-required.
+        # Avoid forcing read-only summarization turns into tool path.
         if (
             state.get("intent") == "TASK"
             and tool_count == 0
@@ -373,11 +371,14 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                     )
                 )
             ]
-            forced_response = self.model_with_tools.invoke(forced_messages)
+            forced_response = model_for_turn.invoke(forced_messages)
             if hasattr(forced_response, "tool_calls") and forced_response.tool_calls:
                 response = forced_response
         
-        return {"messages": [response]}
+        return {
+            "messages": [response],
+            "write_authorized": write_authorized,
+        }
     
     # ========================================================================
     # CHAT-TOOL-CHAT PATTERN: 3-NODE TOOL EXECUTION
@@ -592,19 +593,18 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
     def _task_requires_tool(self, state: NoteAgentState, history: list) -> bool:
         """
         Decide if current TASK should enter tool loop immediately.
-        Uses lightweight intent cues to avoid false forcing on purely conversational TASKs.
+        Keep this conservative to avoid accidental tool forcing:
+        - Must tool-call for knowledge-search workflows
+        - Must tool-call for explicit write-authorized turns
+        - Otherwise, let model return direct read-only answer when possible
         """
-        last_user_text = self._get_last_user_text(history)
-        has_write_cue = any(cue in last_user_text for cue in WRITE_INTENT_CUES)
-        has_read_only_cue = any(cue in last_user_text for cue in READ_ONLY_INTENT_CUES)
-
-        # Read-only request should not be forced into write-tool loop.
-        if has_read_only_cue and not has_write_cue:
+        if state.get("intent") != "TASK":
             return False
 
-        # If note context exists, explicit write-style queries are expected to use tools.
-        has_note_context = bool(state.get("active_note_id") or state.get("context_note_id"))
-        return has_write_cue and has_note_context
+        if state.get("use_knowledge"):
+            return True
+
+        return bool(state.get("write_authorized") is True)
 
     def _get_last_user_text(self, history: list) -> str:
         """Extract last human message as lowercase text."""
@@ -637,43 +637,50 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 "code": "missing_user_intent",
                 "reason": "No latest user intent found for a write operation.",
             }
+        cached_auth = state.get("write_authorized")
+        if cached_auth is None:
+            cached_auth = self._classify_write_authorization(history)
 
-        arg_blob = ""
-        if isinstance(tool_args, dict):
-            arg_blob = json.dumps(tool_args, ensure_ascii=False).lower()
+        if cached_auth:
+            return {"action": "allow", "code": "semantic_allow_write", "reason": "Semantic policy indicates explicit write authorization."}
 
-        user_has_write = any(cue in user_text for cue in WRITE_INTENT_CUES)
-        user_has_read_only = any(cue in user_text for cue in READ_ONLY_INTENT_CUES)
-        args_has_write = any(cue in arg_blob for cue in WRITE_INTENT_CUES)
-        has_note_context = bool(state.get("active_note_id") or state.get("context_note_id"))
-        is_task_intent = state.get("intent") == "TASK"
-
-        # Strong allow: explicit write intent in user request or synthesized tool args.
-        if user_has_write or args_has_write:
-            return {"action": "allow", "code": "explicit_write_intent", "reason": "Write intent detected."}
-
-        # Strong deny: explicit read-only request with no write cue.
-        if user_has_read_only:
-            return {
-                "action": "deny",
-                "code": "read_only_intent",
-                "reason": "Latest user request is read-only (summary/explain/search/read).",
-            }
-
-        # Contextual allow: actionable task with concrete note context.
-        if is_task_intent and has_note_context:
-            return {
-                "action": "allow",
-                "code": "task_with_note_context",
-                "reason": "Task intent with concrete note context allows write action.",
-            }
-
-        # Conservative fallback.
         return {
             "action": "deny",
-            "code": "insufficient_write_signal",
-            "reason": "Write intent is not explicit enough.",
+            "code": "semantic_deny_write",
+            "reason": "No explicit write authorization in user intent for this turn.",
         }
+
+    def _classify_write_authorization(self, history: list) -> bool:
+        """
+        Semantic write authorization for the current turn.
+        Returns True only when the user explicitly authorizes persisted note changes.
+        """
+        user_text = self._get_last_user_text(history)
+        if not user_text:
+            return False
+
+        semantic_prompt = f"""
+        You are a strict write-authorization policy classifier for a notes assistant.
+        Determine whether the user EXPLICITLY authorized modifying persisted note data in this turn.
+
+        Output ONLY one label: ALLOW_WRITE or DENY_WRITE.
+
+        Decision standard:
+        - ALLOW_WRITE: user clearly requests direct modification (edit/update/rewrite/delete/rename/categorize/apply changes).
+        - DENY_WRITE: user asks for reading/searching/summarizing/explaining/drafting/suggestions, or says not to modify original content.
+        - Requests like extracting key points, summarizing, generating a draft, or "do not modify original" are ALWAYS DENY_WRITE.
+        - If ambiguous, choose DENY_WRITE.
+
+        User message:
+        {user_text}
+        """
+        try:
+            resp = self.llm.invoke([HumanMessage(content=semantic_prompt)])
+            label = str(getattr(resp, "content", "")).strip().upper()
+            return label.startswith("ALLOW_WRITE")
+        except Exception as e:
+            safe_print(f"[POLICY] semantic classify failed: {e}")
+            return False
     def _detect_user_language(self, messages: list) -> str:
         """
         Lightweight language detection based on latest user message.

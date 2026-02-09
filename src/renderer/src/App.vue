@@ -5,30 +5,54 @@
       <div class="titlebar__drag-region"></div>
       <div class="titlebar__title">Origin Notes</div>
       <div class="titlebar__controls">
-        <button
-          class="titlebar__utility-btn"
-          @click.stop="forceShowStartup = !forceShowStartup"
-          :title="forceShowStartup ? t('app.exitStartupPreview') : t('app.previewStartup')"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>
-        <button
-          class="titlebar__utility-btn titlebar__layout-btn"
-          @click.stop="handleCycleLayoutPreset"
-          :title="t('app.layout.cycleTitle')"
-        >
-          {{ layoutPresetLabel }}
-        </button>
-        <button
-          class="titlebar__utility-btn titlebar__locale-btn"
-          @click.stop="toggleLocale"
-          :title="t('language.toggleTitle')"
-        >
-          {{ locale === 'zh-CN' ? 'EN' : '中' }}
-        </button>
+        <template v-if="!showStartupPage">
+          <button
+            class="titlebar__utility-btn"
+            @click.stop="forceShowStartup = !forceShowStartup"
+            :title="forceShowStartup ? t('app.exitStartupPreview') : t('app.previewStartup')"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+          <button
+            class="titlebar__utility-btn titlebar__layout-btn"
+            @click.stop="handleCycleLayoutPreset"
+            :title="t('app.layout.cycleTitle')"
+          >
+            {{ layoutPresetLabel }}
+          </button>
+          <button
+            class="titlebar__utility-btn titlebar__locale-btn"
+            @click.stop="toggleLocale"
+            :title="t('language.toggleTitle')"
+          >
+            {{ locale === 'zh-CN' ? 'EN' : '中' }}
+          </button>
+          <button
+            class="titlebar__utility-btn"
+            :class="{ 'titlebar__utility-btn--active': !uiStore.noteListCollapsed }"
+            @click.stop="toggleNoteListPanel"
+            :title="uiStore.noteListCollapsed ? t('app.expandNoteList') : t('app.collapseNoteList')"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <line x1="9" y1="5" x2="9" y2="19" />
+            </svg>
+          </button>
+          <button
+            class="titlebar__utility-btn"
+            :class="{ 'titlebar__utility-btn--active': isAgentSidebarMode }"
+            @click.stop="toggleAgentSidebarFromTitlebar"
+            :title="isAgentSidebarMode ? t('app.hideAgentSidebar') : t('app.showAgentSidebar')"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="15" y1="4" x2="15" y2="20" />
+            </svg>
+          </button>
+        </template>
         <button class="titlebar__btn" @click="handleMinimize">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="1" y="5.5" width="10" height="1" fill="currentColor"/>
@@ -74,9 +98,8 @@
       >
         <TheSidebar :collapsed="uiStore.sidebarCollapsed" @toggle="uiStore.toggleSidebar" />
         <div
-          v-if="!uiStore.sidebarCollapsed"
           class="resizer"
-          @mousedown="startResize('sidebar', $event)"
+          @mousedown="startResizeWithAutoExpand('sidebar', $event)"
         ></div>
       </div>
 
@@ -86,9 +109,8 @@
       >
         <NoteList :collapsed="uiStore.noteListCollapsed" @toggle-collapse="uiStore.toggleNoteListCollapsed" />
         <div
-          v-if="!uiStore.noteListCollapsed"
           class="resizer"
-          @mousedown="startResize('notelist', $event)"
+          @mousedown="startResizeWithAutoExpand('notelist', $event)"
         ></div>
       </div>
 
@@ -163,6 +185,17 @@ const handleCycleLayoutPreset = () => {
     hasAgentSidebar: isAgentSidebarMode.value
   })
 }
+const toggleNoteListPanel = () => {
+  uiStore.toggleNoteListCollapsed()
+  applyAdaptiveLayout()
+}
+const toggleAgentSidebarFromTitlebar = () => {
+  const next = !isAgentSidebarMode.value
+  localStorage.setItem('origin_agent_sidebar_mode', next ? '1' : '0')
+  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: next } }))
+  isAgentSidebarMode.value = next
+  applyAdaptiveLayout()
+}
 
 type ResizeTarget = 'sidebar' | 'notelist' | 'agent' | null
 const isResizing = ref(false)
@@ -171,6 +204,7 @@ const startX = ref(0)
 const startWidth = ref(0)
 
 let rafId: number | null = null
+let resizeFailsafeTimer: ReturnType<typeof setTimeout> | null = null
 
 function startResize(target: 'sidebar' | 'notelist' | 'agent', e: MouseEvent): void {
   e.preventDefault()
@@ -188,6 +222,23 @@ function startResize(target: 'sidebar' | 'notelist' | 'agent', e: MouseEvent): v
 
   document.addEventListener('mousemove', handleResize, { passive: true })
   document.addEventListener('mouseup', stopResize)
+  window.addEventListener('blur', stopResize)
+  document.addEventListener('visibilitychange', handleVisibilityStop)
+  document.addEventListener('keydown', handleResizeEscape)
+  if (resizeFailsafeTimer) clearTimeout(resizeFailsafeTimer)
+  resizeFailsafeTimer = setTimeout(() => {
+    if (isResizing.value) stopResize()
+  }, 4000)
+}
+
+function startResizeWithAutoExpand(target: 'sidebar' | 'notelist', e: MouseEvent): void {
+  if (target === 'sidebar' && uiStore.sidebarCollapsed) {
+    uiStore.setSidebarCollapsed(false)
+  }
+  if (target === 'notelist' && uiStore.noteListCollapsed) {
+    uiStore.setNoteListCollapsed(false)
+  }
+  startResize(target, e)
 }
 
 function handleResize(e: MouseEvent): void {
@@ -216,8 +267,25 @@ function stopResize(): void {
     cancelAnimationFrame(rafId)
     rafId = null
   }
+  if (resizeFailsafeTimer) {
+    clearTimeout(resizeFailsafeTimer)
+    resizeFailsafeTimer = null
+  }
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('blur', stopResize)
+  document.removeEventListener('visibilitychange', handleVisibilityStop)
+  document.removeEventListener('keydown', handleResizeEscape)
+}
+
+function handleVisibilityStop(): void {
+  if (document.hidden) stopResize()
+}
+
+function handleResizeEscape(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && isResizing.value) {
+    stopResize()
+  }
 }
 
 const setEditorContentRef = { value: (_html: string) => {} }
@@ -298,6 +366,13 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('blur', stopResize)
+  document.removeEventListener('visibilitychange', handleVisibilityStop)
+  document.removeEventListener('keydown', handleResizeEscape)
+  if (resizeFailsafeTimer) {
+    clearTimeout(resizeFailsafeTimer)
+    resizeFailsafeTimer = null
+  }
   window.removeEventListener('origin-agent-sidebar-mode-changed', syncAgentSidebarMode as EventListener)
   window.removeEventListener('storage', syncAgentSidebarMode)
   window.removeEventListener('resize', applyAdaptiveLayout)
@@ -342,7 +417,7 @@ watch(isAgentSidebarMode, () => {
     position: absolute;
     top: 0;
     left: 0;
-    right: 220px;
+    right: 320px;
     height: 100%;
     -webkit-app-region: drag;
   }
@@ -379,6 +454,12 @@ watch(isAgentSidebarMode, () => {
     &:hover {
       background: var(--color-bg-hover);
       border-color: var(--color-border);
+    }
+
+    &--active {
+      border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border-light));
+      color: var(--color-accent);
+      background: color-mix(in srgb, var(--color-accent) 10%, transparent);
     }
   }
 
@@ -432,20 +513,13 @@ watch(isAgentSidebarMode, () => {
   &--resizing {
     cursor: col-resize;
     user-select: none;
-
-    .panel {
-      pointer-events: none;
-    }
-
-    .resizer {
-      pointer-events: auto;
-    }
   }
 }
 
 .startup-shell {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-bg-primary) 90%, #000 10%) 0%, var(--color-bg-primary) 100%);
 }
@@ -508,7 +582,7 @@ watch(isAgentSidebarMode, () => {
   right: var(--agent-sidebar-width);
   width: 6px;
   cursor: col-resize;
-  z-index: 10050;
+  z-index: 30;
 
   &::after {
     content: '';
@@ -517,7 +591,7 @@ watch(isAgentSidebarMode, () => {
     left: 2px;
     width: 1px;
     height: 100%;
-    background: var(--color-border-light);
+    background: transparent;
     transition: width 0.15s ease, background-color 0.15s ease;
   }
 

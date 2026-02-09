@@ -46,17 +46,30 @@
         </div>
       </nav>
 
-      <!-- 鍒嗙被 -->
-      <div class="sidebar__section">
-        <div class="sidebar__section-header">
+      <nav class="sidebar__nav sidebar__nav--secondary">
+        <div
+          class="sidebar__item sidebar__item--categories-entry"
+          :class="{ 'sidebar__item--active': noteStore.currentView === 'category' || showCategoryPanel }"
+          @click="showCategoryPanel = !showCategoryPanel"
+          :tabindex="collapsed ? -1 : 0"
+        >
+          <svg class="sidebar__icon" width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="5" cy="5" r="1.3" fill="currentColor"/>
+            <circle cx="5" cy="9" r="1.3" fill="currentColor"/>
+            <circle cx="5" cy="13" r="1.3" fill="currentColor"/>
+            <path d="M8 5H14M8 9H14M8 13H14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
           <span>{{ t('sidebar.categories') }}</span>
-          <button class="sidebar__add-btn" @click="showAddCategory = true" :tabindex="collapsed ? -1 : 0">
+          <span class="sidebar__count">{{ categoryStore.categories.length }}</span>
+          <button class="sidebar__add-btn" @click.stop="showAddCategory = true" :tabindex="collapsed ? -1 : 0">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
             </svg>
           </button>
         </div>
+      </nav>
 
+      <div v-show="showCategoryPanel" class="sidebar__categories-panel">
         <div class="sidebar__categories">
           <div
             v-for="category in categoryStore.categories"
@@ -88,7 +101,7 @@
               autofocus
             />
             <span v-else class="sidebar__category-name">{{ category.name }}</span>
-            <button 
+            <button
               v-if="editingCategoryId !== category.id"
               class="sidebar__more-btn"
               @click.stop="toggleCategoryMenu(category.id, $event)"
@@ -188,18 +201,34 @@
         <!-- 鍒嗛殧绾?-->
         <div class="sidebar__collapsed-divider"></div>
         
-        <!-- 鍒嗙被鍒楄〃 -->
-        <div
-          v-for="category in categoryStore.categories"
-          :key="category.id"
-          class="sidebar__collapsed-category"
-          :class="{ 'sidebar__collapsed-category--active': noteStore.currentView === 'category' && noteStore.currentCategoryId === category.id }"
-          :style="{ '--category-color': category.color }"
-          @click="noteStore.setView('category', category.id)"
-          :tabindex="collapsed ? 0 : -1"
-        >
-          <span class="sidebar__collapsed-letter">{{ getCategoryInitial(category.name) }}</span>
-          <span class="sidebar__collapsed-tooltip">{{ category.name }}</span>
+        <!-- 分类入口（收缩态不铺开分类） -->
+        <div class="sidebar__collapsed-category-entry-wrap">
+          <button
+            class="sidebar__collapsed-btn sidebar__collapsed-btn--category-entry"
+            :class="{ 'sidebar__collapsed-btn--active': noteStore.currentView === 'category' || collapsedCategoryMenuVisible }"
+            @click="collapsedCategoryMenuVisible = !collapsedCategoryMenuVisible"
+            :title="t('sidebar.categories')"
+            :tabindex="collapsed ? 0 : -1"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+              <circle cx="6" cy="10" r="1.5" fill="currentColor"/>
+              <circle cx="6" cy="14" r="1.5" fill="currentColor"/>
+              <path d="M9.5 6H15M9.5 10H15M9.5 14H15" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <div v-if="collapsedCategoryMenuVisible" class="sidebar__collapsed-category-menu">
+            <button
+              v-for="category in categoryStore.categories"
+              :key="category.id"
+              class="sidebar__collapsed-category-menu-item"
+              :class="{ 'sidebar__collapsed-category-menu-item--active': noteStore.currentView === 'category' && noteStore.currentCategoryId === category.id }"
+              @click="selectCollapsedCategory(category.id)"
+            >
+              <span class="sidebar__dot" :style="{ background: category.color }"></span>
+              <span class="sidebar__collapsed-category-menu-name">{{ category.name }}</span>
+            </button>
+          </div>
         </div>
         
         <!-- 鍒嗛殧绾?-->
@@ -300,14 +329,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useNoteStore } from '@/stores/noteStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { exportService } from '@/services/exportService'
 import { useI18n } from '@/i18n'
 import DataSettings from './DataSettings.vue'
-defineProps<{
+const props = defineProps<{
   collapsed: boolean
 }>()
 
@@ -321,6 +350,8 @@ const uiStore = useUIStore()
 const { t } = useI18n()
 const showAddCategory = ref(false)
 const showDataSettings = ref(false)
+const showCategoryPanel = ref(false)
+const collapsedCategoryMenuVisible = ref(false)
 const newCategoryName = ref('')
 const newCategoryColor = ref('#C4A882')
 
@@ -344,17 +375,6 @@ const categoryColors = [
   '#EF4444', // 绾㈣壊 - Red
 ]
 
-// 鑾峰彇鍒嗙被鍚嶇О棣栧瓧姣嶏紙鏀寔涓嫳鏂囷級
-function getCategoryInitial(name: string): string {
-  if (!name) return '?'
-  const firstChar = name.charAt(0)
-  // 濡傛灉鏄腑鏂囷紝鐩存帴杩斿洖绗竴涓瓧
-  if (/[\u4e00-\u9fa5]/.test(firstChar)) {
-    return firstChar
-  }
-  return firstChar.toUpperCase()
-}
-
 const allNotesCount = computed(() => noteStore.totalNotesCount)
 const themeButtonLabel = computed(() => {
   if (uiStore.theme === 'light') return t('sidebar.theme.light')
@@ -374,6 +394,28 @@ const dragOverCategoryId = ref<string | null>(null)
 async function handleNewNote(): Promise<void> {
   await noteStore.createNote()
 }
+
+watch(
+  () => noteStore.currentView,
+  (view) => {
+    if (view === 'category') {
+      showCategoryPanel.value = true
+    }
+    if (!props.collapsed) {
+      collapsedCategoryMenuVisible.value = false
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.collapsed,
+  (isCollapsed) => {
+    if (!isCollapsed) {
+      collapsedCategoryMenuVisible.value = false
+    }
+  }
+)
 
 // 娣诲姞鍒嗙被
 async function handleAddCategory(): Promise<void> {
@@ -481,6 +523,27 @@ async function handleDrop(targetCategoryId: string): Promise<void> {
   
   dragOverCategoryId.value = null
 }
+
+function selectCollapsedCategory(categoryId: string): void {
+  noteStore.setView('category', categoryId)
+  collapsedCategoryMenuVisible.value = false
+}
+
+function handleGlobalClick(event: MouseEvent): void {
+  if (!collapsedCategoryMenuVisible.value) return
+  const target = event.target as HTMLElement | null
+  if (!target) return
+  if (target.closest('.sidebar__collapsed-category-entry-wrap')) return
+  collapsedCategoryMenuVisible.value = false
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleGlobalClick)
+})
 
 // 鎷栨嫿缁撴潫
 function handleDragEnd(): void {
@@ -647,6 +710,10 @@ async function handleExportAllMarkdown(): Promise<void> {
   margin-top: $spacing-lg;
 }
 
+.sidebar__nav--secondary {
+  margin-top: $spacing-sm;
+}
+
 .sidebar__item {
   display: flex;
   align-items: center;
@@ -702,6 +769,14 @@ async function handleExportAllMarkdown(): Promise<void> {
   margin-top: $spacing-lg;
 }
 
+.sidebar__categories-panel {
+  margin-top: $spacing-xs;
+  margin-bottom: $spacing-sm;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .sidebar__section-header {
   display: flex;
   align-items: center;
@@ -737,6 +812,12 @@ async function handleExportAllMarkdown(): Promise<void> {
   
   &:active {
     transform: scale(0.9);
+  }
+}
+
+.sidebar__item--categories-entry {
+  .sidebar__add-btn {
+    margin-left: 2px;
   }
 }
 
@@ -982,6 +1063,61 @@ async function handleExportAllMarkdown(): Promise<void> {
   height: 1px;
   background: var(--color-border-light);
   margin: $spacing-xs 0;
+}
+
+.sidebar__collapsed-category-entry-wrap {
+  position: relative;
+}
+
+.sidebar__collapsed-btn--category-entry {
+  position: relative;
+}
+
+.sidebar__collapsed-category-menu {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  width: 170px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-lg);
+  z-index: 110;
+}
+
+.sidebar__collapsed-category-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  &--active {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border-light);
+  }
+}
+
+.sidebar__collapsed-category-menu-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 // 妯℃€佹

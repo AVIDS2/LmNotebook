@@ -2,6 +2,7 @@
 Chat API endpoints.
 """
 from typing import Optional, List
+import os
 import sys
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,16 @@ router = APIRouter()
 
 # Ensure UTF-8 logs in Windows terminals.
 def configure_utf8_stdio():
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleCP(65001)
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        except Exception:
+            pass
+
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
         if stream and hasattr(stream, "reconfigure"):
@@ -373,6 +384,73 @@ class TextProcessRequest(BaseModel):
     target_lang: Optional[str] = Field("zh", description="Target language for translation")
     question: Optional[str] = Field(None, description="User's custom question for 'ask' action")
 
+def _build_text_process_prompt(request: TextProcessRequest) -> str:
+    action_prompts = {
+        "translate": f"Translate the following text to {request.target_lang}. Output ONLY the translation, no explanations:\n\n{request.text}",
+        "explain": f"Explain the following text in simple terms. Be concise:\n\n{request.text}",
+        "polish": f"Polish and improve the following text. Keep the same meaning but make it clearer and more professional. Output ONLY the improved text:\n\n{request.text}",
+        "summarize": f"Summarize the following text in 1-2 sentences. Output ONLY the summary:\n\n{request.text}",
+        "expand": f"Expand on the following text with more details and examples. Keep the same style:\n\n{request.text}",
+        "fix_grammar": f"Fix any grammar or spelling errors in the following text. Output ONLY the corrected text:\n\n{request.text}",
+        "ask": f"Based on the following text, answer the user's question.\n\nText:\n{request.text}\n\nQuestion: {request.question or 'What is this about?'}\n\nProvide a helpful, concise answer:",
+    }
+    prompt = action_prompts.get(request.action)
+    if not prompt:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
+    return prompt
+
+@router.post("/process-text/stream")
+async def process_text_stream(request: TextProcessRequest):
+    """
+    Stream lightweight text processing for selected text.
+    Returns Server-Sent Events: {"delta":"..."} chunks + [DONE].
+    """
+    from core.llm import get_llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+    import json
+
+    prompt = _build_text_process_prompt(request)
+
+    async def generate():
+        try:
+            llm = get_llm()
+            full_text = ""
+            async for chunk in llm.astream([
+                SystemMessage(content="You are a helpful text processing assistant. Follow instructions precisely. Do NOT use emoji in your output."),
+                HumanMessage(content=prompt)
+            ]):
+                piece = getattr(chunk, "content", "")
+                if isinstance(piece, list):
+                    text_parts = []
+                    for item in piece:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                        elif isinstance(item, str):
+                            text_parts.append(item)
+                    piece = "".join(text_parts)
+                if not isinstance(piece, str):
+                    piece = str(piece or "")
+                if not piece:
+                    continue
+
+                full_text += piece
+                yield f"data: {json.dumps({'delta': piece}, ensure_ascii=False)}\n\n"
+
+            final_text = full_text.strip()
+            if final_text.startswith("```"):
+                lines = final_text.split("\n")
+                final_text = "\n".join(lines[1:-1]) if lines and lines[-1] == "```" else "\n".join(lines[1:])
+            yield f"data: {json.dumps({'final': final_text}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            safe_print(f"[API] Text process stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream"
+    )
+
 
 @router.post("/process-text")
 async def process_text(request: TextProcessRequest):
@@ -384,19 +462,7 @@ async def process_text(request: TextProcessRequest):
     from core.llm import get_llm
     from langchain_core.messages import SystemMessage, HumanMessage
     
-    action_prompts = {
-        "translate": f"Translate the following text to {request.target_lang}. Output ONLY the translation, no explanations:\n\n{request.text}",
-        "explain": f"Explain the following text in simple terms. Be concise:\n\n{request.text}",
-        "polish": f"Polish and improve the following text. Keep the same meaning but make it clearer and more professional. Output ONLY the improved text:\n\n{request.text}",
-        "summarize": f"Summarize the following text in 1-2 sentences. Output ONLY the summary:\n\n{request.text}",
-        "expand": f"Expand on the following text with more details and examples. Keep the same style:\n\n{request.text}",
-        "fix_grammar": f"Fix any grammar or spelling errors in the following text. Output ONLY the corrected text:\n\n{request.text}",
-        "ask": f"Based on the following text, answer the user's question.\n\nText:\n{request.text}\n\nQuestion: {request.question or 'What is this about?'}\n\nProvide a helpful, concise answer:",
-    }
-    
-    prompt = action_prompts.get(request.action)
-    if not prompt:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
+    prompt = _build_text_process_prompt(request)
     
     try:
         llm = get_llm()

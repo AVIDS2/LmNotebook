@@ -3,6 +3,7 @@
     class="note-card"
     :class="{
       'note-card--active': isActive && !isSelectionMode,
+      'note-card--compact': viewMode === 'compact',
       'note-card--pinned': note.isPinned,
       'note-card--dragging': isDragging,
       'note-card--dragover': isDragOver,
@@ -66,6 +67,7 @@ import { useNoteStore } from '@/stores/noteStore'
 
 const props = defineProps<{
   note: Note
+  viewMode?: 'card' | 'compact'
   isActive: boolean
   isDragging?: boolean
   isDragOver?: boolean
@@ -262,6 +264,48 @@ function formatDate(timestamp: number): string {
 
     &:hover {
       background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    }
+  }
+
+  &--compact {
+    padding: 8px 10px;
+    border-radius: $radius-md;
+    margin-bottom: 4px;
+    border-width: 1px;
+    contain-intrinsic-size: 0 44px;
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .note-card__status {
+      top: 9px;
+      right: 8px;
+      gap: 4px;
+    }
+
+    .note-card__title {
+      margin-bottom: 2px;
+      padding-right: 26px;
+      font-size: $font-size-sm;
+      font-weight: 500;
+    }
+
+    .note-card__preview {
+      margin-bottom: 0;
+      -webkit-line-clamp: 1;
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    .note-card__footer {
+      margin-top: 4px;
+    }
+
+    .note-card__category {
+      padding: 1px 6px;
+      font-size: 11px;
     }
   }
 }

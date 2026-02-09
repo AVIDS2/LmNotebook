@@ -22,6 +22,22 @@
       
       <div class="note-list__header-actions">
         <button
+          v-if="!collapsed"
+          class="note-list__action-btn"
+          :title="uiStore.noteListViewMode === 'card' ? t('noteList.switchToCompact') : t('noteList.switchToCard')"
+          @click="uiStore.toggleNoteListViewMode"
+        >
+          <svg v-if="uiStore.noteListViewMode === 'card'" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M2 4.5H14M2 8H14M2 11.5H14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="2" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="8.5" y="2" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="2" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+        </button>
+        <button
           class="note-list__action-btn"
           :title="collapsed ? t('noteList.expandList') : t('noteList.collapseList')"
           @click="$emit('toggle-collapse')"
@@ -97,6 +113,7 @@
           v-for="note in visibleNotes"
           :key="note.id"
           :note="note"
+          :view-mode="uiStore.noteListViewMode"
           :is-active="noteStore.currentNote?.id === note.id"
           :is-dragging="draggedNoteId === note.id"
           :is-dragover="dragOverNoteId === note.id"
@@ -122,6 +139,28 @@
         <p>{{ emptyText }}</p>
       </div>
     </div>
+
+    <div v-if="!collapsed" class="note-list__mini-footer">
+      <span class="note-list__mini-label">{{ t('noteList.footerLabel') }}</span>
+      <div class="note-list__mini-actions">
+        <button class="note-list__mini-btn" :title="t('sidebar.newNote')" @click="handleQuickNewNote">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="note-list__mini-btn" :title="t('sidebar.allNotes')" @click="noteStore.setView('all')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M4 5H10M4 8H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="note-list__mini-btn" :title="t('sidebar.pinnedNotes')" @click="noteStore.setView('pinned')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 2L8 4.8L11 5.2L8.8 7.1L9.5 10.4L7 8.8L4.5 10.4L5.2 7.1L3 5.2L6 4.8L7 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -132,8 +171,10 @@ import type { Note } from '@/database/noteRepository'
 import NoteCard from './NoteCard.vue'
 import SearchBar from '@/components/search/SearchBar.vue'
 import { useI18n } from '@/i18n'
+import { useUIStore } from '@/stores/uiStore'
 
 const noteStore = useNoteStore()
+const uiStore = useUIStore()
 const { t } = useI18n()
 defineProps<{
   collapsed?: boolean
@@ -284,6 +325,10 @@ async function handleBatchPermanentDelete() {
 
 async function handleBatchRestore() {
   await noteStore.batchRestore()
+}
+
+async function handleQuickNewNote(): Promise<void> {
+  await noteStore.createNote()
 }
 
 const headerTitle = computed(() => {
@@ -480,6 +525,48 @@ const emptyText = computed(() => {
   flex: 1;
   overflow-y: auto;
   padding: $spacing-sm;
+}
+
+.note-list__mini-footer {
+  height: 42px;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 10px;
+  flex-shrink: 0;
+}
+
+.note-list__mini-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.note-list__mini-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-list__mini-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-light);
+  }
 }
 
 .note-list__virtual-spacer {

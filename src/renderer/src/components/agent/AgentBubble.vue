@@ -31,6 +31,7 @@
       <div 
         v-if="isOpen" 
         class="agent-chat glass-panel" 
+        ref="chatWindowRef"
         :class="{ 
           'maximized': isMaximized,
           'align-left': !isSidebarMode && position.x < windowWidth / 2,
@@ -157,6 +158,40 @@
               <h3>{{ t('agent.welcomeTitle') }}</h3>
               <p>{{ t('agent.welcomeSubtitle') }}</p>
             </div>
+            <div class="agent-chat__hero-cards">
+              <button
+                v-for="card in welcomeCards"
+                :key="card.title"
+                class="hero-card"
+                @click="handleHeroCardClick(card.mode)"
+              >
+                <div class="hero-card__title">{{ card.title }}</div>
+                <div class="hero-card__desc">{{ card.desc }}</div>
+              </button>
+            </div>
+            <Transition name="menu-fade">
+              <div v-if="activeHeroMode" class="hero-action-strip">
+                <div class="hero-action-strip__label">
+                  {{ activeHeroMode === 'explore' ? t('agent.heroExploreActions') : t('agent.heroExecuteActions') }}
+                </div>
+                <div class="hero-action-strip__actions">
+                  <button
+                    v-for="action in activeHeroActions"
+                    :key="action.label"
+                    class="hero-action-btn"
+                    @click="handleHeroAction(action.prompt)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </div>
+              </div>
+            </Transition>
+            <div class="agent-chat__hero-list">
+              <div class="hero-list__label">{{ t('agent.heroListLabel') }}</div>
+              <ul class="hero-list__items">
+                <li v-for="item in welcomeHighlights" :key="item">{{ item }}</li>
+              </ul>
+            </div>
             <div class="agent-chat__suggestions">
               <button
                 v-for="suggestion in suggestions"
@@ -192,12 +227,18 @@
                     <div v-else-if="part.type === 'tool'" 
                          class="tool-part"
                          :class="[`tool-part--${part.status}`]">
-                      <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
-                      <span class="tool-part__name">{{ part.title || part.tool }}</span>
-                      <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
-                      <span v-else-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
-                      <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
-                      <span v-if="part.output && part.status === 'completed'" class="tool-part__output">{{ part.output }}</span>
+                      <span class="tool-part__icon-wrap">
+                        <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
+                      </span>
+                      <div class="tool-part__main">
+                        <div class="tool-part__line">
+                          <span class="tool-part__name" :class="{ 'tool-part__name--running': part.status === 'running' }">{{ part.title || part.tool }}</span>
+                          <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
+                          <span v-else-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
+                          <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
+                        </div>
+                        <span v-if="part.output" class="tool-part__output">{{ formatToolOutput(part.output) }}</span>
+                      </div>
                     </div>
                   </template>
                 </template>
@@ -1370,7 +1411,9 @@ const displayStatusText = computed(() => {
     return t('agent.running')
   }
   if (pendingExecutionApproval.value) {
-    return t('agent.awaitingExecution')
+    // Approval state is already displayed in the approval bar.
+    // Avoid duplicated standalone status bubble.
+    return ''
   }
   return currentStatus.value
 })
@@ -1412,8 +1455,10 @@ function handleGlobalClick(e: MouseEvent) {
 const position = ref({ x: window.innerWidth - 40, y: window.innerHeight - 100 })
 const isDragging = ref(false)
 const isDocked = ref(true)
-const dragOffset = ref({ x: 0, y: 0 })
 const windowWidth = ref(window.innerWidth)
+const dragStartPointer = ref({ x: 0, y: 0 })
+const dragStartPosition = ref({ x: 0, y: 0 })
+const chatWindowRef = ref<HTMLElement | null>(null)
 
 const containerStyle = computed(() => {
   if (isSidebarMode.value && isOpen.value) {
@@ -1433,12 +1478,11 @@ const containerStyle = computed(() => {
 
 function startDrag(e: MouseEvent) {
   if (isMaximized.value || isSidebarMode.value) return
+  e.preventDefault()
   isDragging.value = true
   isDocked.value = false
-  dragOffset.value = {
-    x: e.clientX - position.value.x,
-    y: e.clientY - position.value.y
-  }
+  dragStartPointer.value = { x: e.clientX, y: e.clientY }
+  dragStartPosition.value = { x: position.value.x, y: position.value.y }
   document.addEventListener('mousemove', onDrag)
   document.addEventListener('mouseup', stopDrag)
 }
@@ -1446,8 +1490,8 @@ function startDrag(e: MouseEvent) {
 function onDrag(e: MouseEvent) {
   if (!isDragging.value) return
   position.value = {
-    x: e.clientX - dragOffset.value.x,
-    y: e.clientY - dragOffset.value.y
+    x: dragStartPosition.value.x + (e.clientX - dragStartPointer.value.x),
+    y: dragStartPosition.value.y + (e.clientY - dragStartPointer.value.y)
   }
 }
 
@@ -1455,7 +1499,12 @@ function stopDrag() {
   isDragging.value = false
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
-  snapToEdge()
+  if (isOpen.value) {
+    constrainOpenChatPosition()
+    isDocked.value = false
+  } else {
+    snapToEdge()
+  }
 }
 
 function snapToEdge() {
@@ -1498,6 +1547,16 @@ function handleClick() {
        }, 500)
     }
   }
+}
+
+function constrainOpenChatPosition() {
+  const EDGE_MARGIN = 12
+  const chatWidth = chatWindowRef.value?.offsetWidth || 380
+  const minRightEdge = Math.min(chatWidth + EDGE_MARGIN, window.innerWidth - EDGE_MARGIN)
+  const maxRightEdge = window.innerWidth - EDGE_MARGIN
+
+  if (position.value.x < minRightEdge) position.value.x = minRightEdge
+  if (position.value.x > maxRightEdge) position.value.x = maxRightEdge
 }
 
 // Initial Position setup
@@ -1551,21 +1610,94 @@ onMounted(() => {
   setInterval(() => checkConnection(false), 30000) // Regular heartbeat
   
   window.addEventListener('resize', handleResize)
-  document.addEventListener('mousedown', handleGlobalClick)
+  // Use capture phase so inside-panel @mousedown.stop won't block outside-click detection.
+  document.addEventListener('mousedown', handleGlobalClick, true)
   setTimeout(snapToEdge, 100) // Initial dock
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  document.removeEventListener('mousedown', handleGlobalClick)
+  document.removeEventListener('mousedown', handleGlobalClick, true)
 })
 // ----------------------
 
 const suggestions = computed(() => [
-  locale.value === 'zh-CN' ? '@笔记知识库 查找关于...' : '@Knowledge Base find about...',
-  locale.value === 'zh-CN' ? '帮我写一篇关于...的笔记' : 'Help me write a note about...',
-  locale.value === 'zh-CN' ? '总结一下这篇笔记的要点' : 'Summarize the key points of this note',
-  locale.value === 'zh-CN' ? '整理一下当前笔记的格式' : 'Clean up the formatting of this note'
+  locale.value === 'zh-CN'
+    ? `提炼《${noteStore.currentNote?.title || '当前笔记'}》的 3 条关键结论`
+    : `Extract 3 key takeaways from "${noteStore.currentNote?.title || 'current note'}"`,
+  locale.value === 'zh-CN'
+    ? `为《${noteStore.currentNote?.title || '当前笔记'}》生成结构化摘要草稿（不改原文）`
+    : `Create a structured summary draft for "${noteStore.currentNote?.title || 'current note'}" (no direct edit)`,
+  locale.value === 'zh-CN'
+    ? '检查当前笔记逻辑断点并给出补全建议（不改原文）'
+    : 'Find logic gaps in the current note and propose completion points (no direct edit)',
+  locale.value === 'zh-CN'
+    ? '整理当前笔记格式（会改动原文）'
+    : 'Format current note structure (will edit original)'
+])
+
+const welcomeCards = computed(() => [
+  {
+    title: t('agent.heroCardExploreTitle'),
+    desc: t('agent.heroCardExploreDesc'),
+    mode: 'explore'
+  },
+  {
+    title: t('agent.heroCardSpecTitle'),
+    desc: t('agent.heroCardSpecDesc'),
+    mode: 'execute'
+  }
+])
+
+type HeroMode = 'explore' | 'execute'
+const activeHeroMode = ref<HeroMode | null>(null)
+
+const activeHeroActions = computed(() => {
+  if (activeHeroMode.value === 'explore') {
+    return [
+      {
+        label: t('agent.heroExploreAction1'),
+        prompt: locale.value === 'zh-CN' ? '@笔记知识库 在全库里找与当前主题最相关的 5 条内容' : '@Knowledge Base find top 5 most related notes for current topic'
+      },
+      {
+        label: t('agent.heroExploreAction2'),
+        prompt: locale.value === 'zh-CN' ? '定位当前笔记里最值得保留的关键段落并说明原因' : 'Locate the most valuable paragraphs in current note and explain why'
+      },
+      {
+        label: t('agent.heroExploreAction3'),
+        prompt: locale.value === 'zh-CN' ? '提取当前笔记的术语表（术语+定义+上下文）' : 'Extract glossary from current note (term + definition + context)'
+      }
+    ]
+  }
+  if (activeHeroMode.value === 'execute') {
+    return [
+      {
+        label: t('agent.heroExecuteAction1'),
+        prompt: locale.value === 'zh-CN'
+          ? '基于当前笔记生成结构化改写草稿：背景 / 问题 / 方案 / 结论。仅输出草稿，不直接改动原文。'
+          : 'Generate a structured rewrite draft from the current note: Background / Problem / Solution / Conclusion. Output draft only, do not directly edit the original note.'
+      },
+      {
+        label: t('agent.heroExecuteAction2'),
+        prompt: locale.value === 'zh-CN'
+          ? '把当前内容改写为更专业简洁的企业沟通草稿。仅输出建议版本，不直接改动原文。'
+          : 'Rewrite current content into a concise enterprise communication draft. Output suggestion only, do not directly edit the original note.'
+      },
+      {
+        label: t('agent.heroExecuteAction3'),
+        prompt: locale.value === 'zh-CN'
+          ? '整理当前笔记格式，修复标题层级、列表与段落一致性（会直接改动原文）。'
+          : 'Format the current note and normalize heading levels, lists, and paragraph consistency (this will directly edit the original note).'
+      }
+    ]
+  }
+  return []
+})
+
+const welcomeHighlights = computed(() => [
+  t('agent.heroList1'),
+  t('agent.heroList2'),
+  t('agent.heroList3')
 ])
 
 // Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
@@ -1582,6 +1714,15 @@ const TOOL_ICONS: Record<string, string> = {
 
 function getToolIcon(tool: string): string {
   return TOOL_ICONS[tool] || '●'
+}
+
+function formatToolOutput(output: string): string {
+  const compact = String(output || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact) return ''
+  if (compact.length <= 62) return compact
+  return `${compact.slice(0, 59)}...`
 }
 
 function toggleChat() {
@@ -1623,7 +1764,10 @@ function toggleSidebarMode() {
     isOpen.value = true
     hasUnread.value = false
   } else {
+    // Exiting right sidebar should collapse directly back to the floating bubble.
+    isOpen.value = false
     reanchorFloatingBubble()
+    snapToEdge()
   }
 }
 
@@ -1696,29 +1840,18 @@ const currentSessionId = ref(localStorage.getItem(SESSION_KEY)!)
 // Restore visual UI state for current session on startup
 loadPersistedUiState(currentSessionId.value)
 
-// Watch active note change to reset session
+// Keep conversation session when switching notes/pages.
+// We only persist current UI state, but do NOT rotate session or clear messages.
 watch(() => noteStore.currentNote?.id, (newId, oldId) => {
-    // Only reset if ID actually changed (and isn't just initializing to same value)
     if (newId !== oldId) {
         persistSessionUiState()
-        console.log(`[Agent] Note switched (${oldId} -> ${newId}). Rotating Session ID.`)
-        currentSessionId.value = crypto.randomUUID()
-        localStorage.setItem(SESSION_KEY, currentSessionId.value)
-        messages.value = []
-        pendingApprovals.value = []
-        pendingExecutionApproval.value = null
-        preUpdateSnapshots.value = {}
-        showApprovalPreview.value = false
-        showUnchangedDiff.value = false
-        executionExpanded.value = true
-        persistSessionUiState()
-        // Optional: Insert a system divider in UI?
-        // messages.value.push({ role: 'assistant', content: '*(New Context Loaded)*', timestamp: new Date() })
+        console.log(`[Agent] Note switched (${oldId} -> ${newId}). Keeping current session.`)
     }
 })
 
 // Handle suggestion chip click - fill input if contains "...", otherwise send directly
 function handleSuggestionClick(suggestion: string) {
+  activeHeroMode.value = null
   if (suggestion.includes('...')) {
     // Fill input box and let user complete it
     inputText.value = suggestion
@@ -1738,6 +1871,15 @@ function handleSuggestionClick(suggestion: string) {
     // Send directly
     sendMessage(suggestion)
   }
+}
+
+function handleHeroCardClick(mode: HeroMode): void {
+  activeHeroMode.value = activeHeroMode.value === mode ? null : mode
+}
+
+function handleHeroAction(prompt: string): void {
+  activeHeroMode.value = null
+  sendMessage(prompt)
 }
 
 async function sendMessage(
@@ -2011,6 +2153,18 @@ async function sendMessage(
                                 (includeActiveNote.value ? (noteStore.currentNote?.id || null) : null)
                               touchedNoteId = noteId || touchedNoteId
                               await refreshUpdatedNoteRealtime(noteId, previousContent)
+                          } else if (chunk.tool === 'set_note_category') {
+                              const noteId =
+                                extractNoteIdFromToolInputPreview(toolPart?.inputPreview) ||
+                                pendingExecutionApproval.value?.noteId ||
+                                (includeActiveNote.value ? (noteStore.currentNote?.id || null) : null)
+                              await noteStore.loadNotes({ updateTotalCount: false })
+                              if (noteId && noteStore.currentNote?.id === noteId) {
+                                const latest = await noteRepository.getById(noteId)
+                                if (latest) {
+                                  noteStore.currentNote = latest
+                                }
+                              }
                           }
                       }
                   }
@@ -2258,7 +2412,12 @@ async function handleToolCallEvent(data: any, msg: any) {
         }
       }
     } else if (data.tool_call === 'note_categorized') {
-      await noteStore.loadNotes()
+      const targetNoteId = noteStore.currentNote?.id || null
+      await noteStore.loadNotes({ updateTotalCount: false })
+      if (targetNoteId && noteStore.currentNote?.id === targetNoteId) {
+        const latest = await noteRepository.getById(targetNoteId)
+        if (latest) noteStore.currentNote = latest
+      }
     } else if (data.tool_call === 'note_renamed') {
       // Refresh note list to show new title
       await noteStore.loadNotes()
@@ -2453,6 +2612,13 @@ watch(inputText, () => {
 
 watch(autoAcceptEdits, (enabled) => {
   localStorage.setItem(AUTO_ACCEPT_EDITS_KEY, enabled ? '1' : '0')
+  // Keep behavior consistent: when user switches to auto-accept while a write
+  // approval is already pending, apply it immediately in the same turn.
+  if (enabled && pendingExecutionApproval.value && !approvalBusy.value) {
+    void respondExecutionApproval('approve').catch((err) => {
+      console.warn('[Agent] Auto-approve on toggle failed:', err)
+    })
+  }
 })
 
 watch(isSidebarMode, (enabled) => {
@@ -2517,6 +2683,16 @@ watch(
   --theme-header-bg: rgba(255, 255, 255, 0.5);
   --theme-footer-bg: white;
   --theme-suggestion-bg: #FFFFFF;
+  --theme-surface: #ffffff;
+  --theme-hover: rgba(24, 28, 35, 0.06);
+  --theme-bg-secondary: rgba(248, 245, 241, 0.9);
+  --theme-bg-hover: rgba(244, 240, 235, 0.9);
+  --theme-ring: rgba(217, 125, 84, 0.25);
+  --theme-shadow-soft: 0 18px 48px rgba(26, 18, 11, 0.12);
+  --theme-shadow-strong: 0 24px 60px rgba(26, 18, 11, 0.2);
+  --hero-grad-1: #bf6d43;
+  --hero-grad-2: #d99f62;
+  --hero-grad-3: #80583f;
 
   position: fixed;
   z-index: 9999;
@@ -2538,6 +2714,16 @@ watch(
   --theme-header-bg: rgba(40, 40, 45, 0.8);
   --theme-footer-bg: #232326;
   --theme-suggestion-bg: #2A2A2E;
+  --theme-surface: #2f3035;
+  --theme-hover: rgba(255, 255, 255, 0.08);
+  --theme-bg-secondary: rgba(46, 46, 51, 0.95);
+  --theme-bg-hover: rgba(56, 56, 62, 0.95);
+  --theme-ring: rgba(232, 168, 124, 0.28);
+  --theme-shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.45);
+  --theme-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --hero-grad-1: #f1bb8f;
+  --hero-grad-2: #f0d5a5;
+  --hero-grad-3: #c69266;
 }
 
 /* Classic Theme Override */
@@ -2556,6 +2742,16 @@ watch(
   --theme-header-bg: rgba(255, 255, 255, 1);
   --theme-footer-bg: #FFFFFF;
   --theme-suggestion-bg: #FFFFFF;
+  --theme-surface: #ffffff;
+  --theme-hover: rgba(17, 24, 39, 0.06);
+  --theme-bg-secondary: rgba(248, 249, 251, 0.95);
+  --theme-bg-hover: rgba(240, 244, 248, 0.95);
+  --theme-ring: rgba(217, 125, 84, 0.22);
+  --theme-shadow-soft: 0 16px 38px rgba(15, 23, 42, 0.12);
+  --theme-shadow-strong: 0 20px 52px rgba(15, 23, 42, 0.18);
+  --hero-grad-1: #b76b43;
+  --hero-grad-2: #cc8f57;
+  --hero-grad-3: #6e4c38;
 }
 
 /* Glassmorphism Panel Base */
@@ -2563,8 +2759,8 @@ watch(
   background: var(--theme-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--theme-border);
+  box-shadow: var(--theme-shadow-soft);
 }
 
 /* ===== 馃煝 Bubble: Draggable & Dockable ===== */
@@ -2576,13 +2772,13 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease, background 0.3s ease;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
   
   /* Bubble Style */
   background: var(--theme-bubble-bg);
   color: var(--theme-accent);
   border: 1px solid var(--theme-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 24px rgba(18, 14, 8, 0.18);
 }
 
 /* Dragging State */
@@ -2607,7 +2803,7 @@ watch(
 .agent-bubble--active {
   background: var(--theme-accent) !important;
   color: white !important;
-  box-shadow: 0 4px 12px rgba(217, 125, 84, 0.4);
+  box-shadow: 0 12px 28px rgba(217, 125, 84, 0.45);
 }
 
 .agent-bubble:active {
@@ -2637,7 +2833,7 @@ watch(
   right: 0;
   width: 380px;
   height: 520px;
-  border-radius: 20px;
+  border-radius: 18px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2646,7 +2842,9 @@ watch(
   
   /* Warm Texture with theme support */
   background: var(--theme-bg);
-  transition: background 0.3s ease;
+  transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  border: 1px solid var(--theme-border);
+  box-shadow: var(--theme-shadow-strong);
 }
 
 .agent-container--sidebar {
@@ -2726,7 +2924,7 @@ watch(
 
 /* Header */
 .agent-chat__header {
-  padding: 16px 20px;
+  padding: 12px 14px;
   background: var(--theme-header-bg);
   border-bottom: 1px solid var(--theme-border);
   display: flex;
@@ -2737,23 +2935,38 @@ watch(
 
 .agent-chat__title {
   display: flex; align-items: center; gap: 8px;
-  font-weight: 600;
-  color: var(--theme-text);
-  font-size: 15px;
+  font-weight: 650;
+  font-size: 16px;
 }
-.agent-chat__avatar { font-size: 18px; color: var(--theme-accent); }
-.agent-chat__actions { display: flex; gap: 6px; }
+.agent-chat__title > span:last-child {
+  background: linear-gradient(120deg, var(--hero-grad-1), var(--hero-grad-2), var(--hero-grad-3), var(--hero-grad-2), var(--hero-grad-1));
+  background-size: 220% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: heroGradientFlow 5.2s ease-in-out infinite;
+}
+.agent-chat__avatar { font-size: 17px; color: var(--theme-accent); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 30%, transparent)); }
+.agent-chat__actions { display: flex; gap: 4px; }
 
 /* Header Buttons */
 .header-btn {
-  width: 28px; height: 28px;
-  border: none; background: transparent;
+  width: 30px; height: 30px;
+  border: 1px solid transparent;
+  background: transparent;
   cursor: pointer; color: var(--theme-text-secondary);
-  border-radius: 6px;
+  border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
-  transition: background 0.2s, color 0.2s;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
 }
-.header-btn:hover { background: var(--theme-input-bg); color: var(--theme-text); }
+.header-btn:hover {
+  background: var(--theme-hover);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+.header-btn:active {
+  transform: scale(0.96);
+}
 .header-btn svg { width: 16px; height: 16px; }
 
 /* Status */
@@ -2767,7 +2980,7 @@ watch(
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden; /* Prevent horizontal scroll */
-  padding: 20px;
+  padding: 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2827,40 +3040,269 @@ watch(
 
 /* Welcome Screen */
 .agent-chat__empty {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  height: 100%; text-align: center;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  max-width: 500px;
+  margin: clamp(30px, 6vh, 72px) auto clamp(34px, 8vh, 96px);
+  text-align: center;
+  padding: 0 12px;
+  box-sizing: border-box;
 }
+
 .agent-chat__welcome h3 {
   margin: 0 0 8px;
-  font-family: Georgia, serif; /* Restore Serif */
-  font-weight: normal;
-  font-size: 24px;
-  color: var(--theme-text);
+  font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", sans-serif;
+  font-weight: 580;
+  font-size: clamp(24px, 3.2vw, 30px);
+  letter-spacing: -0.012em;
+  line-height: 1.16;
+  background: linear-gradient(120deg, var(--hero-grad-1), var(--hero-grad-2), var(--hero-grad-3), var(--hero-grad-2), var(--hero-grad-1));
+  background-size: 240% 240%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  max-width: 460px;
+  text-wrap: balance;
+  animation: heroGradientFlow 5.2s ease-in-out infinite;
 }
-.agent-chat__welcome p { margin: 0; color: var(--theme-text-secondary); font-size: 14px; }
-.welcome-icon { font-size: 32px; color: var(--theme-accent); margin-bottom: 16px; display: block; }
+.agent-chat__welcome p {
+  margin: 0;
+  color: color-mix(in srgb, var(--theme-text-secondary) 72%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 430px;
+  text-wrap: pretty;
+}
+.welcome-icon {
+  font-size: 23px;
+  color: var(--theme-accent);
+  margin-bottom: 10px;
+  display: block;
+  opacity: 0.88;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 22%, transparent));
+}
+
+@keyframes heroGradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat__welcome h3 {
+    animation: none;
+    background-position: 50% 50%;
+  }
+  .agent-chat__title > span:last-child {
+    animation: none;
+    background-position: 50% 50%;
+  }
+  .tool-part__name--running {
+    animation: none;
+    background-position: 50% 50%;
+  }
+}
+
+.agent-chat__hero-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-top: 18px;
+}
+
+
+.hero-card {
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  border-radius: 14px;
+  padding: 12px 12px;
+  text-align: left;
+  min-height: 112px;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+
+.hero-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border));
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--theme-accent-light) 50%, var(--theme-surface));
+}
+
+.hero-card__title {
+  font-size: 18px;
+  font-weight: 680;
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text) 22%);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+
+.hero-card__desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--theme-text-secondary) 78%, transparent);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+.hero-action-strip {
+  width: 100%;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.hero-action-strip__label {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-text) 28%);
+  margin-bottom: 6px;
+  padding-left: 4px;
+  font-weight: 600;
+}
+
+.hero-action-strip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hero-action-btn {
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent-light) 58%, var(--theme-surface));
+  color: color-mix(in srgb, var(--theme-text) 82%, var(--theme-accent) 18%);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+
+.hero-action-btn:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent-light) 80%, var(--theme-surface));
+}
+
+.agent-chat__hero-list {
+  width: 100%;
+  margin-top: 10px;
+  padding: 2px 2px 2px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  border-left: 3px solid color-mix(in srgb, var(--theme-accent) 70%, transparent);
+}
+
+
+.hero-list__label {
+  font-size: 13px;
+  color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-text) 28%);
+  font-weight: 620;
+  margin-bottom: 8px;
+  padding-left: 0;
+}
+
+.hero-list__items {
+  padding-left: 16px;
+  padding-top: 0;
+  padding-bottom: 4px;
+  margin: 0;
+  color: color-mix(in srgb, var(--theme-text-secondary) 80%, transparent);
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.48;
+  list-style-position: outside;
+}
+
 
 /* Suggestion Chips */
 .agent-chat__suggestions {
-  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-areas:
+    "chip1 chip1 chip1 chip2 chip2 chip2"
+    "chip3 chip3 chip4 chip4 chip4 chip4";
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
 }
+
+
 .suggestion-chip {
-  background: var(--theme-suggestion-bg);
+  background: color-mix(in srgb, var(--theme-surface) 94%, transparent);
   border: 1px solid var(--theme-border);
-  padding: 6px 12px;
+  min-height: 36px;
+  padding: 8px 11px;
   border-radius: 12px;
-  font-size: 13px;
-  color: var(--theme-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--theme-text-secondary) 78%, transparent);
   cursor: pointer;
-  transition: all 0.2s;
+  text-align: left;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+  display: inline-flex;
+  align-items: center;
+  text-wrap: balance;
 }
+
 .suggestion-chip:hover {
-  border-color: var(--theme-accent);
-  color: var(--theme-accent);
-  background: var(--theme-accent-light);
+  border-color: color-mix(in srgb, var(--theme-accent) 35%, var(--theme-border));
+  color: var(--theme-text);
+  background: color-mix(in srgb, var(--theme-accent-light) 45%, var(--theme-surface));
   transform: translateY(-1px);
+}
+
+.suggestion-chip:nth-child(1) {
+  grid-area: chip1;
+  border-radius: 15px 9px 13px 11px;
+}
+
+.suggestion-chip:nth-child(2) {
+  grid-area: chip2;
+  border-radius: 9px 15px 11px 13px;
+}
+
+.suggestion-chip:nth-child(3) {
+  grid-area: chip3;
+  border-radius: 13px 10px 16px 9px;
+}
+
+.suggestion-chip:nth-child(4) {
+  grid-area: chip4;
+  border-radius: 10px 16px 9px 14px;
+}
+
+@media (max-width: 720px) {
+  .agent-chat__hero-cards {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+  .agent-chat__suggestions {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "chip1"
+      "chip2"
+      "chip3"
+      "chip4";
+    width: 100%;
+  }
+  .hero-card {
+    min-height: 102px;
+  }
+  .hero-card__title {
+    font-size: 16px;
+  }
 }
 
 /* Message Wrapper - Logic for Alignment */
@@ -2939,53 +3381,94 @@ watch(
   overflow-x: auto; /* Allow scrolling for very wide content like code */
 }
 
-/* =========================================
-   Tool Part Styles (OpenCode/Antigravity style)
-   Minimal inline indicators, no prominent UI
-   ========================================= */
+/* Tool Part Styles - layered status card */
 .tool-part {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px 1fr;
   align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  margin: 2px 0;
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  opacity: 0.85;
+  gap: 8px;
+  margin: 5px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 6%, transparent);
 }
 
 .tool-part--running {
-  color: var(--theme-text-secondary);
-}
-
-.tool-part--completed {
-  color: var(--theme-text-secondary);
+  border-color: color-mix(in srgb, var(--theme-accent) 35%, var(--theme-border));
 }
 
 .tool-part--pending {
-  color: #c27c00;
+  border-color: rgba(194, 124, 0, 0.36);
+}
+
+.tool-part--completed {
+  border-color: color-mix(in srgb, var(--theme-border) 70%, #55a86a 30%);
 }
 
 .tool-part--error {
-  color: #e74c3c;
+  border-color: rgba(231, 76, 60, 0.36);
+}
+
+.tool-part__icon-wrap {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--theme-accent-light) 70%, var(--theme-surface));
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 25%, var(--theme-border));
 }
 
 .tool-part__icon {
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.tool-part__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.tool-part__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .tool-part__name {
-  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 530;
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-part__name--running {
+  background: linear-gradient(120deg, var(--hero-grad-1), var(--hero-grad-2), var(--hero-grad-3), var(--hero-grad-2), var(--hero-grad-1));
+  background-size: 220% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: heroGradientFlow 4.8s ease-in-out infinite;
+  font-weight: 560;
 }
 
 .tool-part__spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--theme-border);
-  border-top-color: var(--theme-text-secondary);
-  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border));
+  border-top-color: var(--hero-grad-2);
+  border-radius: 999px;
   animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
 @keyframes spin {
@@ -2993,17 +3476,37 @@ watch(
 }
 
 .tool-part__check {
-  color: var(--theme-text-secondary);
+  color: #55a86a;
   font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .tool-part__pending {
-  font-size: 11px;
-  color: #c27c00;
+  font-size: 10px;
+  color: #9f6b00;
+  border: 1px solid rgba(194, 124, 0, 0.28);
+  background: rgba(194, 124, 0, 0.1);
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.4;
+  flex-shrink: 0;
 }
 
 .tool-part__output {
-  display: none; /* Hide output in minimal style */
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--theme-text-secondary) 90%, transparent);
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-bg-secondary) 72%, transparent);
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Ensure code blocks don't overflow */
@@ -3032,16 +3535,17 @@ watch(
 /* Status Update (Floating & Pulsing) */
 .status-update {
   align-self: flex-start;
-  margin: 5px 0 10px 12px; /* Moved left */
-  padding: 4px 0;
-  background: transparent;
-  border: none;
+  margin: 6px 0 12px 34px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--theme-accent-light) 50%, var(--theme-surface));
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));
+  border-radius: 999px;
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px; /* Even smaller */
+  font-size: 12px;
   color: var(--theme-accent);
-  opacity: 0.8;
+  opacity: 0.95;
   animation: shimmer 2s infinite ease-in-out;
 }
 
@@ -3069,10 +3573,10 @@ watch(
 
 /* ========== Compact & Unified Input Area (v2) ========== */
 .agent-chat__footer {
-  padding: 8px 12px;
+  padding: 10px 12px 12px;
   background: var(--theme-footer-bg);
   border-top: 1px solid var(--theme-border);
-  transition: background 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 /* Responsive footer in maximized mode - match chat area width */
@@ -3101,17 +3605,19 @@ watch(
 .chat-input-unified-box {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
-  padding: 4px 6px;
-  background: var(--theme-input-bg);
-  border-radius: 12px;
-  transition: background 0.2s, box-shadow 0.2s;
+  gap: 6px;
+  padding: 8px 9px;
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: 14px;
+  transition: background 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
   position: relative;
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 8%, transparent);
 }
 
 .chat-input-unified-box:focus-within {
-  background: var(--theme-input-bg);
-  box-shadow: 0 0 0 1px rgba(217, 125, 84, 0.15);
+  border-color: color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border));
+  box-shadow: 0 0 0 3px var(--theme-ring);
 }
 
 /* + Menu Wrapper & Button */
@@ -3123,9 +3629,9 @@ watch(
 }
 
 .menu-trigger-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--theme-text-secondary);
@@ -3143,20 +3649,20 @@ watch(
 }
 
 .menu-trigger-btn svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 /* Redesigned Popup Menu (Smaller) */
 .input-menu-popup {
   position: absolute;
-  bottom: 30px;
+  bottom: 36px;
   left: -4px;
-  min-width: 140px;
-  background: var(--theme-bg-solid);
+  min-width: 170px;
+  background: var(--theme-surface);
   border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-radius: 10px;
+  box-shadow: var(--theme-shadow-soft);
   overflow: hidden;
   z-index: 100;
   padding: 4px;
@@ -3166,11 +3672,11 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.15s;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--theme-text);
 }
 
@@ -3204,13 +3710,13 @@ watch(
 /* Auto-resize Textarea */
 .chat-input-unified-box textarea {
   flex: 1;
-  min-height: 24px;
+  min-height: 26px;
   max-height: 120px;
-  padding: 4px 4px;
+  padding: 4px 2px;
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   resize: none;
   outline: none;
@@ -3221,13 +3727,13 @@ watch(
 .chat-input-unified-box textarea::placeholder {
   color: var(--theme-text-secondary);
   opacity: 0.6;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Compact Send/Stop Buttons */
 .send-btn-compact, .stop-btn-compact {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   border: none;
   cursor: pointer;
@@ -3255,8 +3761,8 @@ watch(
 }
 
 .send-btn-compact svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 .stop-btn-compact {
@@ -3273,14 +3779,14 @@ watch(
 /* Note Selector Dropdown (Even smaller) */
 .note-selector-dropdown {
   position: absolute;
-  bottom: 30px;
+  bottom: 36px;
   left: -4px;
-  width: 180px;
+  width: 220px;
   max-height: 200px;
-  background: var(--theme-bg-solid);
+  background: var(--theme-surface);
   border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-radius: 10px;
+  box-shadow: var(--theme-shadow-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3288,8 +3794,8 @@ watch(
 }
 
 .selector-header {
-  padding: 6px 10px;
-  font-size: 9px;
+  padding: 8px 10px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--theme-text-secondary);
   text-transform: uppercase;
@@ -3304,7 +3810,7 @@ watch(
 }
 
 .selector-item {
-  padding: 5px 8px;
+  padding: 8px 9px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3319,7 +3825,7 @@ watch(
 
 .item-icon { font-size: 11px; }
 .item-title {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--theme-text);
   white-space: nowrap;
   overflow: hidden;
@@ -3335,12 +3841,12 @@ watch(
 
 /* Context Bar (Mini Pills) */
 .agent-chat__context-bar {
-  padding: 2px 12px 4px;
+  padding: 6px 12px 8px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 6px;
 }
 
 .agent-chat__context-bar + .agent-chat__context-bar {
@@ -3354,19 +3860,21 @@ watch(
 .agent-chat__context-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .context-pill {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 9px;
-  background: var(--theme-input-bg);
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  border: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 90%, transparent);
   color: var(--theme-text-secondary);
-  max-width: 120px;
+  max-width: 220px;
 }
 
 .mentioned-pill {
@@ -3416,8 +3924,8 @@ watch(
 }
 
 .eye-svg, .pill-svg {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
 }
 
@@ -3446,10 +3954,15 @@ watch(
 .agent-approval-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px 6px;
-  font-size: 11px;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
   color: var(--theme-text-secondary);
+  margin: 0 12px 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 94%, transparent);
+  flex-wrap: wrap;
 }
 
 .agent-approval-bar__label {
@@ -3461,20 +3974,32 @@ watch(
 
 .agent-approval-btn {
   border: 1px solid var(--theme-border);
-  background: var(--theme-bg-solid);
+  background: var(--theme-surface);
   color: var(--theme-text);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+}
+
+.agent-approval-btn:hover:not(:disabled) {
+  background: var(--theme-hover);
+}
+
+.agent-approval-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .agent-approval-btn--accept {
-  border-color: rgba(16, 185, 129, 0.35);
+  border-color: rgba(16, 185, 129, 0.42);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .agent-approval-btn--reject {
-  border-color: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.42);
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .agent-approval-btn:disabled {
@@ -3483,33 +4008,36 @@ watch(
 }
 
 .agent-approval-preview {
-  border-top: 1px solid var(--theme-border);
-  margin: 0 12px 6px;
-  padding-top: 8px;
+  border: 1px solid var(--theme-border);
+  margin: 0 12px 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
 }
 
 .agent-task-card {
-  margin: 0 12px 6px;
-  padding: 8px;
+  margin: 0 12px 8px;
+  padding: 10px;
   border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  background: var(--theme-bg-solid);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
 }
 
 .agent-task-card__title {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
   color: var(--theme-text);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .agent-task-card__row {
   display: grid;
-  grid-template-columns: 70px 1fr;
+  grid-template-columns: 78px 1fr;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--theme-text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .agent-task-card__row + .agent-task-card__row {
@@ -3517,10 +4045,10 @@ watch(
 }
 
 .agent-execution-panel {
-  margin: 0 12px 6px;
+  margin: 0 12px 8px;
   border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  background: var(--theme-bg-solid);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
   overflow: hidden;
 }
 
@@ -3529,13 +4057,13 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--theme-border);
 }
 
 .agent-execution-panel__title {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
   color: var(--theme-text);
 }
 
@@ -3549,9 +4077,9 @@ watch(
   grid-template-columns: 56px 1fr auto;
   gap: 8px;
   align-items: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--theme-text-secondary);
-  padding: 6px 8px;
+  padding: 7px 10px;
   border-top: 1px solid var(--theme-border);
 }
 
@@ -3586,9 +4114,9 @@ watch(
 }
 
 .agent-approval-preview__summary {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--theme-text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .agent-approval-preview__title-row {
@@ -3683,8 +4211,27 @@ watch(
 }
 
 .agent-approval-preview__title {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--theme-text-secondary);
+}
+
+@media (max-width: 880px) {
+  .agent-chat__header {
+    padding: 10px 11px;
+  }
+  .agent-chat__title {
+    font-size: 15px;
+  }
+  .header-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .agent-chat__messages {
+    padding: 14px 12px;
+  }
+  .context-pill {
+    max-width: 100%;
+  }
 }
 
 /* Shallow Glass override */
