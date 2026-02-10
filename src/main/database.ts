@@ -1,10 +1,9 @@
-import Database from 'better-sqlite3'
+﻿import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, unlinkSync } from 'fs'
 import { writeFileSync, readFileSync } from 'fs'
 
-// ==================== 配置管理 ====================
 
 interface AppConfig {
     dataDirectory: string
@@ -15,7 +14,6 @@ interface AppConfig {
 
 const CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
 
-// 默认配置
 function getDefaultConfig(): AppConfig {
     const defaultDataPath = join(app.getPath('documents'), 'OriginNotes')
     return {
@@ -26,7 +24,6 @@ function getDefaultConfig(): AppConfig {
     }
 }
 
-// 加载配置
 function loadConfig(): AppConfig {
     try {
         if (existsSync(CONFIG_FILE)) {
@@ -40,7 +37,6 @@ function loadConfig(): AppConfig {
     return getDefaultConfig()
 }
 
-// 保存配置
 export function saveConfig(config: Partial<AppConfig>): AppConfig {
     const current = loadConfig()
     const updated = { ...current, ...config }
@@ -52,22 +48,18 @@ export function saveConfig(config: Partial<AppConfig>): AppConfig {
     return updated
 }
 
-// 获取当前配置
 export function getConfig(): AppConfig {
     return loadConfig()
 }
 
-// 获取默认数据目录
 export function getDefaultDataDirectory(): string {
     return join(app.getPath('documents'), 'OriginNotes')
 }
 
-// ==================== 数据库初始化 ====================
 
 const config = loadConfig()
 const appDataPath = config.dataDirectory
 
-// 确保目录存在
 if (!existsSync(appDataPath)) {
     mkdirSync(appDataPath, { recursive: true })
 }
@@ -75,17 +67,13 @@ if (!existsSync(appDataPath)) {
 const dbPath = join(appDataPath, 'notes.db')
 console.log('Database path:', dbPath)
 
-// 创建数据库连接
 const db = new Database(dbPath)
 
-// 启用外键约束和性能优化
 db.pragma('foreign_keys = ON')
-db.pragma('journal_mode = WAL')  // 写入性能优化
-db.pragma('synchronous = NORMAL')  // 平衡安全和性能
+db.pragma('journal_mode = WAL')
+db.pragma('synchronous = NORMAL')
 
-// 初始化表结构
 function initDatabase(): void {
-    // 创建笔记表
     db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id TEXT PRIMARY KEY,
@@ -103,7 +91,6 @@ function initDatabase(): void {
     )
   `)
 
-    // 创建分类表
     db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
@@ -113,21 +100,16 @@ function initDatabase(): void {
     )
   `)
 
-    // 为旧数据库添加 order 列
     try {
         db.exec('ALTER TABLE notes ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0')
     } catch (e) {
-        // 列已经存在
     }
 
-    // 为旧数据库添加 isLocked 列
     try {
         db.exec('ALTER TABLE notes ADD COLUMN isLocked INTEGER NOT NULL DEFAULT 0')
     } catch (e) {
-        // 列已经存在
     }
 
-    // 创建索引（优化查询性能）
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_notes_categoryId ON notes(categoryId);
     CREATE INDEX IF NOT EXISTS idx_notes_isPinned ON notes(isPinned);
@@ -137,7 +119,6 @@ function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_notes_order ON notes("order");
   `)
 
-    // 初始化默认分类
     const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number }
     if (categoryCount.count === 0) {
         const insertCategory = db.prepare(
@@ -151,7 +132,6 @@ function initDatabase(): void {
     console.log('Database initialized successfully')
 }
 
-// 笔记类型定义
 export interface Note {
     id: string
     title: string
@@ -159,8 +139,8 @@ export interface Note {
     plainText: string
     markdownSource: string | null
     categoryId: string | null
-    isPinned: number  // SQLite 用 0/1 表示布尔
-    isLocked: number  // 加锁状态
+    isPinned: number
+    isLocked: number
     isDeleted: number
     deletedAt: number | null
     createdAt: number
@@ -168,7 +148,6 @@ export interface Note {
     order: number
 }
 
-// 分类类型定义
 export interface Category {
     id: string
     name: string
@@ -176,7 +155,6 @@ export interface Category {
     order: number
 }
 
-// ==================== 笔记操作 ====================
 
 export function getAllNotes(): Note[] {
     return db.prepare('SELECT * FROM notes WHERE isDeleted = 0 ORDER BY isPinned DESC, "order" ASC, updatedAt DESC').all() as Note[]
@@ -301,6 +279,19 @@ export function searchNotes(query: string): Note[] {
   `).all(pattern, pattern) as Note[]
 }
 
+export function countNonEmptyNotes(): number {
+    const row = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM notes
+    WHERE isDeleted = 0
+      AND (
+        length(trim(title)) > 0
+        OR length(trim(plainText)) > 0
+      )
+  `).get() as { count: number }
+    return row.count
+}
+
 function escapeLike(input: string): string {
     return input.replace(/[\\%_]/g, '\\$&')
 }
@@ -325,7 +316,6 @@ export function getBacklinkNotes(noteId: string, noteTitle: string, limit: numbe
   `).all(noteId, strictPattern, strictPattern, strictPattern, safeLimit) as Note[]
 }
 
-// ==================== 分类操作 ====================
 
 export function getAllCategories(): Category[] {
     return db.prepare('SELECT * FROM categories ORDER BY "order" ASC').all() as Category[]
@@ -373,13 +363,10 @@ export function updateCategory(id: string, updates: Partial<Category>): Category
 }
 
 export function deleteCategory(id: string): void {
-    // 先将该分类下的笔记设为无分类
     db.prepare('UPDATE notes SET categoryId = NULL WHERE categoryId = ?').run(id)
-    // 删除分类
     db.prepare('DELETE FROM categories WHERE id = ?').run(id)
 }
 
-// ==================== 导入导出 ====================
 
 export function exportAllData(): { notes: Note[]; categories: Category[] } {
     return {
@@ -390,11 +377,9 @@ export function exportAllData(): { notes: Note[]; categories: Category[] } {
 
 export function importData(data: { notes: Note[]; categories: Category[] }): void {
     const transaction = db.transaction(() => {
-        // 清空现有数据
         db.prepare('DELETE FROM notes').run()
         db.prepare('DELETE FROM categories').run()
 
-        // 导入分类
         const insertCategory = db.prepare(
             'INSERT INTO categories (id, name, color, "order") VALUES (?, ?, ?, ?)'
         )
@@ -402,7 +387,6 @@ export function importData(data: { notes: Note[]; categories: Category[] }): voi
             insertCategory.run(cat.id, cat.name, cat.color, cat.order)
         }
 
-        // 导入笔记
         const insertNote = db.prepare(`
       INSERT INTO notes (id, title, content, plainText, markdownSource, categoryId, isPinned, isDeleted, deletedAt, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -427,7 +411,6 @@ export function importData(data: { notes: Note[]; categories: Category[] }): voi
     transaction()
 }
 
-// ==================== 备份功能 ====================
 
 export interface BackupInfo {
     filename: string
@@ -436,12 +419,10 @@ export interface BackupInfo {
     createdAt: number
 }
 
-// 创建备份
 export function createBackup(customPath?: string): BackupInfo | null {
     const cfg = loadConfig()
     const backupDir = customPath || cfg.backupDirectory
     
-    // 确保备份目录存在
     if (!existsSync(backupDir)) {
         mkdirSync(backupDir, { recursive: true })
     }
@@ -451,14 +432,11 @@ export function createBackup(customPath?: string): BackupInfo | null {
     const backupPath = join(backupDir, filename)
     
     try {
-        // 使用 copyFileSync 复制数据库文件（同步方式）
-        // 先执行 checkpoint 确保 WAL 数据写入主文件
         db.pragma('wal_checkpoint(TRUNCATE)')
         copyFileSync(dbPath, backupPath)
         
         const stats = statSync(backupPath)
         
-        // 清理旧备份
         cleanupOldBackups(backupDir, cfg.maxBackups)
         
         return {
@@ -473,7 +451,6 @@ export function createBackup(customPath?: string): BackupInfo | null {
     }
 }
 
-// 获取备份列表
 export function getBackupList(): BackupInfo[] {
     const cfg = loadConfig()
     const backupDir = cfg.backupDirectory
@@ -504,20 +481,16 @@ export function getBackupList(): BackupInfo[] {
     }
 }
 
-// 从备份恢复
 export function restoreFromBackup(backupPath: string): boolean {
     if (!existsSync(backupPath)) {
         return false
     }
     
     try {
-        // 先关闭当前数据库连接
         db.close()
         
-        // 复制备份文件覆盖当前数据库
         copyFileSync(backupPath, dbPath)
         
-        // 重新打开数据库（需要重启应用）
         return true
     } catch (e) {
         console.error('Restore failed:', e)
@@ -525,7 +498,6 @@ export function restoreFromBackup(backupPath: string): boolean {
     }
 }
 
-// 清理旧备份
 function cleanupOldBackups(backupDir: string, maxBackups: number): void {
     try {
         const files = readdirSync(backupDir)
@@ -537,7 +509,6 @@ function cleanupOldBackups(backupDir: string, maxBackups: number): void {
             }))
             .sort((a, b) => b.mtime - a.mtime)
         
-        // 删除超出数量限制的旧备份
         if (files.length > maxBackups) {
             for (let i = maxBackups; i < files.length; i++) {
                 unlinkSync(files[i].path)
@@ -549,9 +520,7 @@ function cleanupOldBackups(backupDir: string, maxBackups: number): void {
     }
 }
 
-// ==================== 数据目录迁移 ====================
 
-// 递归复制目录
 function copyDirectorySync(src: string, dest: string): void {
     if (!existsSync(src)) return
     
@@ -573,7 +542,6 @@ function copyDirectorySync(src: string, dest: string): void {
 }
 
 export function migrateDataDirectory(newPath: string): { success: boolean; error?: string } {
-    // 重新读取当前配置，获取实际的源目录
     const currentConfig = loadConfig()
     const oldPath = currentConfig.dataDirectory
     
@@ -584,17 +552,14 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
     }
     
     try {
-        // 确保新目录存在
         if (!existsSync(newPath)) {
             mkdirSync(newPath, { recursive: true })
         }
         
-        // 1. 迁移数据库文件
         const oldDbPath = join(oldPath, 'notes.db')
         const newDbPath = join(newPath, 'notes.db')
         console.log('Copying database:', oldDbPath, '->', newDbPath)
         if (existsSync(oldDbPath)) {
-            // 先执行 checkpoint 确保数据完整
             db.pragma('wal_checkpoint(TRUNCATE)')
             copyFileSync(oldDbPath, newDbPath)
             console.log('Database copied successfully')
@@ -602,7 +567,6 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
             console.log('Source database not found:', oldDbPath)
         }
         
-        // 2. 迁移向量目录 (RAG 索引)
         const oldVectorsPath = join(oldPath, 'vectors')
         const newVectorsPath = join(newPath, 'vectors')
         console.log('Copying vectors:', oldVectorsPath, '->', newVectorsPath)
@@ -613,7 +577,6 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
             console.log('Source vectors not found:', oldVectorsPath)
         }
         
-        // 3. 迁移模型配置
         const oldModelsPath = join(oldPath, 'models.json')
         const newModelsPath = join(newPath, 'models.json')
         console.log('Copying models.json:', oldModelsPath, '->', newModelsPath)
@@ -624,7 +587,6 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
             console.log('Source models.json not found:', oldModelsPath)
         }
         
-        // 4. 迁移图片目录
         const oldImagesPath = join(oldPath, 'images')
         const newImagesPath = join(newPath, 'images')
         console.log('Copying images:', oldImagesPath, '->', newImagesPath)
@@ -635,7 +597,6 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
             console.log('Source images not found:', oldImagesPath)
         }
         
-        // 更新配置
         saveConfig({ 
             dataDirectory: newPath,
             backupDirectory: join(newPath, 'backups')
@@ -650,7 +611,6 @@ export function migrateDataDirectory(newPath: string): { success: boolean; error
     }
 }
 
-// 获取数据库统计信息
 export function getDatabaseStats(): { noteCount: number; categoryCount: number; dbSize: number } {
     const noteCount = (db.prepare('SELECT COUNT(*) as count FROM notes WHERE isDeleted = 0').get() as { count: number }).count
     const categoryCount = (db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number }).count
@@ -659,14 +619,11 @@ export function getDatabaseStats(): { noteCount: number; categoryCount: number; 
     try {
         dbSize = statSync(dbPath).size
     } catch (e) {
-        // ignore
     }
     
     return { noteCount, categoryCount, dbSize }
 }
 
-// 初始化数据库
 initDatabase()
 
-// 导出数据库路径（用于显示给用户）
 export { dbPath, appDataPath }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer } from 'electron'
 
 // 暴露给渲染进程的 API
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 平台信息
   platform: process.platform,
 
-  // ==================== SQLite 数据�?API ====================
+  // ==================== SQLite Data API ====================
   db: {
     // 笔记操作
     getAllNotes: () => ipcRenderer.invoke('db-get-all-notes'),
@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     permanentDeleteNote: (id: string) => ipcRenderer.invoke('db-permanent-delete-note', id),
     cleanupOldDeleted: (daysAgo?: number) => ipcRenderer.invoke('db-cleanup-old-deleted', daysAgo),
     searchNotes: (query: string) => ipcRenderer.invoke('db-search-notes', query),
+    countNonEmptyNotes: () => ipcRenderer.invoke('db-count-non-empty-notes'),
     getBacklinkNotes: (noteId: string, noteTitle: string, limit?: number) =>
       ipcRenderer.invoke('db-get-backlink-notes', noteId, noteTitle, limit),
 
@@ -50,7 +51,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     importData: (data: { notes: unknown[]; categories: unknown[] }) =>
       ipcRenderer.invoke('db-import-data', data),
 
-    // 获取数据库路�?    getPath: () => ipcRenderer.invoke('db-get-path'),
+    // Get database file path
+    getPath: () => ipcRenderer.invoke('db-get-path'),
     
     // 获取数据目录路径
     getDataPath: () => ipcRenderer.invoke('db-get-data-path'),
@@ -58,10 +60,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 获取默认数据目录
     getDefaultDataPath: () => ipcRenderer.invoke('db-get-default-data-path'),
     
-    // 获取数据库统�?    getStats: () => ipcRenderer.invoke('db-get-stats')
+    // Get database stats
+    getStats: () => ipcRenderer.invoke('db-get-stats')
   },
 
-  // ==================== 配置和备�?API ====================
+  // ==================== Config and Backup API ====================
   config: {
     get: () => ipcRenderer.invoke('config-get'),
     save: (config: Record<string, unknown>) => ipcRenderer.invoke('config-save', config)
@@ -98,3 +101,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ==================== 导出 API ====================
   exportPdf: (htmlContent: string) => ipcRenderer.invoke('export-pdf', htmlContent)
 })
+

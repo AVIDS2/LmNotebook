@@ -97,6 +97,20 @@ export async function searchNotes(query: string): Promise<Note[]> {
     return notes.map(convertNote)
 }
 
+export async function countNonEmptyNotes(): Promise<number> {
+    try {
+        return await window.electronAPI.db.countNonEmptyNotes()
+    } catch (error) {
+        // Fallback for older main-process builds where the IPC handler is not yet registered.
+        const notes = await getAllNotes()
+        return notes.filter((note) => {
+            const hasTitle = Boolean(note.title && note.title.trim())
+            const hasText = Boolean(note.plainText && note.plainText.trim())
+            return hasTitle || hasText
+        }).length
+    }
+}
+
 export async function getBacklinkNotes(noteId: string, noteTitle: string, limit?: number): Promise<Note[]> {
     const notes = await window.electronAPI.db.getBacklinkNotes(noteId, noteTitle, limit)
     return notes.map(convertNote)

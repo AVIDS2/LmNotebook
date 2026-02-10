@@ -59,11 +59,18 @@ watch(() => noteStore.currentView, () => {
 .search-bar {
   display: flex;
   align-items: center;
-  gap: $spacing-sm;
-  padding: $spacing-sm $spacing-md;
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border-light);
-  transition: background-color 0.3s ease;
+  gap: 8px;
+  margin: 8px 10px 6px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 92%, var(--color-bg-primary));
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: 12px;
+  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+
+  &:focus-within {
+    border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
 }
 
 .search-bar__icon {
@@ -88,18 +95,19 @@ watch(() => noteStore.currentView, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 50%;
-  background: var(--color-bg-hover);
+  width: 22px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-primary) 94%, transparent);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background-color $transition-fast, color $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, border-color $transition-fast;
 
   &:hover {
     background: var(--color-bg-active);
     color: var(--color-text-primary);
+    border-color: var(--color-border);
   }
 }
 </style>

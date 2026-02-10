@@ -18,7 +18,7 @@
               'dragover': dragOverId === p.id && !p.isActive
             }"
             draggable="true"
-            @click="selectedProvider = p"
+            @click="selectProvider(p)"
             @dragstart="handleDragStart($event, p.id, p.isActive)"
             @dragover.prevent="handleDragOver($event, p.id, p.isActive)"
             @dragleave="handleDragLeave"
@@ -84,8 +84,20 @@
           </div>
 
           <div class="form-group">
-            <label>模型名称</label>
-            <input v-model="selectedProvider.modelName" placeholder="例如: deepseek-chat, gpt-4o..." />
+            <label>模型列表（同一提供商可配置多个）</label>
+            <textarea
+              v-model="modelsText"
+              class="model-list-textarea"
+              placeholder="每行一个模型名，例如：&#10;qwen-flash&#10;qwen-plus&#10;gpt-4o-mini"
+            />
+            <span class="hint">每行一个模型名称；保存后可在对话框中直接切换。</span>
+          </div>
+
+          <div class="form-group">
+            <label>默认模型（活动模型）</label>
+            <select v-model="selectedProvider.activeModel">
+              <option v-for="model in parsedModels" :key="model" :value="model">{{ model }}</option>
+            </select>
           </div>
         </div>
 
@@ -106,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 
 const props = defineProps<{
   backendUrl: string
@@ -120,6 +132,8 @@ interface Provider {
   baseUrl: string
   apiKey: string
   modelName: string
+  models?: string[]
+  activeModel?: string
   isActive: boolean
 }
 
@@ -127,6 +141,7 @@ const providers = ref<Provider[]>([])
 const selectedProvider = ref<Provider | null>(null)
 const isNew = ref(false)
 const showKey = ref(false)
+const modelsText = ref('')
 
 // Drag and Drop state
 const draggedId = ref<string | null>(null)
@@ -135,8 +150,40 @@ const dragOverId = ref<string | null>(null)
 const isValid = computed(() => {
   if (!selectedProvider.value) return false
   const p = selectedProvider.value
-  return p.name && p.baseUrl && p.apiKey && p.modelName
+  return !!(p.name && p.baseUrl && p.apiKey && parsedModels.value.length > 0 && p.activeModel)
 })
+
+const parsedModels = computed(() => {
+  return modelsText.value
+    .split('\n')
+    .map(m => m.trim())
+    .filter(Boolean)
+})
+
+function normalizeProvider(raw: Provider): Provider {
+  const models = Array.isArray(raw.models) && raw.models.length
+    ? raw.models.map(m => String(m).trim()).filter(Boolean)
+    : (raw.modelName ? [raw.modelName] : [])
+  const uniqModels = Array.from(new Set(models))
+  const activeModel = raw.activeModel && uniqModels.includes(raw.activeModel)
+    ? raw.activeModel
+    : (raw.modelName && uniqModels.includes(raw.modelName) ? raw.modelName : (uniqModels[0] || ''))
+  return {
+    ...raw,
+    models: uniqModels,
+    activeModel,
+    modelName: activeModel || raw.modelName
+  }
+}
+
+function syncModelsTextFromProvider() {
+  if (!selectedProvider.value) {
+    modelsText.value = ''
+    return
+  }
+  const models = selectedProvider.value.models || (selectedProvider.value.modelName ? [selectedProvider.value.modelName] : [])
+  modelsText.value = models.join('\n')
+}
 
 async function fetchProviders() {
   try {
@@ -151,14 +198,21 @@ async function fetchProviders() {
     
     // 🔝 Sticky Active: Ensure active provider is ALWAYS at the top
     // For non-active items, preserve original order (stable sort)
-    providers.value = rawProviders.sort((a, b) => {
+    providers.value = rawProviders.map(normalizeProvider).sort((a, b) => {
       if (a.isActive && !b.isActive) return -1
       if (!a.isActive && b.isActive) return 1
       return 0
     })
 
-    if (providers.value.length > 0 && !selectedProvider.value) {
-      selectedProvider.value = JSON.parse(JSON.stringify(providers.value.find(p => p.isActive) || providers.value[0]))
+    if (providers.value.length > 0) {
+      if (selectedProvider.value) {
+        const matched = providers.value.find(p => p.id === selectedProvider.value?.id)
+        if (matched) {
+          selectProvider(matched)
+          return
+        }
+      }
+      selectProvider(providers.value.find(p => p.isActive) || providers.value[0])
     }
   } catch (e) {
     console.error('Failed to fetch providers:', e)
@@ -175,12 +229,33 @@ function addNewProvider() {
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     modelName: 'gpt-4o-mini',
+    models: ['gpt-4o-mini'],
+    activeModel: 'gpt-4o-mini',
     isActive: false
   }
+  syncModelsTextFromProvider()
+}
+
+function selectProvider(provider: Provider) {
+  selectedProvider.value = JSON.parse(JSON.stringify(normalizeProvider(provider)))
+  syncModelsTextFromProvider()
+  isNew.value = false
 }
 
 async function saveProvider() {
   if (!selectedProvider.value) return
+  const models = parsedModels.value
+  if (models.length === 0) return
+
+  const activeModel = selectedProvider.value.activeModel && models.includes(selectedProvider.value.activeModel)
+    ? selectedProvider.value.activeModel
+    : models[0]
+  const payload = {
+    ...selectedProvider.value,
+    models,
+    activeModel,
+    modelName: activeModel
+  }
   
   const url = isNew.value 
     ? `${props.backendUrl}/api/models/providers` 
@@ -192,7 +267,7 @@ async function saveProvider() {
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selectedProvider.value)
+      body: JSON.stringify(payload)
     })
     
     if (res.ok) {
@@ -275,6 +350,15 @@ function handleDragEnd() {
   draggedId.value = null
   dragOverId.value = null
 }
+
+watch(parsedModels, (models) => {
+  if (!selectedProvider.value) return
+  selectedProvider.value.models = models
+  if (!selectedProvider.value.activeModel || !models.includes(selectedProvider.value.activeModel)) {
+    selectedProvider.value.activeModel = models[0] || ''
+  }
+  selectedProvider.value.modelName = selectedProvider.value.activeModel || ''
+})
 
 onMounted(fetchProviders)
 </script>
@@ -545,7 +629,31 @@ onMounted(fetchProviders)
   transition: border-color 0.2s, background 0.3s ease;
 }
 
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--theme-input-bg);
+  color: var(--theme-text);
+  outline: none;
+  transition: border-color 0.2s, background 0.3s ease;
+}
+
+.model-list-textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
 .form-group input:focus {
+  border-color: var(--theme-accent);
+}
+
+.form-group textarea:focus,
+.form-group select:focus {
   border-color: var(--theme-accent);
 }
 

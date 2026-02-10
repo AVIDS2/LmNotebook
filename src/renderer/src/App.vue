@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-container" :style="{ '--agent-sidebar-width': `${uiStore.agentSidebarWidth}px` }">
     <!-- 自定义标题栏 -->
     <header class="titlebar" @dblclick="handleMaximize">
@@ -6,23 +6,6 @@
       <div class="titlebar__title">Origin Notes</div>
       <div class="titlebar__controls">
         <template v-if="!showStartupPage">
-          <button
-            class="titlebar__utility-btn"
-            @click.stop="forceShowStartup = !forceShowStartup"
-            :title="forceShowStartup ? t('app.exitStartupPreview') : t('app.previewStartup')"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </button>
-          <button
-            class="titlebar__utility-btn titlebar__layout-btn"
-            @click.stop="handleCycleLayoutPreset"
-            :title="t('app.layout.cycleTitle')"
-          >
-            {{ layoutPresetLabel }}
-          </button>
           <button
             class="titlebar__utility-btn titlebar__locale-btn"
             @click.stop="toggleLocale"
@@ -115,7 +98,7 @@
       </div>
 
       <div class="panel panel--editor">
-        <NoteEditor :key="noteStore.currentNote?.id || 'empty'" />
+        <NoteEditor />
       </div>
     </main>
 
@@ -150,27 +133,13 @@ const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
 const { t, locale, toggleLocale } = useI18n()
-const layoutPresetLabel = computed(() => {
-  if (locale.value === 'zh-CN') {
-    if (uiStore.layoutPreset === 'writing') return '写'
-    if (uiStore.layoutPreset === 'balanced') return '衡'
-    if (uiStore.layoutPreset === 'research') return '研'
-    return '自'
-  }
-  if (uiStore.layoutPreset === 'writing') return 'W'
-  if (uiStore.layoutPreset === 'balanced') return 'B'
-  if (uiStore.layoutPreset === 'research') return 'R'
-  return 'C'
-})
 const isAgentSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
 const isBootstrapped = ref(false)
-const forceShowStartup = ref(false)
 const showStartupPage = computed(() =>
   shouldShowStartupPage({
     isBootstrapped: isBootstrapped.value,
     totalNotesCount: noteStore.totalNotesCount,
-    hasCurrentNote: !!noteStore.currentNote,
-    forceShow: forceShowStartup.value
+    hasCurrentNote: !!noteStore.currentNote
   })
 )
 const syncAgentSidebarMode = () => {
@@ -178,12 +147,6 @@ const syncAgentSidebarMode = () => {
 }
 const applyAdaptiveLayout = () => {
   uiStore.adaptLayoutForViewport(window.innerWidth, isAgentSidebarMode.value)
-}
-const handleCycleLayoutPreset = () => {
-  uiStore.cycleLayoutPreset({
-    viewportWidth: window.innerWidth,
-    hasAgentSidebar: isAgentSidebarMode.value
-  })
 }
 const toggleNoteListPanel = () => {
   uiStore.toggleNoteListCollapsed()
@@ -309,7 +272,6 @@ function handleClose(): void {
 }
 
 async function handleCreateFirstNote(): Promise<void> {
-  forceShowStartup.value = false
   await noteStore.createNote()
 }
 
@@ -449,11 +411,17 @@ watch(isAgentSidebarMode, () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.16s ease, border-color 0.16s ease;
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.12s ease;
 
     &:hover {
       background: var(--color-bg-hover);
       border-color: var(--color-border);
+      color: var(--color-text-primary);
+      transform: translateY(-1px);
+    }
+
+    &:active {
+      transform: translateY(0);
     }
 
     &--active {
@@ -486,10 +454,16 @@ watch(isAgentSidebarMode, () => {
     background: transparent;
     color: var(--color-text-secondary);
     cursor: pointer;
-    transition: background $transition-fast, color $transition-fast;
+    border-radius: 8px;
+    transition: background $transition-fast, color $transition-fast, transform 0.12s ease;
 
     &:hover {
       background: var(--color-bg-hover);
+      transform: translateY(-1px);
+    }
+
+    &:active {
+      transform: translateY(0);
     }
 
     &--close:hover {
@@ -520,8 +494,7 @@ watch(isAgentSidebarMode, () => {
   flex: 1;
   overflow: hidden;
   display: flex;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-primary) 90%, #000 10%) 0%, var(--color-bg-primary) 100%);
+  background: var(--color-bg-primary);
 }
 
 .panel {
@@ -548,7 +521,7 @@ watch(isAgentSidebarMode, () => {
   position: absolute;
   top: 0;
   right: 0;
-  width: 4px;
+  width: 5px;
   height: 100%;
   cursor: col-resize;
   z-index: 100;
@@ -560,13 +533,13 @@ watch(isAgentSidebarMode, () => {
     right: 0;
     width: 1px;
     height: 100%;
-    background: var(--color-border-light);
-    transition: width 0.15s ease, background-color 0.15s ease;
+    background: color-mix(in srgb, var(--color-border) 52%, transparent);
+    transition: width 0.14s ease, background-color 0.14s ease;
   }
 
   &:hover::after {
-    width: 3px;
-    background: var(--color-accent);
+    width: 2px;
+    background: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
   }
 }
 
@@ -580,7 +553,7 @@ watch(isAgentSidebarMode, () => {
   top: var(--app-titlebar-height);
   bottom: 0;
   right: var(--agent-sidebar-width);
-  width: 6px;
+  width: 7px;
   cursor: col-resize;
   z-index: 30;
 
@@ -591,13 +564,13 @@ watch(isAgentSidebarMode, () => {
     left: 2px;
     width: 1px;
     height: 100%;
-    background: transparent;
-    transition: width 0.15s ease, background-color 0.15s ease;
+    background: color-mix(in srgb, var(--color-border) 48%, transparent);
+    transition: width 0.14s ease, background-color 0.14s ease;
   }
 
   &:hover::after {
-    width: 3px;
-    background: var(--color-accent);
+    width: 2px;
+    background: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
   }
 }
 </style>

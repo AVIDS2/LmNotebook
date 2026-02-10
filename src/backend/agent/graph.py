@@ -35,7 +35,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 # ============================================================================
@@ -676,8 +681,17 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         """
         try:
             resp = self.llm.invoke([HumanMessage(content=semantic_prompt)])
-            label = str(getattr(resp, "content", "")).strip().upper()
-            return label.startswith("ALLOW_WRITE")
+            raw = str(getattr(resp, "content", "") or "").strip().upper()
+            # Robustly parse the first control token. Some models may return
+            # variants like "ALLOW..." or "ALLOW_WRITE ..." with extra text.
+            token_match = re.match(r"^\s*(ALLOW_WRITE|DENY_WRITE|ALLOW|DENY)\b", raw)
+            token = token_match.group(1) if token_match else ""
+            if token in {"ALLOW_WRITE", "ALLOW"}:
+                return True
+            if token in {"DENY_WRITE", "DENY"}:
+                return False
+            # Conservative fallback.
+            return False
         except Exception as e:
             safe_print(f"[POLICY] semantic classify failed: {e}")
             return False
@@ -773,3 +787,5 @@ async def create_note_agent_graph(tools: list, llm=None, checkpointer=None):
     """
     builder = NoteAgentGraph(tools=tools, llm=llm)
     return await builder.build(checkpointer=checkpointer)
+
+

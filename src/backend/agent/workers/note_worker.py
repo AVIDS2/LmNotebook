@@ -1,4 +1,4 @@
-"""
+﻿"""
 Note Worker - Handles CRUD operations on notes.
 Can create, update, and manage notes based on agent decisions.
 """
@@ -15,19 +15,24 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
-NOTE_SYSTEM_PROMPT = """你是笔记管理专家。你可以帮助用户创建、编辑和管理他们的笔记。
+NOTE_SYSTEM_PROMPT = """浣犳槸绗旇绠＄悊涓撳銆備綘鍙互甯姪鐢ㄦ埛鍒涘缓銆佺紪杈戝拰绠＄悊浠栦滑鐨勭瑪璁般€?
 
-## 你可以执行的操作：
-1. **创建笔记**: 根据用户的要求创建新笔记
-2. **更新笔记**: 修改现有笔记的内容
-3. **总结**: 将多个笔记内容总结成一个新笔记
+## 浣犲彲浠ユ墽琛岀殑鎿嶄綔锛?
+1. **鍒涘缓绗旇**: 鏍规嵁鐢ㄦ埛鐨勮姹傚垱寤烘柊绗旇
+2. **鏇存柊绗旇**: 淇敼鐜版湁绗旇鐨勫唴瀹?
+3. **鎬荤粨**: 灏嗗涓瑪璁板唴瀹规€荤粨鎴愪竴涓柊绗旇
 
-## 输出格式：
-- 成功后告诉用户操作结果
-- 如果需要更多信息，礼貌地询问用户
+## 杈撳嚭鏍煎紡锛?
+- 鎴愬姛鍚庡憡璇夌敤鎴锋搷浣滅粨鏋?
+- 濡傛灉闇€瑕佹洿澶氫俊鎭紝绀艰矊鍦拌闂敤鎴?
 """
 
 
@@ -51,7 +56,7 @@ def create_note_worker(llm) -> Callable:
         import json
         
         if intent["action"] == "create":
-            title = intent.get("title", "新笔记")
+            title = intent.get("title", "鏂扮瑪璁?)
             content = intent.get("content", "") or intent.get("content_hint", "")
             
             if not content and worker_input:
@@ -78,8 +83,8 @@ def create_note_worker(llm) -> Callable:
             
             if not note_id:
                 return {
-                    "response": "请指定要更新的笔记。你可以先打开一篇笔记。",
-                    "messages": messages + [AIMessage(content="请指定要更新的笔记。")]
+                    "response": "璇锋寚瀹氳鏇存柊鐨勭瑪璁般€備綘鍙互鍏堟墦寮€涓€绡囩瑪璁般€?,
+                    "messages": messages + [AIMessage(content="璇锋寚瀹氳鏇存柊鐨勭瑪璁般€?)]
                 }
             
             update_data = {}
@@ -97,11 +102,11 @@ def create_note_worker(llm) -> Callable:
                     note_context = "" # FORCE EMPTY CONTEXT
             
                 if note_context and len(note_context) > 10:
-                    sys_prompt = "你是一个精确的文本编辑助手。你的任务是根据用户的修改要求对笔记进行**局部更新**。\n关键规则：\n1. **保持稳定性**：除非用户明确要求删除或重写整个笔记，否则必须保留当前内容中与指令无关的所有部分。\n2. **精确修改**：只针对指令提及的段落、标题或句子进行操作。\n3. **拒绝覆盖**：严禁在未获明确授权的情况下擅自把内容简化成只有一小部分内容。"
-                    user_content = f"### 原始笔记内容 (必须作为基础保存)：\n{note_context}\n\n### 修改指令 (仅执行此处操作)：\n{edit_desc}"
+                    sys_prompt = "浣犳槸涓€涓簿纭殑鏂囨湰缂栬緫鍔╂墜銆備綘鐨勪换鍔℃槸鏍规嵁鐢ㄦ埛鐨勪慨鏀硅姹傚绗旇杩涜**灞€閮ㄦ洿鏂?*銆俓n鍏抽敭瑙勫垯锛歕n1. **淇濇寔绋冲畾鎬?*锛氶櫎闈炵敤鎴锋槑纭姹傚垹闄ゆ垨閲嶅啓鏁翠釜绗旇锛屽惁鍒欏繀椤讳繚鐣欏綋鍓嶅唴瀹逛腑涓庢寚浠ゆ棤鍏崇殑鎵€鏈夐儴鍒嗐€俓n2. **绮剧‘淇敼**锛氬彧閽堝鎸囦护鎻愬強鐨勬钀姐€佹爣棰樻垨鍙ュ瓙杩涜鎿嶄綔銆俓n3. **鎷掔粷瑕嗙洊**锛氫弗绂佸湪鏈幏鏄庣‘鎺堟潈鐨勬儏鍐典笅鎿呰嚜鎶婂唴瀹圭畝鍖栨垚鍙湁涓€灏忛儴鍒嗗唴瀹广€?
+                    user_content = f"### 鍘熷绗旇鍐呭 (蹇呴』浣滀负鍩虹淇濆瓨)锛歕n{note_context}\n\n### 淇敼鎸囦护 (浠呮墽琛屾澶勬搷浣?锛歕n{edit_desc}"
                 else:
-                    sys_prompt = "你是一个笔记内容生成助手。用户希望重写或填充这篇笔记的内容。请根据要求生成完整的、结构清晰的 Markdown 笔记内容。"
-                    user_content = f"写作要求：\n{edit_desc}\n\n请直接生成内容，不要有开场白。"
+                    sys_prompt = "浣犳槸涓€涓瑪璁板唴瀹圭敓鎴愬姪鎵嬨€傜敤鎴峰笇鏈涢噸鍐欐垨濉厖杩欑瘒绗旇鐨勫唴瀹广€傝鏍规嵁瑕佹眰鐢熸垚瀹屾暣鐨勩€佺粨鏋勬竻鏅扮殑 Markdown 绗旇鍐呭銆?
+                    user_content = f"鍐欎綔瑕佹眰锛歕n{edit_desc}\n\n璇风洿鎺ョ敓鎴愬唴瀹癸紝涓嶈鏈夊紑鍦虹櫧銆?
 
                 edit_response = await llm.ainvoke([
                     SystemMessage(content=sys_prompt),
@@ -147,7 +152,7 @@ def create_note_worker(llm) -> Callable:
         elif intent["action"] == "delete":
             note_id = intent.get("note_id") or active_note_id
             if not note_id:
-                response = "请告诉我你想删除哪篇笔记。如果是当前打开的笔记，直接说‘删除这篇’即可。"
+                response = "璇峰憡璇夋垜浣犳兂鍒犻櫎鍝瘒绗旇銆傚鏋滄槸褰撳墠鎵撳紑鐨勭瑪璁帮紝鐩存帴璇粹€樺垹闄よ繖绡団€欏嵆鍙€?
             else:
                 await note_service.delete_note(note_id)
                 # Chat after action
@@ -170,7 +175,7 @@ def create_note_worker(llm) -> Callable:
             else:
                 response = "I need to know which note you want to summarize. Please open a note first, or tell me the title."
         else:
-            response = "请告诉我你想对笔记做什么操作：创建、修改、删除或总结？"
+            response = "璇峰憡璇夋垜浣犳兂瀵圭瑪璁板仛浠€涔堟搷浣滐細鍒涘缓銆佷慨鏀广€佸垹闄ゆ垨鎬荤粨锛?
         
         return {
             "response": response,
@@ -189,23 +194,23 @@ async def _parse_note_intent(llm, input_text: str, messages: List[Any] = None) -
         history_ctx = "\n".join([f"{'User' if isinstance(m, HumanMessage) else 'AI'}: {m.content[:2000]}" for m in ctx])
 
     prompt = f"""<system>
-分析用户的笔记操作意图。参考之前的对话上下文。
+鍒嗘瀽鐢ㄦ埛鐨勭瑪璁版搷浣滄剰鍥俱€傚弬鑰冧箣鍓嶇殑瀵硅瘽涓婁笅鏂囥€?
 
-输出格式示例：
-{{"action": "create", "title": "标题"}}
-{{"action": "update", "title": "新标题", "description": "修改描述"}}
+杈撳嚭鏍煎紡绀轰緥锛?
+{{"action": "create", "title": "鏍囬"}}
+{{"action": "update", "title": "鏂版爣棰?, "description": "淇敼鎻忚堪"}}
 {{"action": "delete"}}
 {{"action": "summarize"}}
 
-规则：
-1. **update**: 涉及内容的任何修改（包括**删除某句话**、**局部重写**、补充、纠错）。
-   - 如果用户意图是**完全重写**、**更换主题**、**清空重来**或**由于主题不符需要推倒重写**（如“把这篇笔记改成X”），请设置 `"force_rewrite": true`。
-   - 如果只是**局部微调**（如“修改第五章”、“把这段内容改一下”、“删除第一行”），**绝对禁止**设置 `force_rewrite` 为 true。
-2. **重要规则**：如果用户要求“把笔记改写成X”或更换主题，**必须**在 JSON 中同时设置 `"title": "X"`，确保标题和新内容一致。
-3. **delete**: 只有用户明确说“删除**这篇笔记**”、“删除**文件**”、“把这个笔记**移到回收站**”时，才是 delete。
-4. **summarize**: 仅限“总结”、“摘要”。
-5. **禁止输出正文**: JSON 中**不要**包含 `content` 字段。仅填写 `description` 让后续 Writer 生成。
-6. 仅输出 JSON。
+瑙勫垯锛?
+1. **update**: 娑夊強鍐呭鐨勪换浣曚慨鏀癸紙鍖呮嫭**鍒犻櫎鏌愬彞璇?*銆?*灞€閮ㄩ噸鍐?*銆佽ˉ鍏呫€佺籂閿欙級銆?
+   - 濡傛灉鐢ㄦ埛鎰忓浘鏄?*瀹屽叏閲嶅啓**銆?*鏇存崲涓婚**銆?*娓呯┖閲嶆潵**鎴?*鐢变簬涓婚涓嶇闇€瑕佹帹鍊掗噸鍐?*锛堝鈥滄妸杩欑瘒绗旇鏀规垚X鈥濓級锛岃璁剧疆 `"force_rewrite": true`銆?
+   - 濡傛灉鍙槸**灞€閮ㄥ井璋?*锛堝鈥滀慨鏀圭浜旂珷鈥濄€佲€滄妸杩欐鍐呭鏀逛竴涓嬧€濄€佲€滃垹闄ょ涓€琛屸€濓級锛?*缁濆绂佹**璁剧疆 `force_rewrite` 涓?true銆?
+2. **閲嶈瑙勫垯**锛氬鏋滅敤鎴疯姹傗€滄妸绗旇鏀瑰啓鎴怷鈥濇垨鏇存崲涓婚锛?*蹇呴』**鍦?JSON 涓悓鏃惰缃?`"title": "X"`锛岀‘淇濇爣棰樺拰鏂板唴瀹逛竴鑷淬€?
+3. **delete**: 鍙湁鐢ㄦ埛鏄庣‘璇粹€滃垹闄?*杩欑瘒绗旇**鈥濄€佲€滃垹闄?*鏂囦欢**鈥濄€佲€滄妸杩欎釜绗旇**绉诲埌鍥炴敹绔?*鈥濇椂锛屾墠鏄?delete銆?
+4. **summarize**: 浠呴檺鈥滄€荤粨鈥濄€佲€滄憳瑕佲€濄€?
+5. **绂佹杈撳嚭姝ｆ枃**: JSON 涓?*涓嶈**鍖呭惈 `content` 瀛楁銆備粎濉啓 `description` 璁╁悗缁?Writer 鐢熸垚銆?
+6. 浠呰緭鍑?JSON銆?
 </system>
 
 <context>
@@ -233,7 +238,7 @@ async def _generate_note_content(llm, request: str, messages: List[Any] = None) 
     from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
     
     final_messages = [
-        SystemMessage(content="你是一个笔记助手。基于用户的要求和之前的对话上下文，生成结构化的笔记内容。使用 Markdown 格式，包含标题、列表等。如果用户提到'之前的内容'或'这个知识点'，请参考对话历史。对于数学公式，请优先使用 LaTeX 格式。"),
+        SystemMessage(content="浣犳槸涓€涓瑪璁板姪鎵嬨€傚熀浜庣敤鎴风殑瑕佹眰鍜屼箣鍓嶇殑瀵硅瘽涓婁笅鏂囷紝鐢熸垚缁撴瀯鍖栫殑绗旇鍐呭銆備娇鐢?Markdown 鏍煎紡锛屽寘鍚爣棰樸€佸垪琛ㄧ瓑銆傚鏋滅敤鎴锋彁鍒?涔嬪墠鐨勫唴瀹?鎴?杩欎釜鐭ヨ瘑鐐?锛岃鍙傝€冨璇濆巻鍙层€傚浜庢暟瀛﹀叕寮忥紝璇蜂紭鍏堜娇鐢?LaTeX 鏍煎紡銆?),
     ]
     
     if messages:
@@ -255,7 +260,7 @@ async def _summarize_content(llm, content: str) -> str:
     """Summarize note content."""
     from langchain_core.messages import SystemMessage, HumanMessage
     messages = [
-        SystemMessage(content="将以下内容总结成简洁的摘要，保留关键信息。"),
+        SystemMessage(content="灏嗕互涓嬪唴瀹规€荤粨鎴愮畝娲佺殑鎽樿锛屼繚鐣欏叧閿俊鎭€?),
         HumanMessage(content=content)
     ]
     result = await llm.ainvoke(messages)
@@ -267,12 +272,12 @@ async def _chat_after_action(llm, action: str, context: str) -> str:
     from langchain_core.messages import SystemMessage, HumanMessage
     
     prompt = f"""<system>
-你是一个专业的笔记助手 Agent。你刚刚成功执行了一个操作（{action}）。
-请生成一句自然、稍微带点个性的回复给用户。
-不要只说“已完成”，要结合刚才的操作细节（Context）说点有用的。
-比如：如果重写了笔记，可以说“搞定！这篇文章现在结构更清晰了，重点补充了XXX。”
-语气：专业、热情、像个真人伙伴。
-限制：50字以内。
+浣犳槸涓€涓笓涓氱殑绗旇鍔╂墜 Agent銆備綘鍒氬垰鎴愬姛鎵ц浜嗕竴涓搷浣滐紙{action}锛夈€?
+璇风敓鎴愪竴鍙ヨ嚜鐒躲€佺◢寰甫鐐逛釜鎬х殑鍥炲缁欑敤鎴枫€?
+涓嶈鍙鈥滃凡瀹屾垚鈥濓紝瑕佺粨鍚堝垰鎵嶇殑鎿嶄綔缁嗚妭锛圕ontext锛夎鐐规湁鐢ㄧ殑銆?
+姣斿锛氬鏋滈噸鍐欎簡绗旇锛屽彲浠ヨ鈥滄悶瀹氾紒杩欑瘒鏂囩珷鐜板湪缁撴瀯鏇存竻鏅颁簡锛岄噸鐐硅ˉ鍏呬簡XXX銆傗€?
+璇皵锛氫笓涓氥€佺儹鎯呫€佸儚涓湡浜轰紮浼淬€?
+闄愬埗锛?0瀛椾互鍐呫€?
 </system>
 
 Context:
@@ -284,4 +289,6 @@ Response:"""
         res = await llm.ainvoke([HumanMessage(content=prompt)])
         return res.content.strip().replace('"', '')
     except:
-        return "操作已完成。"
+        return "鎿嶄綔宸插畬鎴愩€?
+
+

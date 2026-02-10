@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, protocol } from 'electron'
+﻿import { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, protocol } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
@@ -12,13 +12,13 @@ let tray: Tray | null = null
 let quitting = false
 let backendProcess: ChildProcess | null = null
 
-// 注册自定义协议为特权协议（需要在 app ready 之前）
+// Register custom protocol as privileged before app ready.
 protocol.registerSchemesAsPrivileged([
   { scheme: 'origin-image', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
 ])
 
 function startBackend(): void {
-  // Only auto-start backend in production to avoid conflicts during dev
+  // Only auto-start backend in production to avoid conflicts during dev.
   if (!app.isPackaged) return
 
   const backendDir = join(process.resourcesPath, 'backend_src')
@@ -32,20 +32,17 @@ function startBackend(): void {
   let cwd: string
 
   if (app.isPackaged) {
-    // Production: Run the compiled executable
-    // Path: resources/backend/origin_backend.exe
+    // Production: run the compiled executable.
     backendExec = join(process.resourcesPath, 'backend', 'origin_backend.exe')
     cwd = join(process.resourcesPath, 'backend')
 
-    // Validate
     if (!require('fs').existsSync(backendExec)) {
       logStream.write(`[FATAL] Backend executable not found at: ${backendExec}\n`)
     } else {
       logStream.write(`[Production] Starting compiled backend: ${backendExec}\n`)
     }
   } else {
-    // Development: Run python script from source using local env
-    // Path: backend_env/Scripts/python.exe
+    // Development: run python script from local env.
     const pythonExe = join(process.cwd(), 'backend_env', 'Scripts', 'python.exe')
     backendExec = pythonExe
     execArgs = ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8765']
@@ -54,16 +51,13 @@ function startBackend(): void {
     logStream.write(`[Development] Starting backend from source using: ${backendExec}\n`)
   }
 
-  // Spawn the process
-  // Note: For compiled exe, no args needed as main.py handles uvicorn.run
   backendProcess = spawn(backendExec, execArgs, {
-    cwd: cwd,
-    shell: false, // Shell not needed for direct exe execution
+    cwd,
+    shell: false,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'] // Capture stdout/stderr but ignore stdin
+    stdio: ['ignore', 'pipe', 'pipe']
   })
 
-  // Log STDOUT (Important for uvicorn logs)
   backendProcess.stdout?.on('data', (data) => {
     logStream.write(`[stdout] ${data}`)
   })
@@ -75,11 +69,10 @@ function startBackend(): void {
   backendProcess.on('error', (err) => {
     dialog.showErrorBox(
       'AI 服务启动失败',
-      `无法启动后台大脑 (Python)。\n错误: ${err.message}\n\n请确保您的系统已安装 Python 并在 PATH 中。\n详细日志已保存至: ${logPath}`
+      `无法启动后端服务 (Python)。\n错误: ${err.message}\n\n请确认系统已安装 Python 且可用。\n详细日志: ${logPath}`
     )
   })
 
-  // Watch for early exit (e.g. missing modules)
   backendProcess.on('exit', (code) => {
     if (code !== 0 && code !== null) {
       logStream.write(`[${new Date().toISOString()}] Backend exited with code ${code}\n`)
@@ -150,7 +143,7 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
-  // 🛡️ Enterprise-Grade Security: Intercept navigation to prevent app from jumping to external sites
+  // Enterprise-grade security: block in-app external navigation.
   if (mainWindow) {
     mainWindow.webContents.on('will-navigate', (event, url) => {
       if (mainWindow && url !== mainWindow.webContents.getURL()) {
@@ -159,7 +152,6 @@ function createWindow(): void {
       }
     })
 
-    // Handle links specifically marked to open in new windows
     mainWindow.webContents.setWindowOpenHandler((details) => {
       require('electron').shell.openExternal(details.url)
       return { action: 'deny' }
@@ -173,13 +165,13 @@ function createWindow(): void {
     }
   })
 
-  // 处理外部链接
+  // Handle external links.
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // 开发环境加载本地服务，生产环境加载打包文件
+  // Load renderer URL in dev, or local file in production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -187,7 +179,7 @@ function createWindow(): void {
   }
 }
 
-// 窗口控制 IPC
+// Window control IPC.
 ipcMain.on('window-minimize', () => {
   mainWindow?.minimize()
 })
@@ -208,7 +200,7 @@ ipcMain.handle('window-is-maximized', () => {
   return mainWindow?.isMaximized()
 })
 
-// 导出文件对话框
+// Export file dialog.
 ipcMain.handle('export-file', async (_event, options: { defaultName: string; filters: { name: string; extensions: string[] }[]; content: string }) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
     defaultPath: options.defaultName,
@@ -223,7 +215,7 @@ ipcMain.handle('export-file', async (_event, options: { defaultName: string; fil
   return { success: false }
 })
 
-// 导入文件对话框
+// Import file dialog.
 ipcMain.handle('import-file', async (_event, options: { filters: { name: string; extensions: string[] }[] }) => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     filters: options.filters,
@@ -238,9 +230,8 @@ ipcMain.handle('import-file', async (_event, options: { filters: { name: string;
   return { success: false }
 })
 
-// 导出 PDF
+// Export PDF.
 ipcMain.handle('export-pdf', async (_event, htmlContent: string) => {
-  // 创建隐藏窗口用于渲染 HTML
   const pdfWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -252,13 +243,9 @@ ipcMain.handle('export-pdf', async (_event, htmlContent: string) => {
   })
 
   try {
-    // 加载 HTML 内容
     await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`)
-    
-    // 等待页面渲染完成
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // 生成 PDF
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
     const pdfData = await pdfWindow.webContents.printToPDF({
       printBackground: true,
       pageSize: 'A4',
@@ -269,7 +256,7 @@ ipcMain.handle('export-pdf', async (_event, htmlContent: string) => {
         right: 0.5
       }
     })
-    
+
     return pdfData
   } catch (error) {
     console.error('PDF export error:', error)
@@ -279,123 +266,55 @@ ipcMain.handle('export-pdf', async (_event, htmlContent: string) => {
   }
 })
 
-// ==================== SQLite 数据库 IPC ====================
+// ==================== SQLite IPC ====================
 
-// 笔记操作
-ipcMain.handle('db-get-all-notes', () => {
-  return database.getAllNotes()
-})
+// Note operations.
+ipcMain.handle('db-get-all-notes', () => database.getAllNotes())
+ipcMain.handle('db-get-deleted-notes', () => database.getDeletedNotes())
+ipcMain.handle('db-get-notes-by-category', (_event, categoryId: string) => database.getNotesByCategory(categoryId))
+ipcMain.handle('db-get-note-by-id', (_event, id: string) => database.getNoteById(id))
+ipcMain.handle('db-create-note', (_event, note: Partial<database.Note> & { id: string }) => database.createNote(note))
+ipcMain.handle('db-update-note', (_event, id: string, updates: Partial<database.Note>) => database.updateNote(id, updates))
+ipcMain.handle('db-delete-note', (_event, id: string) => database.deleteNote(id))
+ipcMain.handle('db-restore-note', (_event, id: string) => database.restoreNote(id))
+ipcMain.handle('db-permanent-delete-note', (_event, id: string) => database.permanentDeleteNote(id))
+ipcMain.handle('db-cleanup-old-deleted', (_event, daysAgo?: number) => database.cleanupOldDeleted(daysAgo))
+ipcMain.handle('db-search-notes', (_event, query: string) => database.searchNotes(query))
+ipcMain.handle('db-count-non-empty-notes', () => database.countNonEmptyNotes())
+ipcMain.handle('db-get-backlink-notes', (_event, noteId: string, noteTitle: string, limit?: number) => database.getBacklinkNotes(noteId, noteTitle, limit))
 
-ipcMain.handle('db-get-deleted-notes', () => {
-  return database.getDeletedNotes()
-})
+// Category operations.
+ipcMain.handle('db-get-all-categories', () => database.getAllCategories())
+ipcMain.handle('db-get-category-by-id', (_event, id: string) => database.getCategoryById(id))
+ipcMain.handle('db-create-category', (_event, category: database.Category) => database.createCategory(category))
+ipcMain.handle('db-update-category', (_event, id: string, updates: Partial<database.Category>) => database.updateCategory(id, updates))
+ipcMain.handle('db-delete-category', (_event, id: string) => database.deleteCategory(id))
 
-ipcMain.handle('db-get-notes-by-category', (_event, categoryId: string) => {
-  return database.getNotesByCategory(categoryId)
-})
+// Import/export.
+ipcMain.handle('db-export-all-data', () => database.exportAllData())
+ipcMain.handle('db-import-data', (_event, data: { notes: database.Note[]; categories: database.Category[] }) => database.importData(data))
 
-ipcMain.handle('db-get-note-by-id', (_event, id: string) => {
-  return database.getNoteById(id)
-})
+// Path & stats.
+ipcMain.handle('db-get-path', () => database.dbPath)
+ipcMain.handle('db-get-stats', () => database.getDatabaseStats())
+ipcMain.handle('db-get-data-path', () => database.appDataPath)
+ipcMain.handle('db-get-default-data-path', () => database.getDefaultDataDirectory())
+ipcMain.handle('shell-open-path', async (_event, path: string) => shell.openPath(path))
 
-ipcMain.handle('db-create-note', (_event, note: Partial<database.Note> & { id: string }) => {
-  return database.createNote(note)
-})
+// ==================== Config & Backup IPC ====================
 
-ipcMain.handle('db-update-note', (_event, id: string, updates: Partial<database.Note>) => {
-  return database.updateNote(id, updates)
-})
+ipcMain.handle('config-get', () => database.getConfig())
+ipcMain.handle('config-save', (_event, config: Parameters<typeof database.saveConfig>[0]) => database.saveConfig(config))
+ipcMain.handle('backup-create', (_event, customPath?: string) => database.createBackup(customPath))
+ipcMain.handle('backup-list', () => database.getBackupList())
 
-ipcMain.handle('db-delete-note', (_event, id: string) => {
-  database.deleteNote(id)
-})
-
-ipcMain.handle('db-restore-note', (_event, id: string) => {
-  database.restoreNote(id)
-})
-
-ipcMain.handle('db-permanent-delete-note', (_event, id: string) => {
-  database.permanentDeleteNote(id)
-})
-
-ipcMain.handle('db-cleanup-old-deleted', (_event, daysAgo?: number) => {
-  database.cleanupOldDeleted(daysAgo)
-})
-
-ipcMain.handle('db-search-notes', (_event, query: string) => {
-  return database.searchNotes(query)
-})
-
-ipcMain.handle('db-get-backlink-notes', (_event, noteId: string, noteTitle: string, limit?: number) => {
-  return database.getBacklinkNotes(noteId, noteTitle, limit)
-})
-
-// 分类操作
-ipcMain.handle('db-get-all-categories', () => {
-  return database.getAllCategories()
-})
-
-ipcMain.handle('db-get-category-by-id', (_event, id: string) => {
-  return database.getCategoryById(id)
-})
-
-ipcMain.handle('db-create-category', (_event, category: database.Category) => {
-  return database.createCategory(category)
-})
-
-ipcMain.handle('db-update-category', (_event, id: string, updates: Partial<database.Category>) => {
-  return database.updateCategory(id, updates)
-})
-
-ipcMain.handle('db-delete-category', (_event, id: string) => {
-  database.deleteCategory(id)
-})
-
-// 导入导出
-ipcMain.handle('db-export-all-data', () => {
-  return database.exportAllData()
-})
-
-ipcMain.handle('db-import-data', (_event, data: { notes: database.Note[]; categories: database.Category[] }) => {
-  database.importData(data)
-})
-
-// 获取数据库路径
-ipcMain.handle('db-get-path', () => {
-  return database.dbPath
-})
-
-// ==================== 配置和备份 IPC ====================
-
-// 获取应用配置
-ipcMain.handle('config-get', () => {
-  return database.getConfig()
-})
-
-// 保存应用配置
-ipcMain.handle('config-save', (_event, config: Parameters<typeof database.saveConfig>[0]) => {
-  return database.saveConfig(config)
-})
-
-// 创建备份
-ipcMain.handle('backup-create', (_event, customPath?: string) => {
-  return database.createBackup(customPath)
-})
-
-// 获取备份列表
-ipcMain.handle('backup-list', () => {
-  return database.getBackupList()
-})
-
-// 从备份恢复
 ipcMain.handle('backup-restore', async (_event, backupPath: string) => {
   const result = database.restoreFromBackup(backupPath)
   if (result) {
-    // 恢复成功后需要重启应用
     dialog.showMessageBox(mainWindow!, {
       type: 'info',
       title: '恢复成功',
-      message: '数据已恢复，应用将重启以应用更改。',
+      message: '数据已恢复，应用将重启以生效。',
       buttons: ['确定']
     }).then(() => {
       app.relaunch()
@@ -405,15 +324,13 @@ ipcMain.handle('backup-restore', async (_event, backupPath: string) => {
   return result
 })
 
-// 迁移数据目录
 ipcMain.handle('data-migrate', async (_event, newPath: string) => {
   const result = database.migrateDataDirectory(newPath)
   if (result.success) {
-    // 迁移成功后需要重启应用
     const response = await dialog.showMessageBox(mainWindow!, {
       type: 'info',
       title: '迁移成功',
-      message: '数据目录已迁移，应用将重启以应用更改。',
+      message: '数据目录已迁移，应用将重启以生效。',
       buttons: ['确定']
     })
     if (response.response === 0) {
@@ -424,69 +341,29 @@ ipcMain.handle('data-migrate', async (_event, newPath: string) => {
   return result
 })
 
-// 选择目录对话框
 ipcMain.handle('dialog-select-directory', async (_event, options?: { title?: string; defaultPath?: string }) => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     title: options?.title || '选择目录',
     defaultPath: options?.defaultPath,
     properties: ['openDirectory', 'createDirectory']
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return { success: true, path: result.filePaths[0] }
   }
   return { success: false }
 })
 
-// 获取数据库统计
-ipcMain.handle('db-get-stats', () => {
-  return database.getDatabaseStats()
-})
+// ==================== Image storage IPC ====================
 
-// 获取数据目录路径
-ipcMain.handle('db-get-data-path', () => {
-  return database.appDataPath
-})
-
-// 获取默认数据目录
-ipcMain.handle('db-get-default-data-path', () => {
-  return database.getDefaultDataDirectory()
-})
-
-// 在文件管理器中打开路径
-ipcMain.handle('shell-open-path', async (_event, path: string) => {
-  return shell.openPath(path)
-})
-
-// ==================== 图片存储 IPC ====================
-
-// 存储图片（大图片分离存储，小图片返回原始 base64）
-ipcMain.handle('image-store', (_event, base64DataUrl: string) => {
-  return imageStore.storeImage(base64DataUrl)
-})
-
-// 加载图片（将 origin-image:// 引用转换为 base64）
-ipcMain.handle('image-load', (_event, imageRef: string) => {
-  return imageStore.loadImage(imageRef)
-})
-
-// 删除图片
-ipcMain.handle('image-delete', (_event, imageRef: string) => {
-  return imageStore.deleteImage(imageRef)
-})
-
-// 获取图片统计
-ipcMain.handle('image-stats', () => {
-  return imageStore.getImageStats()
-})
-
-// 清理未使用的图片
-ipcMain.handle('image-cleanup', (_event, usedImageRefs: string[]) => {
-  return imageStore.cleanupUnusedImages(usedImageRefs)
-})
+ipcMain.handle('image-store', (_event, base64DataUrl: string) => imageStore.storeImage(base64DataUrl))
+ipcMain.handle('image-load', (_event, imageRef: string) => imageStore.loadImage(imageRef))
+ipcMain.handle('image-delete', (_event, imageRef: string) => imageStore.deleteImage(imageRef))
+ipcMain.handle('image-stats', () => imageStore.getImageStats())
+ipcMain.handle('image-cleanup', (_event, usedImageRefs: string[]) => imageStore.cleanupUnusedImages(usedImageRefs))
 
 app.whenReady().then(() => {
-  // 注册自定义协议处理 origin-image://
+  // Register file protocol handler: origin-image://
   protocol.registerFileProtocol('origin-image', (request, callback) => {
     const filename = request.url.replace('origin-image://', '')
     const config = database.getConfig()
@@ -501,7 +378,7 @@ app.whenReady().then(() => {
     createTray(mainWindow)
   }
 
-  // 自动备份检查
+  // Check and perform automatic backup.
   performAutoBackup()
 
   app.on('activate', () => {
@@ -514,7 +391,6 @@ app.whenReady().then(() => {
   })
 })
 
-// 自动备份功能
 async function performAutoBackup(): Promise<void> {
   const config = database.getConfig()
   if (!config.autoBackup) return
@@ -523,7 +399,7 @@ async function performAutoBackup(): Promise<void> {
   const now = Date.now()
   const oneDayMs = 24 * 60 * 60 * 1000
 
-  // 如果没有备份或最近一次备份超过24小时，则创建新备份
+  // Create a new backup if none exists or the latest is older than one day.
   if (backups.length === 0 || (now - backups[0].createdAt) > oneDayMs) {
     console.log('Performing auto backup...')
     const result = database.createBackup()
@@ -540,8 +416,8 @@ app.on('before-quit', () => {
       try {
         const { execSync } = require('child_process')
         execSync(`taskkill /pid ${backendProcess.pid} /F /T`)
-      } catch (e) {
-        // Ignore errors if process is already dead
+      } catch (_e) {
+        // Ignore errors if process is already dead.
       }
     } else {
       backendProcess.kill()

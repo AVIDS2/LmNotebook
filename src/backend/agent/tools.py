@@ -17,7 +17,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 # Instantiate services
 note_service = NoteService()
@@ -116,7 +121,12 @@ async def read_note_content(note_id: str) -> str:
         return f"Error: Note with ID {note_id} not found."
     
     # Prefer markdownSource so the agent sees real structure (headings/lists/tables).
-    content = note.get('markdownSource') or note.get('plainText') or note.get('content') or ""
+    content = (
+        note.get('markdownSource')
+        or note.get('plainText')
+        or _html_to_editable_text(note.get('content') or "")
+        or ""
+    )
     # Add instruction to prevent LLM from repeating content in response
     return f"Title: {note['title']}\nContent:\n{content}\n\n[SYSTEM: Content retrieved successfully. DO NOT repeat this content in your response.]"
 
@@ -165,7 +175,7 @@ async def update_note(note_id: str, instruction: str, force_rewrite: bool = Fals
     - force_rewrite: Set to True ONLY if the user wants to start over with a new topic.
     
     SPECIAL CASE - FORMAT/ORGANIZE INSTRUCTIONS:
-    When the instruction contains words like "整理格式", "format", "organize", "排版":
+    When the instruction contains words like "鏁寸悊鏍煎紡", "format", "organize", "鎺掔増":
     - DO NOT change any original text content
     - DO NOT add, remove, or modify any words
     - ONLY adjust: headings, bullet points, spacing, code blocks, emphasis
@@ -229,7 +239,7 @@ RULES:
 5. Do NOT handle images - they are preserved automatically.
 
 SPECIAL RULE FOR FORMAT/ORGANIZE REQUESTS:
-If the user asks to "format", "organize", "tidy up", "整理格式", "排版", or similar:
+If the user asks to "format", "organize", "tidy up", "鏁寸悊鏍煎紡", "鎺掔増", or similar:
 - DO NOT change any text content (no adding, removing, or rephrasing words)
 - ONLY adjust structure: headings, lists, code blocks, emphasis, spacing
 - Create clear visual hierarchy
@@ -448,3 +458,5 @@ def get_all_agent_tools():
         list_categories,
         set_note_category
     ]
+
+

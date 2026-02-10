@@ -1,4 +1,4 @@
-"""
+﻿"""
 RAG Service - Enterprise-grade Semantic Search using FAISS (Facebook AI Similarity Search).
 Replacing ChromaDB for maximum stability on Windows.
 """
@@ -21,7 +21,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 class RAGService:
@@ -464,3 +469,5 @@ class RAGService:
                 return 0
             finally:
                 self._is_syncing = False
+
+

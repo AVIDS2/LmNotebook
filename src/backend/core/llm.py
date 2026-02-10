@@ -1,4 +1,4 @@
-"""
+﻿"""
 LLM integration using Universal OpenAI Protocol.
 Supports switching between any provider (DeepSeek, Gemini, OpenAI, etc.) via configuration.
 """
@@ -17,7 +17,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 # Global client instance
@@ -81,3 +86,5 @@ def get_llm(model: Optional[str] = None) -> ChatOpenAI:
 def get_grading_llm() -> ChatOpenAI:
     """Get LLM for internal tasks."""
     return get_llm()
+
+

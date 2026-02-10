@@ -98,6 +98,10 @@
       "expandList": "展开笔记列表",
       "switchToCompact": "切换为轻列表",
       "switchToCard": "切换为卡片",
+      "switchLayerOn": "开启夹层分组",
+      "switchLayerOff": "关闭夹层分组",
+      "layerByCategory": "按分类分组",
+      "layerUncategorized": "未分类",
       "footerLabel": "笔记面板"
     },
     "editor": {
@@ -298,6 +302,10 @@
       "expandList": "Expand note list",
       "switchToCompact": "Switch to compact list",
       "switchToCard": "Switch to card list",
+      "switchLayerOn": "Enable layered groups",
+      "switchLayerOff": "Disable layered groups",
+      "layerByCategory": "Group by category",
+      "layerUncategorized": "Uncategorized",
       "footerLabel": "Notes panel"
     },
     "editor": {

@@ -19,7 +19,6 @@
     @drop="handleDrop"
     @dragend="handleDragEnd"
   >
-    <!-- 选择复选框 -->
     <div v-if="isSelectionMode" class="note-card__checkbox" @click.stop="emit('toggle-select')">
       <div class="note-card__checkbox-inner" :class="{ 'note-card__checkbox-inner--checked': isSelected }">
         <svg v-if="isSelected" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -28,28 +27,23 @@
       </div>
     </div>
 
-    <!-- 状态标识 -->
     <div v-if="!isSelectionMode" class="note-card__status">
-      <div v-if="note.isLocked" class="note-card__lock" title="已加锁">
+      <div v-if="note.isLocked" class="note-card__lock" :title="locale === 'zh-CN' ? '已加锁' : 'Locked'">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <rect x="2.5" y="5.5" width="7" height="5" rx="1.2" stroke="currentColor" stroke-width="1.2"/>
           <path d="M4 5.5V4.2C4 3 4.9 2 6 2C7.1 2 8 3 8 4.2V5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
       </div>
-      <div v-if="note.isPinned" class="note-card__pin" title="已置顶">
+      <div v-if="note.isPinned" class="note-card__pin" :title="locale === 'zh-CN' ? '已置顶' : 'Pinned'">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M6 1L7 4L10 4.5L7.5 7L8 11L6 9.5L4 11L4.5 7L2 4.5L5 4L6 1Z" fill="currentColor"/>
         </svg>
       </div>
     </div>
 
-    <!-- 标题 -->
     <h3 class="note-card__title" v-html="highlightedTitle"></h3>
-
-    <!-- 预览内容 -->
     <p class="note-card__preview" v-html="highlightedPreview"></p>
 
-    <!-- 底部信息 -->
     <div class="note-card__footer">
       <span class="note-card__date">{{ formatDate(note.updatedAt) }}</span>
       <span v-if="categoryName" class="note-card__category" :style="{ background: categoryColor }">
@@ -64,6 +58,7 @@ import { computed } from 'vue'
 import type { Note } from '@/services/database'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useNoteStore } from '@/stores/noteStore'
+import { useI18n } from '@/i18n'
 
 const props = defineProps<{
   note: Note
@@ -85,6 +80,10 @@ const emit = defineEmits<{
   dragend: []
 }>()
 
+const categoryStore = useCategoryStore()
+const noteStore = useNoteStore()
+const { t, locale } = useI18n()
+
 function handleClick() {
   emit('click')
 }
@@ -103,7 +102,7 @@ function handleDragStart(e: DragEvent) {
   emit('dragstart', props.note.id)
 }
 
-function handleDragOver(e: DragEvent) {
+function handleDragOver() {
   if (props.isSelectionMode) return
   emit('dragover', props.note.id)
 }
@@ -112,7 +111,7 @@ function handleDragLeave() {
   emit('dragleave')
 }
 
-function handleDrop(e: DragEvent) {
+function handleDrop() {
   if (props.isSelectionMode) return
   emit('drop', props.note.id)
 }
@@ -122,52 +121,32 @@ function handleDragEnd() {
   emit('dragend')
 }
 
-const categoryStore = useCategoryStore()
-const noteStore = useNoteStore()
-
-// 转义 HTML 特殊字符
 function escapeHtml(text: string): string {
   const div = document.createElement('div')
   div.textContent = text
   return div.innerHTML
 }
 
-// 高亮搜索关键词
 function highlightText(text: string, keyword: string): string {
   if (!keyword || !text) return escapeHtml(text)
-  
   const escaped = escapeHtml(text)
   const escapedKeyword = escapeHtml(keyword)
-  
-  // 创建不区分大小写的正则
   const regex = new RegExp(`(${escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
   return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
 }
 
-const displayTitle = computed(() => {
-  return props.note.title || '无标题笔记'
-})
+const displayTitle = computed(() => props.note.title || t('common.untitled'))
 
 const displayPreview = computed(() => {
   const text = props.note.plainText.trim()
-  if (!text) return '暂无内容...'
-  return text.length > 60 ? text.slice(0, 60) + '...' : text
+  if (!text) return locale.value === 'zh-CN' ? '暂无内容...' : 'No content yet...'
+  return text.length > 60 ? `${text.slice(0, 60)}...` : text
 })
 
-// 高亮后的标题
-const highlightedTitle = computed(() => {
-  return highlightText(displayTitle.value, noteStore.searchKeyword)
-})
+const highlightedTitle = computed(() => highlightText(displayTitle.value, noteStore.searchKeyword))
+const highlightedPreview = computed(() => highlightText(displayPreview.value, noteStore.searchKeyword))
 
-// 高亮后的预览
-const highlightedPreview = computed(() => {
-  return highlightText(displayPreview.value, noteStore.searchKeyword)
-})
-
-const category = computed(() => {
-  return categoryStore.getCategoryById(props.note.categoryId)
-})
-
+const category = computed(() => categoryStore.getCategoryById(props.note.categoryId))
 const categoryName = computed(() => category.value?.name)
 const categoryColor = computed(() => category.value?.color)
 
@@ -177,36 +156,35 @@ function formatDate(timestamp: number): string {
   const isToday = date.toDateString() === now.toDateString()
 
   if (isToday) {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' })
   }
 
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   if (date.toDateString() === yesterday.toDateString()) {
-    return '昨天'
+    return locale.value === 'zh-CN' ? '昨天' : 'Yesterday'
   }
 
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
 }
 </script>
-
 <style lang="scss" scoped>
 .note-card {
   position: relative;
   padding: $spacing-md;
   background: var(--color-bg-card);
-  border: 1.5px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--color-border) 42%, transparent);
   border-radius: $radius-lg;
   margin-bottom: $spacing-sm;
   cursor: pointer;
   
-  // 性能优化：使用 GPU 加速的属性 + 苹果风格曲线
-  transition: background-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), 
-              border-color 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), 
-              transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
-              box-shadow 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  // Performance-oriented transitions with light motion.
+  transition: background-color 0.16s ease,
+              border-color 0.16s ease,
+              transform 0.16s ease,
+              box-shadow 0.16s ease;
   
-  // 启用硬件加速和内容可见性优化
+  // Keep paint and layout work constrained for smoother scrolling.
   content-visibility: auto;
   contain: layout style paint;
   contain-intrinsic-size: 0 90px;
@@ -216,17 +194,18 @@ function formatDate(timestamp: number): string {
 
   &:hover {
     background: var(--color-bg-hover);
-    transform: translateY(-2px) scale(1.01);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: color-mix(in srgb, var(--color-border) 76%, transparent);
+    transform: translateY(-1px);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
   }
   
   &:active {
-    transform: scale(0.98);
-    transition-duration: 0.1s;
+    transform: translateY(0);
+    transition-duration: 0.08s;
   }
 
   &--active {
-    border-color: var(--color-border-dark);
+    border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-border-dark));
     background: var(--color-bg-card);
 
     .note-card__title {
@@ -248,7 +227,7 @@ function formatDate(timestamp: number): string {
     background: var(--color-bg-active);
   }
 
-  // 选择模式样式
+  // Selection mode.
   &--selection-mode {
     padding-left: $spacing-md + 28px;
     cursor: pointer;
@@ -275,8 +254,8 @@ function formatDate(timestamp: number): string {
     contain-intrinsic-size: 0 44px;
 
     &:hover {
-      transform: none;
-      box-shadow: none;
+      transform: translateY(-1px);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
     }
 
     .note-card__status {
@@ -310,7 +289,7 @@ function formatDate(timestamp: number): string {
   }
 }
 
-// 复选框
+// Selection checkbox.
 .note-card__checkbox {
   position: absolute;
   left: $spacing-md;
@@ -403,7 +382,7 @@ function formatDate(timestamp: number): string {
   color: white;
 }
 
-// 搜索高亮样式
+// Search highlight style.
 :deep(.search-highlight) {
   background: #fef08a;
   color: #854d0e;
@@ -411,3 +390,4 @@ function formatDate(timestamp: number): string {
   border-radius: 2px;
 }
 </style>
+

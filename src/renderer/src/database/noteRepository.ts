@@ -112,6 +112,10 @@ export const noteRepository = {
 
     if (input.content !== undefined) {
       updateData.plainText = extractPlainText(input.content)
+      // Rich-text editor saves HTML; old markdownSource can become stale and mislead agent reads.
+      if (input.markdownSource === undefined) {
+        updateData.markdownSource = null
+      }
     }
 
     await db.updateNote(id, updateData)
@@ -191,10 +195,7 @@ export const noteRepository = {
 
   // 统计非空笔记总数（排除已删除）
   async countNonEmpty(): Promise<number> {
-    const notes = await db.getAllNotes()
-    return notes.filter(note => {
-      return note.title.trim().length > 0 || note.plainText.trim().length > 0
-    }).length
+    return await db.countNonEmptyNotes()
   },
 
   // 搜索笔记

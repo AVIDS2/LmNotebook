@@ -36,7 +36,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 # Import session manager for state persistence
 from core.session_manager import SessionManager
@@ -459,3 +464,5 @@ Formatted text:
         except Exception as e:
             safe_print(f"[Agent] Format error: {e}")
             return text
+
+

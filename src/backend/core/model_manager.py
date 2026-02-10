@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -11,7 +11,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 class ModelProvider:
     def __init__(self, id: str, name: str, baseUrl: str, apiKey: str, modelName: str, isActive: bool = False):
@@ -64,14 +69,48 @@ class ModelManager:
                 "isActive": True
             }
             self.providers = [default_provider]
+            self._normalize_providers()
             self._save_config()
         else:
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     self.providers = json.load(f)
+                self._normalize_providers()
             except Exception as e:
                 safe_print(f"[ERROR] Failed to load models.json: {e}")
                 self.providers = []
+
+    def _normalize_provider(self, provider: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Backward-compatible normalization:
+        - legacy: modelName (single model)
+        - new: models + activeModel
+        Always keeps modelName in sync with activeModel for old callers.
+        """
+        models = provider.get("models")
+        if not isinstance(models, list):
+            models = []
+        models = [str(m).strip() for m in models if str(m).strip()]
+
+        legacy_model = str(provider.get("modelName", "") or "").strip()
+        if legacy_model and legacy_model not in models:
+            models.insert(0, legacy_model)
+
+        if not models:
+            models = ["gpt-4o-mini"]
+
+        active_model = str(provider.get("activeModel", "") or "").strip()
+        if active_model not in models:
+            active_model = models[0]
+
+        provider["models"] = models
+        provider["activeModel"] = active_model
+        # Keep legacy field for compatibility
+        provider["modelName"] = active_model
+        return provider
+
+    def _normalize_providers(self):
+        self.providers = [self._normalize_provider(p) for p in self.providers]
 
     def _save_config(self):
         try:
@@ -91,14 +130,15 @@ class ModelManager:
         return self.providers[0] if self.providers else None
 
     def add_provider(self, provider: Dict[str, Any]):
-        self.providers.append(provider)
+        self.providers.append(self._normalize_provider(provider))
         self._save_config()
-        return provider
+        return self.providers[-1]
 
     def update_provider(self, provider_id: str, updates: Dict[str, Any]):
         for i, p in enumerate(self.providers):
             if p["id"] == provider_id:
                 self.providers[i].update(updates)
+                self.providers[i] = self._normalize_provider(self.providers[i])
                 self._save_config()
                 return self.providers[i]
         return None
@@ -114,6 +154,22 @@ class ModelManager:
         for p in self.providers:
             p["isActive"] = (p["id"] == provider_id)
         self._save_config()
+
+    def set_provider_active_model(self, provider_id: str, model_name: str) -> bool:
+        model_name = (model_name or "").strip()
+        if not model_name:
+            return False
+        for p in self.providers:
+            if p.get("id") != provider_id:
+                continue
+            normalized = self._normalize_provider(p)
+            if model_name not in normalized["models"]:
+                return False
+            normalized["activeModel"] = model_name
+            normalized["modelName"] = model_name
+            self._save_config()
+            return True
+        return False
 
     def reorder_providers(self, dragged_id: str, target_id: str):
         dragged_idx = -1
@@ -132,3 +188,5 @@ class ModelManager:
         return False
 
 model_manager = ModelManager()
+
+

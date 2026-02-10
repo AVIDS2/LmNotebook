@@ -13,7 +13,13 @@ class ProviderSchema(BaseModel):
     baseUrl: str
     apiKey: str
     modelName: str
+    models: Optional[List[str]] = None
+    activeModel: Optional[str] = None
     isActive: bool = False
+
+
+class ActiveModelSchema(BaseModel):
+    modelName: str
 
 @router.get("/providers")
 async def get_providers():
@@ -45,6 +51,15 @@ async def delete_provider(provider_id: str):
 @router.post("/providers/{provider_id}/active")
 async def set_active_provider(provider_id: str):
     model_manager.set_active_provider(provider_id)
+    await invalidate_agent_runtime_cache()
+    return {"status": "ok"}
+
+
+@router.post("/providers/{provider_id}/models/active")
+async def set_active_model(provider_id: str, payload: ActiveModelSchema):
+    success = model_manager.set_provider_active_model(provider_id, payload.modelName)
+    if not success:
+        raise HTTPException(status_code=400, detail="Model not found in provider")
     await invalidate_agent_runtime_cache()
     return {"status": "ok"}
 

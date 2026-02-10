@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <aside class="sidebar" :class="{ 'sidebar--collapsed': collapsed }">
     <!-- 鏀剁缉鎸夐挳 -->
     <button class="sidebar__toggle" @click="$emit('toggle')" :title="collapsed ? t('common.expand') : t('common.collapse')">
@@ -1287,5 +1287,52 @@ async function handleExportAllMarkdown(): Promise<void> {
   position: fixed;
   inset: 0;
   z-index: 9999;
+}
+
+/* Shadcn-style interaction pass (non-agent area) */
+.sidebar__item,
+.sidebar__collapsed-btn,
+.sidebar__footer-btn,
+.sidebar__theme-btn {
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.12s ease;
+}
+
+.sidebar__item:hover,
+.sidebar__collapsed-btn:hover,
+.sidebar__footer-btn:hover,
+.sidebar__theme-btn:hover {
+  transform: translateY(-1px);
+}
+
+.sidebar__footer-btn,
+.sidebar__theme-btn {
+  border: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
+  background: color-mix(in srgb, var(--color-bg-primary) 95%, transparent);
+}
+
+.sidebar__collapsed-category-menu,
+.context-menu {
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: sidebar-pop 140ms cubic-bezier(0.22, 0.9, 0.26, 1) both;
+}
+
+.context-menu__item,
+.sidebar__collapsed-category-menu-item {
+  border-radius: 8px;
+}
+
+@keyframes sidebar-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 </style>

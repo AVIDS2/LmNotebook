@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import uuid
 import asyncio
+import difflib
+import re
 
 from core.config import settings
 from .rag_service import RAGService
@@ -16,7 +18,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 class NoteService:
@@ -61,7 +68,14 @@ class NoteService:
                 (note_id,)
             )
             row = await cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            note = dict(row)
+            # If markdownSource diverges heavily from current plainText, treat it as stale.
+            # This prevents the agent from reading obsolete content after rich-text edits.
+            if self._is_markdown_source_stale(note.get("markdownSource"), note.get("plainText")):
+                note["markdownSource"] = None
+            return note
     
     async def create_note(
         self,
@@ -216,8 +230,6 @@ class NoteService:
     
     def _extract_plain_text(self, html_content: str) -> str:
         """Extract plain text from HTML content."""
-        import re
-        
         # Remove HTML tags
         text = re.sub(r'<[^>]+>', '', html_content)
         # Decode common HTML entities
@@ -230,3 +242,31 @@ class NoteService:
         text = re.sub(r'\s+', ' ', text)
         
         return text.strip()
+
+    def _normalize_for_similarity(self, text: Optional[str]) -> str:
+        if not text:
+            return ""
+        normalized = re.sub(r'<[^>]+>', ' ', text)
+        normalized = re.sub(r'[`*_>#\-\[\]\(\)!|:~]+', ' ', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip().lower()
+        return normalized
+
+    def _is_markdown_source_stale(self, markdown_source: Optional[str], plain_text: Optional[str]) -> bool:
+        if not markdown_source or not plain_text:
+            return False
+
+        md_norm = self._normalize_for_similarity(markdown_source)
+        plain_norm = self._normalize_for_similarity(plain_text)
+        if len(md_norm) < 24 or len(plain_norm) < 24:
+            return False
+
+        ratio = difflib.SequenceMatcher(None, md_norm[:4000], plain_norm[:4000]).ratio()
+        if ratio >= 0.20:
+            return False
+
+        probe = md_norm[:80]
+        if probe and probe in plain_norm:
+            return False
+        return True
+
+

@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from agent.supervisor import AgentSupervisor
+from agent.supervisor import AgentSupervisor, invalidate_agent_runtime_cache
+from core.model_manager import model_manager
 
 router = APIRouter()
 
@@ -72,6 +73,8 @@ class ChatRequest(BaseModel):
     context_note_title: Optional[str] = Field(None, description="Explicitly referenced note Title (@)")
     use_knowledge: bool = Field(False, description="Whether to search knowledge base first (@)")
     auto_accept_writes: bool = Field(True, description="Whether write tools are auto-approved without interrupt")
+    model_provider_id: Optional[str] = Field(None, description="Model provider ID override for this request")
+    model_name: Optional[str] = Field(None, description="Specific model name within the selected provider")
     resume: Optional[dict] = Field(None, description="Resume payload for LangGraph interrupt")
 
     @property
@@ -85,6 +88,64 @@ class ChatResponse(BaseModel):
     tool_calls: List[str] = Field(default_factory=list, description="Tools that were called")
 
 
+async def apply_model_provider_override(provider_id: Optional[str], model_name: Optional[str] = None) -> bool:
+    """
+    Apply per-request model provider override.
+    Returns True when a provider switch was applied, otherwise False.
+    """
+    changed = False
+    if not provider_id and not model_name:
+        return False
+
+    providers = model_manager.get_providers() or []
+    target = None
+    if provider_id:
+        target = next((p for p in providers if p.get("id") == provider_id), None)
+        if target is None:
+            safe_print(f"[MODEL] Requested provider not found: {provider_id}")
+            return False
+    else:
+        target = model_manager.get_active_provider()
+        if target is None:
+            return False
+
+    active = model_manager.get_active_provider()
+    target_provider_id = target.get("id")
+    requested_model = (model_name or "").strip()
+    if requested_model:
+        target_models = target.get("models") or ([target.get("modelName")] if target.get("modelName") else [])
+        if requested_model not in target_models:
+            safe_print(
+                f"[MODEL] Requested model not found in provider: "
+                f"{target_provider_id} / {requested_model}"
+            )
+            return False
+
+    if provider_id and (not active or active.get("id") != target_provider_id):
+        model_manager.set_active_provider(target_provider_id)
+        changed = True
+        # refresh active after switch
+        active = model_manager.get_active_provider()
+
+    if requested_model:
+        current_model = (active or target).get("activeModel") or (active or target).get("modelName")
+        if current_model != requested_model:
+            if model_manager.set_provider_active_model(target_provider_id, requested_model):
+                changed = True
+            else:
+                return False
+
+    if changed:
+        await invalidate_agent_runtime_cache()
+        active_after = model_manager.get_active_provider() or target
+        safe_print(
+            f"[MODEL] Switched via request: "
+            f"{active_after.get('name', target_provider_id)} / "
+            f"{active_after.get('activeModel') or active_after.get('modelName') or 'unknown-model'}"
+        )
+    return changed
+
+
 @router.post("/invoke", response_model=ChatResponse)
 async def invoke_agent(request: ChatRequest):
     """
@@ -92,6 +153,7 @@ async def invoke_agent(request: ChatRequest):
     Returns the complete response after processing.
     """
     try:
+        await apply_model_provider_override(request.model_provider_id, request.model_name)
         supervisor = AgentSupervisor()
         # Note: Invoke method in supervisor also needs update ideally, but we focus on stream first
         result = await supervisor.invoke(
@@ -125,6 +187,7 @@ async def stream_agent(request: ChatRequest):
         chunk_count = 0
         start_time = time.time()
         try:
+            await apply_model_provider_override(request.model_provider_id, request.model_name)
             supervisor = AgentSupervisor()
             safe_print(f">> Starting stream for: {request.message[:50]}... (Session: {request.session_id})")
             async for chunk in supervisor.invoke_stream(
@@ -486,3 +549,4 @@ async def process_text(request: TextProcessRequest):
     except Exception as e:
         safe_print(f"[API] Text process error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

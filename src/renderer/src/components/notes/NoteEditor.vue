@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="note-editor" ref="editorRootRef">
     <!-- 无笔记状态 -->
     <div v-if="!noteStore.currentNote" class="note-editor__empty">
@@ -1017,6 +1017,7 @@ const outlinePanelStyle = computed(() => ({
 function toggleOutlinePanel() {
   outlineOpen.value = !outlineOpen.value
   if (outlineOpen.value) {
+    syncOutlineFromEditor()
     nextTick(() => {
       updateOutlinePanelPosition()
       requestAnimationFrame(updateOutlinePanelPosition)
@@ -1025,6 +1026,7 @@ function toggleOutlinePanel() {
 }
 
 function scheduleOutlineSync(): void {
+  if (!outlineOpen.value) return
   if (outlineSyncRaf !== null) return
   outlineSyncRaf = requestAnimationFrame(() => {
     outlineSyncRaf = null
@@ -1309,12 +1311,90 @@ function handleRedo() {
 // 保存防抖定时器 - 使用 RAF 优化
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let titleSaveTimer: ReturnType<typeof setTimeout> | null = null
+let saveRevision = 0
+let suppressAutoSave = false
 
 // 未保存状态指示
 const isDirty = ref(false)
 
 // 当前正在编辑的笔记ID
 let currentEditingId: string | null = null
+
+function cancelPendingSaves(): void {
+  saveRevision += 1
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (titleSaveTimer) {
+    clearTimeout(titleSaveTimer)
+    titleSaveTimer = null
+  }
+}
+
+function extractPlainTextForStore(html: string): string {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  return div.textContent || div.innerText || ''
+}
+
+function syncLocalNoteCache(
+  noteId: string,
+  patch: { title?: string; content?: string; markdownSource?: string | null }
+): void {
+  const applyPatch = (note: (typeof noteStore.notes)[number]): void => {
+    if (patch.title !== undefined) {
+      note.title = patch.title
+    }
+    if (patch.content !== undefined) {
+      note.content = patch.content
+      note.plainText = extractPlainTextForStore(patch.content)
+      note.markdownSource = patch.markdownSource === undefined ? null : patch.markdownSource
+    }
+    note.updatedAt = Date.now()
+  }
+
+  const listItem = noteStore.notes.find((note) => note.id === noteId)
+  if (listItem) {
+    applyPatch(listItem)
+  }
+
+  if (noteStore.currentNote?.id === noteId) {
+    applyPatch(noteStore.currentNote)
+  }
+}
+
+async function flushPendingEditsBeforeSwitch(oldId?: string, newId?: string): Promise<void> {
+  if (!oldId || oldId === newId || !editor.value) return
+  if (currentEditingId !== oldId) return
+
+  const hasPendingEdits = isDirty.value || Boolean(saveTimer) || Boolean(titleSaveTimer)
+  if (!hasPendingEdits) return
+
+  const title = localTitle.value
+  const content = editor.value.getHTML()
+
+  cancelPendingSaves()
+
+  try {
+    await noteRepository.update(oldId, { title, content })
+    syncLocalNoteCache(oldId, { title, content })
+    isDirty.value = false
+  } catch (error) {
+    console.warn('Failed to flush pending edits before note switch:', error)
+  }
+}
+
+function runWithoutAutoSave(fn: () => void): void {
+  suppressAutoSave = true
+  try {
+    fn()
+  } finally {
+    queueMicrotask(() => {
+      suppressAutoSave = false
+    })
+  }
+}
 
 // 图片编辑状态（简化版）
 const selectedImage = ref<HTMLImageElement | null>(null)
@@ -1692,15 +1772,19 @@ const editor = useEditor({
   },
   // 使用 requestAnimationFrame 优化更新
   onUpdate: ({ editor }) => {
+    if (suppressAutoSave) return
     editorStateVersion.value += 1
     if (noteStore.currentNote && noteStore.currentView !== 'trash') {
       // 防抖保存 - 使用 RAF + setTimeout 组合优化
       if (saveTimer) {
         clearTimeout(saveTimer)
+        saveTimer = null
       }
       
       // 标记有待保存的内容
       isDirty.value = true
+      const scheduledNoteId = noteStore.currentNote.id
+      const scheduledRevision = ++saveRevision
 
       saveTimer = setTimeout(() => {
         if (!isDirty.value) return
@@ -1708,11 +1792,16 @@ const editor = useEditor({
         // 使用 RAF 确保在下一帧执行，避免阻塞渲染
         requestAnimationFrame(async () => {
           if (!isDirty.value || !noteStore.currentNote) return
+          if (saveRevision !== scheduledRevision) return
+          if (noteStore.currentNote.id !== scheduledNoteId) return
           
           const content = editor.getHTML()
           // 直接调用 repository 避免触发 store 的重新加载
-          await noteRepository.update(noteStore.currentNote.id, { content })
-          isDirty.value = false
+          await noteRepository.update(scheduledNoteId, { content })
+          syncLocalNoteCache(scheduledNoteId, { content })
+          if (saveRevision === scheduledRevision) {
+            isDirty.value = false
+          }
         })
       }, 600) // 减少到 600ms，配合 RAF 更流畅
     }
@@ -2331,12 +2420,9 @@ async function handleRenderMarkdown(): Promise<void> {
 watch(
   () => noteStore.currentNote?.id,
   async (newId, oldId) => {
-    // 等待编辑器准备好
-    if (!editor.value) {
-      // 如果编辑器还没准备好，等待一小段时间后重试
-      await new Promise(resolve => setTimeout(resolve, 50))
-      if (!editor.value) return
-    }
+    if (!editor.value) return
+    await flushPendingEditsBeforeSwitch(oldId, newId)
+    cancelPendingSaves()
     
     if (noteStore.currentNote) {
       currentEditingId = newId || null
@@ -2365,7 +2451,11 @@ watch(
         view.dispatch(tr)
       }
       
-      editor.value.commands.setContent(newContent, false, { preserveWhitespace: 'full' })
+      if (editor.value.getHTML() !== newContent) {
+        runWithoutAutoSave(() => {
+          editor.value?.commands.setContent(newContent, false, { preserveWhitespace: 'full' })
+        })
+      }
       nextTick(() => {
         scheduleOutlineSync()
         updateActiveOutlineByScroll()
@@ -2410,11 +2500,16 @@ function handleTitleInput(event: Event): void {
   // 防抖保存标题
   if (titleSaveTimer) {
     clearTimeout(titleSaveTimer)
+    titleSaveTimer = null
   }
+  const scheduledNoteId = noteStore.currentNote?.id
+  if (!scheduledNoteId) return
+  const scheduledRevision = ++saveRevision
 
   titleSaveTimer = setTimeout(async () => {
-    if (noteStore.currentNote) {
-      await noteRepository.update(noteStore.currentNote.id, { title: localTitle.value })
+    if (noteStore.currentNote?.id === scheduledNoteId && saveRevision === scheduledRevision) {
+      await noteRepository.update(scheduledNoteId, { title: localTitle.value })
+      syncLocalNoteCache(scheduledNoteId, { title: localTitle.value })
       isDirty.value = false
     }
   }, 500)
@@ -2422,10 +2517,7 @@ function handleTitleInput(event: Event): void {
 
 // 失去焦点时立即保存
 async function handleTitleBlur(): Promise<void> {
-  if (titleSaveTimer) {
-    clearTimeout(titleSaveTimer)
-    titleSaveTimer = null
-  }
+  cancelPendingSaves()
   if (noteStore.currentNote && localTitle.value !== noteStore.currentNote.title) {
     await noteStore.updateNote(noteStore.currentNote.id, { title: localTitle.value })
     isDirty.value = false
@@ -2641,12 +2733,7 @@ onBeforeUnmount(() => {
     outlineSyncRaf = null
   }
   editor.value?.destroy()
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-  }
-  if (titleSaveTimer) {
-    clearTimeout(titleSaveTimer)
-  }
+  cancelPendingSaves()
 })
 </script>
 
@@ -4003,6 +4090,54 @@ onBeforeUnmount(() => {
     font-size: 13px;
     line-height: 1.4;
     word-break: break-word;
+  }
+}
+
+/* Shadcn-style interaction pass (non-agent area) */
+.note-editor__toolbar {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.note-editor__tool,
+.toolbar-dropdown__trigger {
+  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-bg-primary) 95%, transparent);
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
+}
+
+.note-editor__tool:hover:not(:disabled),
+.toolbar-dropdown__trigger:hover {
+  border-color: var(--color-border);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.toolbar-dropdown__menu,
+.toolbar-dropdown__submenu-panel,
+.note-editor__outline-panel {
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  animation: editor-pop 140ms cubic-bezier(0.22, 0.9, 0.26, 1) both;
+}
+
+.toolbar-dropdown__item {
+  border-radius: 8px;
+}
+
+.toolbar-dropdown__item:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
+}
+
+@keyframes editor-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 </style>

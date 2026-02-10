@@ -38,6 +38,7 @@ interface DatabaseAPI {
   permanentDeleteNote: (id: string) => Promise<void>
   cleanupOldDeleted: (daysAgo?: number) => Promise<void>
   searchNotes: (query: string) => Promise<Note[]>
+  countNonEmptyNotes: () => Promise<number>
   getBacklinkNotes: (noteId: string, noteTitle: string, limit?: number) => Promise<Note[]>
   getAllCategories: () => Promise<Category[]>
   getCategoryById: (id: string) => Promise<Category | undefined>

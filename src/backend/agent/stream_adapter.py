@@ -27,7 +27,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 
@@ -63,6 +68,8 @@ INTERNAL_CONTROL_LABELS = {
     "TASK",
     "ALLOW_WRITE",
     "DENY_WRITE",
+    "ALLOW",
+    "DENY",
     "WRITE",
     "READ",
     "UNCLEAR",
@@ -86,7 +93,7 @@ def _is_internal_control_text(text: str) -> bool:
 
 
 _CONTROL_PREFIX_RE = re.compile(
-    r"^\s*(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|WRITE|READ|UNCLEAR|YES|NO)\s*[:：\-]?\s*",
+    r"^\s*(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)\s*[:：\-]?\s*",
     re.IGNORECASE,
 )
 
@@ -368,13 +375,17 @@ async def langgraph_stream_to_sse(
                                 if not tool_name:
                                     tool_name = "unknown"
                                 
-                                # Part-Based: Emit tool_part with status "completed"
+                                normalized_content = (content or "").strip().lower()
+                                is_error = normalized_content.startswith("error:") or "write action blocked" in normalized_content
+                                tool_status = "error" if is_error else "completed"
+
+                                # Part-Based: Emit tool_part completion/error
                                 output_summary = content[:100] + "..." if len(content) > 100 else content
                                 yield json.dumps({
                                     "part_type": "tool",
                                     "tool": tool_name,
                                     "tool_id": tool_call_id,
-                                    "status": "completed",
+                                    "status": tool_status,
                                     "output": output_summary
                                 })
                                 
@@ -517,3 +528,5 @@ async def invoke_and_stream(
     
     except Exception as e:
         yield json.dumps({"error": str(e)})
+
+

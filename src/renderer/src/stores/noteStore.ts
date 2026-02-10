@@ -5,7 +5,7 @@ import { createDeferredEmptyNoteCleanup } from '@/utils/deferredNoteCleanup.mjs'
 
 export type ViewType = 'all' | 'pinned' | 'category' | 'trash'
 
-// 娴犲骸鍞寸€瑰湱鏁撻幋鎰垼妫版﹫绱欓崣鏍у30娑擃亜鐡х粭锔肩礆
+// 濞寸姴楠搁崬瀵糕偓鐟版贡閺佹捇骞嬮幇顓犲灱濡増锕槐娆撳矗閺嵮冾枀30濞戞搩浜滈悺褏绮敂鑲╃
 function generateTitleFromContent(content: string): string {
   const div = document.createElement('div')
   div.innerHTML = content
@@ -51,7 +51,7 @@ export const useNoteStore = defineStore('notes', () => {
   const currentCategoryId = ref<string | null>(null)
   const searchKeyword = ref('')
   const isLoading = ref(false)
-  const totalNotesCount = ref(0) // 閸忋劑鍎寸粭鏃囶唶閹粯鏆熼敍鍫滅瑝閸栧懏瀚鎻掑灩闂勩倧绱?
+  const totalNotesCount = ref(0) // 闁稿繈鍔戦崕瀵哥箔閺冨浂鍞堕柟顒傜帛閺嗙喖鏁嶉崼婊呯憹闁告牕鎳忕€氼厼顔忛幓鎺戠仼闂傚嫨鍊х槐?
   // Batch selection state
   const isSelectionMode = ref(false)
   const selectedNoteIds = ref<Set<string>>(new Set())
@@ -195,16 +195,15 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 閸掑洦宕茬憴鍡楁禈閿涘牅绱板〒鍛倞缁岃櫣鐟拋甯礆
+  // 闁告帒娲﹀畷鑼喆閸℃绂堥柨娑樼墔缁辨澘銆掗崨顖涘€炵紒宀冩閻燁亞鎷嬬敮顔剧
   async function setView(view: ViewType, categoryId?: string): Promise<void> {
-    // 閸掑洦宕查崜宥嗩梾閺屻儱缍嬮崜宥囩應鐠佺増妲搁崥锔胯礋缁岀尨绱濇俊鍌涚亯閺勵垰鍨崚鐘绘珟
-    await cleanupEmptyCurrentNote()
+    const previous = currentNote.value
 
     currentView.value = view
     currentCategoryId.value = categoryId || null
     searchKeyword.value = ''
     
-    // 娣囨繂鐡ㄨぐ鎾冲鐟欏棗娴樻担宥囩枂閿?localStorage
+    // 濞ｅ洦绻傞悺銊ㄣ亹閹惧啿顤呴悷娆忔濞存ɑ鎷呭鍥╂瀭闁?localStorage
     localStorage.setItem('lastView', view)
     if (categoryId) {
       localStorage.setItem('lastCategoryId', categoryId)
@@ -219,6 +218,12 @@ export const useNoteStore = defineStore('notes', () => {
       currentNote.value = notes.value[0]
     } else {
       currentNote.value = null
+    }
+
+    if (previous && !Boolean(previous.isDeleted)) {
+      void deferredEmptyCleanup(previous).catch((error: unknown) => {
+        console.warn('Deferred empty note cleanup failed in setView:', error)
+      })
     }
   }
 
@@ -257,13 +262,19 @@ export const useNoteStore = defineStore('notes', () => {
 
   // Create note
   async function createNote(input: CreateNoteInput = {}): Promise<Note> {
-    // Cleanup possible empty draft before creating a new note.
-    await cleanupEmptyCurrentNote()
+    const previous = currentNote.value
 
     const note = await noteRepository.create(input)
     await loadNotes({ updateTotalCount: false })
     await updateTotalCount()
     currentNote.value = note
+
+    if (previous && previous.id !== note.id && !Boolean(previous.isDeleted)) {
+      void deferredEmptyCleanup(previous).catch((error: unknown) => {
+        console.warn('Deferred empty note cleanup failed in createNote:', error)
+      })
+    }
+
     return note
   }
 
@@ -319,7 +330,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 閹垹顦茬粭鏃囶唶
+  // Restore note from trash.
   async function restoreNote(id: string): Promise<void> {
     await noteRepository.restore(id)
     const updated = await noteRepository.getById(id)
@@ -328,7 +339,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 濮橀晲绠欓崚鐘绘珟
+  // Permanently delete note.
   async function permanentDeleteNote(id: string): Promise<void> {
     const existing = await noteRepository.getById(id)
     await noteRepository.permanentDelete(id)
@@ -360,12 +371,12 @@ export const useNoteStore = defineStore('notes', () => {
       }
     }
     
-    // 濞撳懐鈹栭崶鐐存暪缁旀瑱绱欐导姘倱濮濄儲绔婚悶鍡楁倻闁插繒鍌ㄥ鏇礆
+    // 婵炴挸鎳愰埞鏍炊閻愬瓨鏆紒鏃€鐟辩槐娆愬濮橆剚鍊辨慨婵勫劜缁斿鎮堕崱妤佸€婚梺鎻掔箳閸屻劌顕ｉ弴顏嗙
     await noteRepository.emptyTrash()
     notes.value = []
     currentNote.value = null
     
-    // 濞撳懐鎮婇張顏冨▏閻劎娈戦崶鍓у
+    // Cleanup orphaned local images after emptying trash.
     if (imageRefs.length > 0 && window.electronAPI?.image?.cleanup) {
       try {
         // Gather currently used image refs from all notes.
@@ -384,9 +395,9 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // ========== 閹靛綊鍣洪幙宥勭稊 ==========
+  // ========== 闁归潧缍婇崳娲箼瀹ュ嫮绋?==========
   
-  // 鏉╂稑鍙?闁偓閸戞椽鈧瀚ㄥΟ鈥崇础
+  // 閺夆晜绋戦崣?闂侇偀鍋撻柛鎴炴そ閳ь剙顦扮€氥劌螣閳ュ磭纭€
   function toggleSelectionMode(): void {
     isSelectionMode.value = !isSelectionMode.value
     if (!isSelectionMode.value) {
@@ -394,7 +405,7 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 闁偓閸戞椽鈧瀚ㄥΟ鈥崇础
+  // 闂侇偀鍋撻柛鎴炴そ閳ь剙顦扮€氥劌螣閳ュ磭纭€
   function exitSelectionMode(): void {
     isSelectionMode.value = false
     selectedNoteIds.value.clear()
@@ -423,9 +434,7 @@ export const useNoteStore = defineStore('notes', () => {
   // Batch move selected notes to trash.
   async function batchDelete(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
-    for (const id of ids) {
-      await noteRepository.softDelete(id)
-    }
+    await Promise.all(ids.map((id) => noteRepository.softDelete(id)))
     await loadNotes()
     selectedNoteIds.value.clear()
     
@@ -438,9 +447,7 @@ export const useNoteStore = defineStore('notes', () => {
   // Batch permanent delete.
   async function batchPermanentDelete(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
-    for (const id of ids) {
-      await noteRepository.permanentDelete(id)
-    }
+    await Promise.all(ids.map((id) => noteRepository.permanentDelete(id)))
     await loadNotes()
     selectedNoteIds.value.clear()
     
@@ -449,12 +456,10 @@ export const useNoteStore = defineStore('notes', () => {
     }
   }
 
-  // 閹靛綊鍣洪幁銏狀槻
+  // Batch restore notes from trash.
   async function batchRestore(): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
-    for (const id of ids) {
-      await noteRepository.restore(id)
-    }
+    await Promise.all(ids.map((id) => noteRepository.restore(id)))
     await loadNotes()
     selectedNoteIds.value.clear()
   }
@@ -462,32 +467,34 @@ export const useNoteStore = defineStore('notes', () => {
   // Batch move selected notes to category.
   async function batchMoveToCategory(categoryId: string | null): Promise<void> {
     const ids = Array.from(selectedNoteIds.value)
-    for (const id of ids) {
-      await noteRepository.update(id, { categoryId })
-    }
+    await Promise.all(ids.map((id) => noteRepository.update(id, { categoryId })))
     await loadNotes()
     selectedNoteIds.value.clear()
   }
 
-  // 闁插秵鏌婇幒鎺戠碍閿涘牊瀚嬮幏鏂ょ礆
+  // 闂佹彃绉甸弻濠囧箳閹烘垹纰嶉柨娑樼墛鐎氬骞忛弬銈囩
   async function reorderNotes(draggedId: string, targetId: string): Promise<void> {
     const draggedIndex = notes.value.findIndex(n => n.id === draggedId)
     const targetIndex = notes.value.findIndex(n => n.id === targetId)
 
     if (draggedIndex === -1 || targetIndex === -1) return
 
-    // 婵″倹鐏夊☉澶婂挤缂冾噣銆婇悩鑸碘偓浣风瑝閸氬矉绱濇稉宥咁槱閻炲棙澧滈崝銊﹀笓鎼村骏绱欑純顕€銆婃慨瀣矒閸︺劑銆婇柈顭掔礆
+    // 濠碘€冲€归悘澶娾槈婢跺﹤鎸ょ紓鍐惧櫍閵嗗﹪鎮╅懜纰樺亾娴ｉ鐟濋柛姘焿缁辨繃绋夊鍜佹П闁荤偛妫欐晶婊堝礉閵婏箑绗撻幖鏉戦獜缁辨瑧绱旈鈧妴濠冩叏鐎ｎ剛鐭掗柛锔哄姂閵嗗﹪鏌堥…鎺旂
     if (notes.value[draggedIndex].isPinned !== notes.value[targetIndex].isPinned) return
 
     const [draggedNote] = notes.value.splice(draggedIndex, 1)
     notes.value.splice(targetIndex, 0, draggedNote)
 
-    // Persist reordered order values.
+    // Persist reordered order values in parallel.
+    const updates: Promise<void>[] = []
     for (let i = 0; i < notes.value.length; i++) {
       if (notes.value[i].order !== i) {
-        await noteRepository.update(notes.value[i].id, { order: i })
+        updates.push(noteRepository.update(notes.value[i].id, { order: i }))
         notes.value[i].order = i
       }
+    }
+    if (updates.length > 0) {
+      await Promise.all(updates)
     }
   }
 
@@ -511,7 +518,8 @@ export const useNoteStore = defineStore('notes', () => {
   }
 
   return {
-    // 閻樿鎷?    notes,
+    // state
+    notes,
     currentNote,
     currentView,
     currentCategoryId,
@@ -521,12 +529,14 @@ export const useNoteStore = defineStore('notes', () => {
     isSelectionMode,
     selectedNoteIds,
 
-    // 鐠侊紕鐣荤仦鐑囨嫹?    noteCount,
+    // computed
+    noteCount,
     pinnedNotes,
     selectedCount,
     isAllSelected,
 
-    // 閺傝纭?    loadNotes,
+    // actions
+    loadNotes,
     setView,
     search,
     selectNote,
@@ -540,8 +550,8 @@ export const useNoteStore = defineStore('notes', () => {
     initialize,
     cleanupEmptyCurrentNote,
     reorderNotes,
-    
-    // 閹靛綊鍣洪幙宥勭稊
+
+    // batch actions
     toggleSelectionMode,
     exitSelectionMode,
     toggleNoteSelection,

@@ -21,12 +21,13 @@ const STORAGE_KEY_THEME = 'origin-notes-theme'
 const STORAGE_KEY_LOCALE = 'origin-notes-locale'
 const STORAGE_KEY_LAYOUT_PRESET = 'origin-notes-layout-preset'
 const STORAGE_KEY_NOTELIST_COLLAPSED = 'origin-notes-notelist-collapsed'
-const STORAGE_KEY_NOTELIST_VIEW_MODE = 'origin-notes-notelist-view-mode'
+const STORAGE_KEY_NOTELIST_LAYER_MODE = 'origin-notes-notelist-layer-mode'
 
 export type ThemeMode = 'light' | 'classic' | 'dark'
 export type LocaleCode = 'zh-CN' | 'en-US'
 export type LayoutPreset = 'writing' | 'balanced' | 'research' | 'custom'
-export type NoteListViewMode = 'card' | 'compact'
+export type NoteListViewMode = 'compact'
+export type NoteListLayerMode = 'none' | 'category'
 
 type LayoutConstraint = {
   minEditorWidth: number
@@ -51,7 +52,8 @@ export const useUIStore = defineStore('ui', () => {
   const theme = ref<ThemeMode>('light')
   const locale = ref<LocaleCode>('zh-CN')
   const layoutPreset = ref<LayoutPreset>('balanced')
-  const noteListViewMode = ref<NoteListViewMode>('card')
+  const noteListViewMode = ref<NoteListViewMode>('compact')
+  const noteListLayerMode = ref<NoteListLayerMode>('none')
 
   const PRESET_VALUES: Record<Exclude<LayoutPreset, 'custom'>, {
     normal: { sidebarCollapsed: boolean; sidebarWidth: number; noteListWidth: number; agentSidebarWidth: number }
@@ -122,7 +124,7 @@ export const useUIStore = defineStore('ui', () => {
     const savedNoteList = localStorage.getItem(STORAGE_KEY_NOTELIST)
     const savedAgentSidebar = localStorage.getItem(STORAGE_KEY_AGENT_SIDEBAR)
     const savedNoteListCollapsed = localStorage.getItem(STORAGE_KEY_NOTELIST_COLLAPSED)
-    const savedNoteListViewMode = localStorage.getItem(STORAGE_KEY_NOTELIST_VIEW_MODE) as NoteListViewMode | null
+    const savedNoteListLayerMode = localStorage.getItem(STORAGE_KEY_NOTELIST_LAYER_MODE) as NoteListLayerMode | null
 
     if (savedSidebar) {
       const width = parseInt(savedSidebar, 10)
@@ -151,8 +153,9 @@ export const useUIStore = defineStore('ui', () => {
       noteListCollapsed.value = false
     }
 
-    if (savedNoteListViewMode === 'card' || savedNoteListViewMode === 'compact') {
-      noteListViewMode.value = savedNoteListViewMode
+    noteListViewMode.value = 'compact'
+    if (savedNoteListLayerMode === 'none' || savedNoteListLayerMode === 'category') {
+      noteListLayerMode.value = savedNoteListLayerMode
     }
 
     const savedTheme = localStorage.getItem(STORAGE_KEY_THEME) as ThemeMode | null
@@ -210,8 +213,8 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem(STORAGE_KEY_NOTELIST_COLLAPSED, value ? '1' : '0')
   })
 
-  watch(noteListViewMode, (value) => {
-    localStorage.setItem(STORAGE_KEY_NOTELIST_VIEW_MODE, value)
+  watch(noteListLayerMode, (value) => {
+    localStorage.setItem(STORAGE_KEY_NOTELIST_LAYER_MODE, value)
   })
 
   function markLayoutCustom(): void {
@@ -235,11 +238,19 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function toggleNoteListViewMode(): void {
-    noteListViewMode.value = noteListViewMode.value === 'card' ? 'compact' : 'card'
+    noteListViewMode.value = 'compact'
   }
 
-  function setNoteListViewMode(mode: NoteListViewMode): void {
-    noteListViewMode.value = mode
+  function setNoteListViewMode(_mode: NoteListViewMode): void {
+    noteListViewMode.value = 'compact'
+  }
+
+  function toggleNoteListLayerMode(): void {
+    noteListLayerMode.value = noteListLayerMode.value === 'none' ? 'category' : 'none'
+  }
+
+  function setNoteListLayerMode(mode: NoteListLayerMode): void {
+    noteListLayerMode.value = mode
   }
 
   function setSidebarCollapsed(collapsed: boolean): void {
@@ -374,6 +385,7 @@ export const useUIStore = defineStore('ui', () => {
     sidebarCollapsed,
     noteListCollapsed,
     noteListViewMode,
+    noteListLayerMode,
     sidebarWidth,
     noteListWidth,
     agentSidebarWidth,
@@ -383,7 +395,9 @@ export const useUIStore = defineStore('ui', () => {
     toggleSidebar,
     toggleNoteListCollapsed,
     toggleNoteListViewMode,
+    toggleNoteListLayerMode,
     setNoteListViewMode,
+    setNoteListLayerMode,
     setNoteListCollapsed,
     setSidebarCollapsed,
     setSidebarWidth,

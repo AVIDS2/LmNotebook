@@ -42,7 +42,11 @@
         <!-- Header -->
         <div class="agent-chat__header">
           <div class="agent-chat__title" @mousedown="startDrag" style="cursor: grab;">
-            <span class="agent-chat__avatar">✦</span>
+            <span class="agent-chat__avatar" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2L13.09 8.26L18 4L14.74 9.91L21 10.91L14.74 12.09L18 18L13.09 13.74L12 20L10.91 13.74L6 18L9.26 12.09L3 10.91L9.26 9.91L6 4L10.91 8.26L12 2Z"/>
+              </svg>
+            </span>
             <span>{{ t('agent.title') }}</span>
           </div>
           <div class="agent-chat__actions">
@@ -154,7 +158,11 @@
         <div class="agent-chat__messages" ref="messagesContainer" @scroll="handleMessagesScroll">
           <div v-if="messages.length === 0" class="agent-chat__empty">
             <div class="agent-chat__welcome">
-              <span class="welcome-icon">✦</span>
+              <span class="welcome-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2L13.09 8.26L18 4L14.74 9.91L21 10.91L14.74 12.09L18 18L13.09 13.74L12 20L10.91 13.74L6 18L9.26 12.09L3 10.91L9.26 9.91L6 4L10.91 8.26L12 2Z"/>
+                </svg>
+              </span>
               <h3>{{ t('agent.welcomeTitle') }}</h3>
               <p>{{ t('agent.welcomeSubtitle') }}</p>
             </div>
@@ -210,9 +218,6 @@
             class="message-wrapper"
             :class="[`message--${msg.role}`]">
             <div class="message">
-              <div class="message__avatar">
-                {{ msg.role === 'user' ? '•' : '✦' }}
-              </div>
               <div class="message__content">
                 <!-- Part-Based Rendering -->
                 <template v-if="msg.parts && msg.parts.length">
@@ -227,14 +232,10 @@
                     <div v-else-if="part.type === 'tool'" 
                          class="tool-part"
                          :class="[`tool-part--${part.status}`]">
-                      <span class="tool-part__icon-wrap">
-                        <span class="tool-part__icon">{{ getToolIcon(part.tool) }}</span>
-                      </span>
                       <div class="tool-part__main">
                         <div class="tool-part__line">
-                          <span class="tool-part__name" :class="{ 'tool-part__name--running': part.status === 'running' }">{{ part.title || part.tool }}</span>
-                          <span v-if="part.status === 'running'" class="tool-part__spinner"></span>
-                          <span v-else-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
+                          <span class="tool-part__name" :class="{ 'tool-part__name--running': part.status !== 'completed' }">{{ part.title || part.tool }}</span>
+                          <span v-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
                           <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
                         </div>
                         <span v-if="part.output" class="tool-part__output">{{ formatToolOutput(part.output) }}</span>
@@ -281,88 +282,66 @@
           </button>
         </Transition>
 
-        <!-- Context Bar (Automatic & Explicit) -->
-        <div class="agent-chat__context-bar">
-          <div class="agent-chat__context-left">
-            <!-- 1. Automatic: Current Active Note -->
-            <div v-if="noteStore.currentNote" class="context-pill inspecting-pill" :class="{ 'inactive': !includeActiveNote }">
-              <button class="pill-toggle-btn" @click="includeActiveNote = !includeActiveNote" title="Toggle current note context">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="eye-svg">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                  <line v-if="!includeActiveNote" x1="1" y1="1" x2="23" y2="23" stroke-width="3" />
-                </svg>
+        <!-- Context bar moved into composer footer (shadcn-like layout) -->
+        <Transition name="panel-elevate">
+          <div v-if="isExecutionAwaitingApproval || pendingApprovals.length > 0" class="agent-approval-bar">
+            <template v-if="isExecutionAwaitingApproval && pendingExecutionApproval">
+              <span class="agent-approval-bar__label">{{ t('agent.pendingExecution', { operation: pendingExecutionApproval.operation, target: pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }) }}</span>
+              <div class="agent-approval-bar__actions">
+                <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="respondExecutionApproval('approve')">接受</button>
+                <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="respondExecutionApproval('reject')">拒绝</button>
+                <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
+              </div>
+            </template>
+            <template v-else>
+              <span class="agent-approval-bar__label">{{ t('agent.pendingReview', { target: pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }) }}</span>
+              <div class="agent-approval-bar__actions">
+                <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
+                  {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
+                </button>
+                <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">接受</button>
+                <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">拒绝</button>
+                <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
+              </div>
+            </template>
+          </div>
+        </Transition>
+
+        <div
+          v-if="showOpsPanel && ((((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview) || executionRecords.length > 0)"
+          class="agent-ops-grid"
+        >
+          <Transition name="panel-elevate">
+            <div v-if="((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview" class="agent-task-card">
+              <div class="agent-task-card__title">任务卡</div>
+              <div class="agent-task-card__row"><span>目标</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId) : (currentPendingApproval?.noteTitle || currentPendingApproval?.noteId) }}</span></div>
+              <div class="agent-task-card__row"><span>操作</span><span>{{ pendingExecutionApproval ? pendingExecutionApproval.operation : 'update_note' }}</span></div>
+              <div class="agent-task-card__row"><span>影响</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.scope || pendingExecutionApproval.message || '写操作') : currentApprovalSummary }}</span></div>
+            </div>
+          </Transition>
+
+          <Transition name="panel-elevate">
+            <div v-if="executionRecords.length > 0" class="agent-execution-panel">
+            <div class="agent-execution-panel__head">
+              <span class="agent-execution-panel__title">{{ t('agent.executionLog') }}</span>
+              <button class="agent-approval-btn" @click="executionExpanded = !executionExpanded">
+                {{ executionExpanded ? t('common.collapse') : t('common.expand') }}
               </button>
-              <span class="pill-text">{{ noteStore.currentNote.title || '无标题' }}</span>
             </div>
-
-            <!-- 2. Explicit: Manually selected @ note -->
-            <div v-if="selectedContextNote" class="context-pill mentioned-pill">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              <span class="pill-text">{{ selectedContextNote.title }}</span>
-              <button class="pill-clear" @click="clearContextNote">×</button>
+            <TransitionGroup v-if="executionExpanded" name="record-item" tag="div" class="agent-execution-list">
+              <div
+                v-for="record in executionRecords"
+                :key="record.id"
+                class="agent-execution-item"
+                :class="`agent-execution-item--${record.status}`"
+              >
+                <span class="agent-execution-item__status">{{ record.statusText }}</span>
+                <span class="agent-execution-item__title">{{ record.title }}</span>
+                <span class="agent-execution-item__time">{{ record.timeLabel }}</span>
+              </div>
+            </TransitionGroup>
             </div>
-          </div>
-
-          <div class="agent-chat__context-right">
-            <div class="context-pill approval-mode-pill" :class="{ 'inactive': !autoAcceptEdits }">
-              <button class="pill-toggle-btn" @click="toggleAutoAcceptEdits" title="Toggle auto accept">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="pill-svg">
-                  <path d="M5 12l4 4 10-10" />
-                </svg>
-              </button>
-              <button class="pill-text-btn" @click="handleReviewPillClick" :disabled="!hasReviewData">
-                {{ autoAcceptEdits ? t('agent.autoAccept') : t('agent.manualReview') }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-if="isExecutionAwaitingApproval || pendingApprovals.length > 0" class="agent-approval-bar">
-          <template v-if="isExecutionAwaitingApproval && pendingExecutionApproval">
-            <span class="agent-approval-bar__label">{{ t('agent.pendingExecution', { operation: pendingExecutionApproval.operation, target: pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }) }}</span>
-            <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="respondExecutionApproval('approve')">接受</button>
-            <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="respondExecutionApproval('reject')">拒绝</button>
-            <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
-          </template>
-          <template v-else>
-            <span class="agent-approval-bar__label">{{ t('agent.pendingReview', { target: pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }) }}</span>
-            <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
-              {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
-            </button>
-            <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">接受</button>
-            <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">拒绝</button>
-            <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
-          </template>
-        </div>
-
-        <div v-if="((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview" class="agent-task-card">
-          <div class="agent-task-card__title">任务卡</div>
-          <div class="agent-task-card__row"><span>目标</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId) : (currentPendingApproval?.noteTitle || currentPendingApproval?.noteId) }}</span></div>
-          <div class="agent-task-card__row"><span>操作</span><span>{{ pendingExecutionApproval ? pendingExecutionApproval.operation : 'update_note' }}</span></div>
-          <div class="agent-task-card__row"><span>影响</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.scope || pendingExecutionApproval.message || '写操作') : currentApprovalSummary }}</span></div>
-        </div>
-
-        <div v-if="executionRecords.length > 0" class="agent-execution-panel">
-          <div class="agent-execution-panel__head">
-            <span class="agent-execution-panel__title">{{ t('agent.executionLog') }}</span>
-            <button class="agent-approval-btn" @click="executionExpanded = !executionExpanded">
-              {{ executionExpanded ? t('common.collapse') : t('common.expand') }}
-            </button>
-          </div>
-          <div v-if="executionExpanded" class="agent-execution-list">
-            <div
-              v-for="record in executionRecords"
-              :key="record.id"
-              class="agent-execution-item"
-              :class="`agent-execution-item--${record.status}`"
-            >
-              <span class="agent-execution-item__status">{{ record.statusText }}</span>
-              <span class="agent-execution-item__title">{{ record.title }}</span>
-              <span class="agent-execution-item__time">{{ record.timeLabel }}</span>
-            </div>
-          </div>
+          </Transition>
         </div>
 
         <div v-if="showApprovalPreview && currentPendingApproval" class="agent-approval-preview">
@@ -402,81 +381,142 @@
         <!-- Compact Input Area -->
         <div class="agent-chat__footer">
           <div class="chat-input-unified-box">
-            <!-- + Menu Button -->
-            <div class="input-menu-wrapper">
-              <button 
-                class="menu-trigger-btn" 
-                @click="showInputMenu = !showInputMenu"
-                :class="{ 'active': showInputMenu }"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                  <line x1="12" y1="5" x2="12" y2="19"/>
-                  <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-              </button>
-              
-              <!-- Popup Menu (Smaller) -->
-              <Transition name="menu-fade">
-                <div v-if="showInputMenu" class="input-menu-popup shallow-glass">
-                  <div class="menu-item" @click="triggerKnowledgeSearch">
-                    <span class="menu-icon">@</span>
-                    <span class="menu-label">笔记知识库</span>
-                  </div>
-                  <div class="menu-item" @click="toggleNoteSelector">
-                    <span class="menu-icon smaller">👁</span>
-                    <span class="menu-label">添加笔记上下文</span>
-                  </div>
-                </div>
-              </Transition>
-              
-              <!-- Note Selector (triggered from menu) -->
-              <Transition name="menu-fade">
-                <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
-                  <div class="selector-header">选择笔记</div>
-                  <div class="selector-list">
-                    <div 
-                      v-for="note in noteStore.notes" 
-                      :key="note.id" 
-                      class="selector-item"
-                      @click="selectNoteAsContext(note)"
-                    >
-                      <span class="item-icon">📝</span>
-                      <span class="item-title">{{ note.title || '无标题' }}</span>
-                    </div>
-                    <div v-if="noteStore.notes.length === 0" class="selector-empty">暂无笔记</div>
-                  </div>
-                </div>
-              </Transition>
-            </div>
-
-            <!-- Auto-resize Textarea (Background transparent to inherit container) -->
             <textarea
               v-model="inputText"
               @keydown.enter.exact.prevent="sendMessage()"
               @input="autoResizeInput"
-              :placeholder="t('agent.inputPlaceholder')"
+              :placeholder="locale === 'en' ? 'Ask, search, or make anything...' : '提问、搜索或执行任务...'"
+              :style="{ height: `${composerInputHeight}px` }"
               rows="1"
               ref="inputRef"
             ></textarea>
 
-            <!-- Compact Send Button -->
-            <button
-              v-if="!isTyping"
-              class="send-btn-compact"
-              :disabled="!inputText.trim()"
-              @click="sendMessage()"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-              </svg>
-            </button>
-            <button
-              v-else
-              class="stop-btn-compact"
-              @click="stopGeneration"
-            >
-              <div class="stop-icon-small"></div>
-            </button>
+            <div class="chat-input-bottom">
+              <div class="chat-input-bottom__left">
+                <div class="input-menu-wrapper">
+                  <button 
+                    class="menu-trigger-btn" 
+                    @click="showInputMenu = !showInputMenu"
+                    :class="{ 'active': showInputMenu }"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                      <line x1="12" y1="5" x2="12" y2="19"/>
+                      <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                  </button>
+                  
+                  <Transition name="menu-fade">
+                    <div v-if="showInputMenu" class="input-menu-popup shallow-glass">
+                      <div class="menu-item" @click="triggerKnowledgeSearch">
+                        <span class="menu-icon">@</span>
+                        <span class="menu-label">{{ locale === 'en' ? 'Knowledge base' : '笔记知识库' }}</span>
+                      </div>
+                      <div class="menu-item" @click="toggleNoteSelector">
+                        <span class="menu-icon smaller">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                            <circle cx="12" cy="12" r="2.6"></circle>
+                          </svg>
+                        </span>
+                        <span class="menu-label">{{ locale === 'en' ? 'Add note context' : '添加笔记上下文' }}</span>
+                      </div>
+                      <div class="menu-item" @click="toggleOpsPanel">
+                        <span class="menu-icon smaller">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="18" height="16" rx="2"/>
+                            <line x1="8" y1="9" x2="16" y2="9"/>
+                            <line x1="8" y1="13" x2="16" y2="13"/>
+                          </svg>
+                        </span>
+                        <span class="menu-label">{{ showOpsPanel ? (locale === 'en' ? 'Hide task records' : '隐藏任务记录') : (locale === 'en' ? 'Show task records' : '显示任务记录') }}</span>
+                      </div>
+                    </div>
+                  </Transition>
+                  
+                  <Transition name="menu-fade">
+                    <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
+                      <div class="selector-header">{{ locale === 'en' ? 'Select note' : '选择笔记' }}</div>
+                      <div class="selector-list">
+                        <div 
+                          v-for="note in noteStore.notes" 
+                          :key="note.id" 
+                          class="selector-item"
+                          @click="selectNoteAsContext(note)"
+                        >
+                          <span class="item-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                              <path d="M6 3h9l4 4v14H6z"></path>
+                              <path d="M15 3v4h4"></path>
+                              <line x1="9" y1="13" x2="15" y2="13"></line>
+                              <line x1="9" y1="17" x2="13" y2="17"></line>
+                            </svg>
+                          </span>
+                          <span class="item-title">{{ note.title || (locale === 'en' ? 'Untitled' : '无标题') }}</span>
+                        </div>
+                        <div v-if="noteStore.notes.length === 0" class="selector-empty">{{ locale === 'en' ? 'No notes' : '暂无笔记' }}</div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <button class="composer-mode-btn" @click="toggleAutoAcceptEdits">
+                  {{ autoAcceptEdits ? t('agent.autoAccept') : t('agent.manualReview') }}
+                </button>
+                <div class="composer-model-wrapper" ref="modelSelectorRef">
+                  <button
+                    class="composer-model-btn"
+                    :disabled="modelSwitching"
+                    @click="toggleModelSelector"
+                  >
+                    <span class="composer-model-btn__label">{{ currentModelLabel }}</span>
+                    <span class="composer-model-btn__caret">▾</span>
+                  </button>
+
+                  <Transition name="menu-fade">
+                    <div v-if="showModelSelector" class="composer-model-menu input-menu-popup shallow-glass">
+                      <div class="menu-item menu-item--disabled">
+                        <span class="menu-label">{{ locale === 'en' ? 'Choose model' : '选择模型' }}</span>
+                      </div>
+                      <div
+                        v-for="option in modelMenuOptions"
+                        :key="option.key"
+                        class="menu-item menu-item--model"
+                        @click="selectComposerModel(option.providerId, option.modelName)"
+                      >
+                        <div class="model-option__main">
+                          <span class="model-option__name">{{ option.modelName }}</span>
+                          <span class="model-option__provider">{{ option.providerName }}</span>
+                        </div>
+                        <span v-if="isSelectedModel(option.providerId, option.modelName)" class="model-option__check">✓</span>
+                      </div>
+                      <div class="menu-divider"></div>
+                      <div class="menu-item menu-item--model" @click="openModelSettingsFromComposer">
+                        <span class="menu-label">{{ t('agent.modelSettings') }}</span>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+
+              <button
+                v-if="!isTyping"
+                class="send-btn-compact"
+                :disabled="!inputText.trim()"
+                @click="sendMessage()"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8">
+                  <line x1="12" y1="19" x2="12" y2="5"></line>
+                  <polyline points="7 10 12 5 17 10"></polyline>
+                </svg>
+              </button>
+              <button
+                v-else
+                class="stop-btn-compact"
+                @click="stopGeneration"
+              >
+                <div class="stop-icon-small"></div>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -488,7 +528,7 @@
         v-if="showModelSettings" 
         :backend-url="BACKEND_URL" 
         @close="() => { console.log('Closing settings'); showModelSettings = false; }"
-        @updated="checkConnection"
+        @updated="handleModelSettingsUpdated"
       />
     </Teleport>
   </div>
@@ -527,6 +567,8 @@ interface ToolPart {
   tool: string
   toolId?: string  // For precise status matching
   status: 'running' | 'pending' | 'completed' | 'error'
+  startedAt?: number
+  awaitingTextToComplete?: boolean
   title?: string
   output?: string
   inputPreview?: string
@@ -560,6 +602,7 @@ const abortController = ref<AbortController | null>(null)
 const includeActiveNote = ref(true)
 const AUTO_ACCEPT_EDITS_KEY = 'origin_agent_auto_accept_edits'
 const autoAcceptEdits = ref(localStorage.getItem(AUTO_ACCEPT_EDITS_KEY) !== '0')
+const THINKING_STATUS_TEXT = 'Thinking...'
 
 // --- Auto-scroll control ---
 const userScrolledUp = ref(false)
@@ -645,6 +688,24 @@ interface ExecutionRecord {
   timeLabel: string
 }
 
+interface ModelProviderOption {
+  id: string
+  name: string
+  baseUrl?: string
+  modelName?: string
+  models?: string[]
+  activeModel?: string
+  isActive?: boolean
+}
+
+interface ModelMenuOption {
+  key: string
+  providerId: string
+  providerName: string
+  modelName: string
+  isActive: boolean
+}
+
 const preUpdateSnapshots = ref<Record<string, NoteSnapshot>>({})
 const pendingApprovals = ref<PendingApproval[]>([])
 const pendingExecutionApproval = ref<PendingExecutionApproval | null>(null)
@@ -665,6 +726,14 @@ interface SessionInfo {
 }
 const showSessionHistory = ref(false)
 const sessionList = ref<SessionInfo[]>([])
+const MODEL_PROVIDER_KEY = 'origin_agent_selected_model_provider'
+const MODEL_NAME_KEY = 'origin_agent_selected_model_name'
+const modelProviders = ref<ModelProviderOption[]>([])
+const selectedModelProviderId = ref<string | null>(localStorage.getItem(MODEL_PROVIDER_KEY))
+const selectedModelName = ref<string | null>(localStorage.getItem(MODEL_NAME_KEY))
+const showModelSelector = ref(false)
+const modelSelectorRef = ref<HTMLElement | null>(null)
+const modelSwitching = ref(false)
 
 // Session metadata stored locally (pinned status, custom titles)
 const sessionMeta = ref<Record<string, { pinned?: boolean; title?: string }>>({})
@@ -886,6 +955,7 @@ async function deleteSession(sessionId: string) {
 
 // --- New: Input Menu & Knowledge Search ---
 const showInputMenu = ref(false)
+const showOpsPanel = ref(false)
 
 function toggleNoteSelector() {
   showInputMenu.value = false  // Close menu first
@@ -908,6 +978,11 @@ function triggerKnowledgeSearch() {
       autoResizeInput({ target: inputRef.value } as any)
     }
   })
+}
+
+function toggleOpsPanel() {
+  showOpsPanel.value = !showOpsPanel.value
+  showInputMenu.value = false
 }
 
 function selectNoteAsContext(note: any) {
@@ -1167,6 +1242,51 @@ function findToolPartForCompletion(toolId?: string, toolName?: string): ToolPart
   return null
 }
 
+function markToolPartCompleted(toolPart: ToolPart, toolName?: string): void {
+  if (toolName === 'read_note_content') {
+    toolPart.awaitingTextToComplete = true
+    return
+  }
+  // Keep a tiny minimum running window so status doesn't instantly flip.
+  const minimumRunningMs = 180
+  const startedAt = toolPart.startedAt ?? Date.now()
+  const elapsed = Date.now() - startedAt
+  const delay = Math.max(0, minimumRunningMs - elapsed)
+
+  const applyComplete = () => {
+    if (toolPart.status === 'running') {
+      toolPart.status = 'completed'
+      messages.value = [...messages.value]
+    }
+  }
+
+  if (delay === 0) {
+    applyComplete()
+    return
+  }
+
+  setTimeout(applyComplete, delay)
+}
+
+function finalizeAwaitingReadTools(): void {
+  let changed = false
+  for (const message of messages.value) {
+    if (!message.parts) continue
+    for (const part of message.parts) {
+      if (part.type !== 'tool') continue
+      const toolPart = part as ToolPart
+      if (toolPart.status === 'running' && toolPart.awaitingTextToComplete) {
+        toolPart.awaitingTextToComplete = false
+        toolPart.status = 'completed'
+        changed = true
+      }
+    }
+  }
+  if (changed) {
+    messages.value = [...messages.value]
+  }
+}
+
 function markToolPartPendingByApproval(approval: PendingExecutionApproval): void {
   const toolPart = findToolPartForCompletion(approval.approvalId, approval.tool)
   if (!toolPart) return
@@ -1408,11 +1528,14 @@ const executionRecords = computed<ExecutionRecord[]>(() => {
 
 const displayStatusText = computed(() => {
   if (approvalBusy.value && !pendingExecutionApproval.value) {
-    return t('agent.running')
+    return ''
   }
   if (pendingExecutionApproval.value) {
     // Approval state is already displayed in the approval bar.
     // Avoid duplicated standalone status bubble.
+    return ''
+  }
+  if (currentStatus.value === t('agent.running')) {
     return ''
   }
   return currentStatus.value
@@ -1423,24 +1546,192 @@ const showStatusDots = computed(() => {
   return Boolean(displayStatusText.value)
 })
 
+function normalizeStatusText(statusText: string): string {
+  const trimmed = String(statusText || '').trim()
+  if (!trimmed) return ''
+  const lowered = trimmed.toLowerCase()
+  if (lowered.includes('thinking') || trimmed.includes('思考')) {
+    return THINKING_STATUS_TEXT
+  }
+  return trimmed
+}
+
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 28
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 220
+const composerInputHeight = ref(COMPOSER_TEXTAREA_MIN_HEIGHT)
+
+function resizeComposerInput(el?: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = '0px'
+  const computed = window.getComputedStyle(el)
+  const lineHeight = Number.parseFloat(computed.lineHeight) || 16
+  const minHeight = Number.parseFloat(computed.minHeight) || Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, lineHeight + 2)
+  const nextHeight = Math.min(
+    COMPOSER_TEXTAREA_MAX_HEIGHT,
+    Math.max(minHeight, el.scrollHeight)
+  )
+  composerInputHeight.value = nextHeight
+  el.style.height = `${nextHeight}px`
+  el.style.overflowY = el.scrollHeight > COMPOSER_TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden'
+}
+
 // Auto-resize input
 function autoResizeInput(e: Event) {
-  const el = e.target as HTMLTextAreaElement
-  el.style.height = 'auto'
-  el.style.height = Math.min(el.scrollHeight, 100) + 'px'
+  resizeComposerInput(e.target as HTMLTextAreaElement)
 }
 
 // Reset textarea height when chat window opens
 watch(isOpen, (newVal) => {
   if (newVal) {
-    // Reset textarea height when window opens
     nextTick(() => {
-      if (inputRef.value) {
-        inputRef.value.style.height = 'auto'
-      }
+      resizeComposerInput(inputRef.value)
     })
   }
 })
+
+const modelMenuOptions = computed<ModelMenuOption[]>(() => {
+  const options: ModelMenuOption[] = []
+  for (const provider of modelProviders.value) {
+    const models = Array.isArray(provider.models) && provider.models.length
+      ? provider.models
+      : (provider.modelName ? [provider.modelName] : [])
+    const activeModel = provider.activeModel || provider.modelName || models[0]
+    for (const model of models) {
+      options.push({
+        key: `${provider.id}:${model}`,
+        providerId: provider.id,
+        providerName: provider.name,
+        modelName: model,
+        isActive: !!provider.isActive && model === activeModel
+      })
+    }
+  }
+  return options
+})
+
+const currentModelProvider = computed<ModelMenuOption | null>(() => {
+  if (!modelMenuOptions.value.length) return null
+  if (selectedModelProviderId.value && selectedModelName.value) {
+    const selected = modelMenuOptions.value.find(
+      (option) =>
+        option.providerId === selectedModelProviderId.value &&
+        option.modelName === selectedModelName.value
+    )
+    if (selected) return selected
+  }
+  return modelMenuOptions.value.find(option => option.isActive) || modelMenuOptions.value[0] || null
+})
+
+const currentModelLabel = computed(() => {
+  const current = currentModelProvider.value
+  if (!current) return locale.value === 'en-US' ? 'No model' : '无模型'
+  return current.modelName
+})
+
+async function loadComposerModelProviders(): Promise<void> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/models/providers`)
+    if (!response.ok) return
+    const providers = await response.json()
+    const list = Array.isArray(providers) ? providers : []
+    modelProviders.value = list
+
+    if (!list.length) {
+      selectedModelProviderId.value = null
+      selectedModelName.value = null
+      localStorage.removeItem(MODEL_PROVIDER_KEY)
+      localStorage.removeItem(MODEL_NAME_KEY)
+      return
+    }
+
+    const options = modelMenuOptions.value
+    const storedProviderId = selectedModelProviderId.value
+    const storedModelName = selectedModelName.value
+    const hasStored = Boolean(
+      storedProviderId &&
+      storedModelName &&
+      options.some(
+        (option) =>
+          option.providerId === storedProviderId &&
+          option.modelName === storedModelName
+      )
+    )
+    const fallback = options.find(option => option.isActive) || options[0]
+    selectedModelProviderId.value = hasStored ? storedProviderId! : (fallback?.providerId || null)
+    selectedModelName.value = hasStored ? storedModelName! : (fallback?.modelName || null)
+
+    if (selectedModelProviderId.value) localStorage.setItem(MODEL_PROVIDER_KEY, selectedModelProviderId.value)
+    else localStorage.removeItem(MODEL_PROVIDER_KEY)
+    if (selectedModelName.value) localStorage.setItem(MODEL_NAME_KEY, selectedModelName.value)
+    else localStorage.removeItem(MODEL_NAME_KEY)
+  } catch (err) {
+    console.warn('[Agent] Failed to load model providers:', err)
+  }
+}
+
+function toggleModelSelector(): void {
+  showModelSelector.value = !showModelSelector.value
+  if (showModelSelector.value) {
+    showInputMenu.value = false
+    showNoteSelector.value = false
+  }
+}
+
+function isSelectedModel(providerId: string, modelName: string): boolean {
+  return providerId === selectedModelProviderId.value && modelName === selectedModelName.value
+}
+
+async function selectComposerModel(providerId: string, modelName: string): Promise<void> {
+  if (!providerId || !modelName || modelSwitching.value) return
+  if (isSelectedModel(providerId, modelName)) {
+    showModelSelector.value = false
+    return
+  }
+
+  modelSwitching.value = true
+  try {
+    const activeProvider = modelProviders.value.find(p => p.isActive)
+    if (activeProvider?.id !== providerId) {
+      const providerRes = await fetch(`${BACKEND_URL}/api/models/providers/${providerId}/active`, {
+        method: 'POST'
+      })
+      if (!providerRes.ok) {
+        throw new Error(`Switch provider failed: ${providerRes.status}`)
+      }
+    }
+
+    const modelRes = await fetch(`${BACKEND_URL}/api/models/providers/${providerId}/models/active`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelName })
+    })
+    if (!modelRes.ok) {
+      throw new Error(`Switch model failed: ${modelRes.status}`)
+    }
+
+    selectedModelProviderId.value = providerId
+    selectedModelName.value = modelName
+    localStorage.setItem(MODEL_PROVIDER_KEY, providerId)
+    localStorage.setItem(MODEL_NAME_KEY, modelName)
+    showModelSelector.value = false
+    await loadComposerModelProviders()
+    await checkConnection()
+  } catch (err) {
+    console.error('[Agent] Failed to switch model provider:', err)
+  } finally {
+    modelSwitching.value = false
+  }
+}
+
+function openModelSettingsFromComposer(): void {
+  showModelSelector.value = false
+  showModelSettings.value = true
+}
+
+async function handleModelSettingsUpdated(): Promise<void> {
+  await checkConnection()
+  await loadComposerModelProviders()
+}
 
 // Close menus when clicking outside
 function handleGlobalClick(e: MouseEvent) {
@@ -1448,6 +1739,9 @@ function handleGlobalClick(e: MouseEvent) {
   if (menuWrapper && !menuWrapper.contains(e.target as Node)) {
     showInputMenu.value = false
     showNoteSelector.value = false
+  }
+  if (modelSelectorRef.value && !modelSelectorRef.value.contains(e.target as Node)) {
+    showModelSelector.value = false
   }
 }
 
@@ -1607,9 +1901,12 @@ const handleResize = () => {
 // Initial Position setup
 onMounted(() => {
   checkConnection(true) // Start checks with "isStartup = true"
+  void loadComposerModelProviders()
   setInterval(() => checkConnection(false), 30000) // Regular heartbeat
   
   window.addEventListener('resize', handleResize)
+  window.addEventListener('origin-agent-sidebar-mode-changed', syncSidebarModeFromExternal as EventListener)
+  window.addEventListener('storage', syncSidebarModeFromExternal)
   // Use capture phase so inside-panel @mousedown.stop won't block outside-click detection.
   document.addEventListener('mousedown', handleGlobalClick, true)
   setTimeout(snapToEdge, 100) // Initial dock
@@ -1617,6 +1914,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('origin-agent-sidebar-mode-changed', syncSidebarModeFromExternal as EventListener)
+  window.removeEventListener('storage', syncSidebarModeFromExternal)
   document.removeEventListener('mousedown', handleGlobalClick, true)
 })
 // ----------------------
@@ -1700,22 +1999,6 @@ const welcomeHighlights = computed(() => [
   t('agent.heroList3')
 ])
 
-// Tool icon mapping for Part-Based rendering (minimal text icons, no emoji)
-const TOOL_ICONS: Record<string, string> = {
-  'search_knowledge': '🔎',
-  'read_note_content': '👁',
-  'list_recent_notes': '📋',
-  'update_note': '✎',
-  'create_note': '+',
-  'delete_note': '×',
-  'list_categories': '🏷',
-  'set_note_category': '📁',
-}
-
-function getToolIcon(tool: string): string {
-  return TOOL_ICONS[tool] || '●'
-}
-
 function formatToolOutput(output: string): string {
   const compact = String(output || '')
     .replace(/\s+/g, ' ')
@@ -1765,6 +2048,29 @@ function toggleSidebarMode() {
     hasUnread.value = false
   } else {
     // Exiting right sidebar should collapse directly back to the floating bubble.
+    isOpen.value = false
+    reanchorFloatingBubble()
+    snapToEdge()
+  }
+}
+
+function syncSidebarModeFromExternal(event?: Event): void {
+  let enabled = localStorage.getItem('origin_agent_sidebar_mode') === '1'
+  if (event && 'detail' in event) {
+    const detail = (event as CustomEvent<{ enabled?: boolean }>).detail
+    if (typeof detail?.enabled === 'boolean') enabled = detail.enabled
+  }
+
+  const wasSidebarMode = isSidebarMode.value
+  if (wasSidebarMode === enabled) return
+
+  isSidebarMode.value = enabled
+  if (enabled) {
+    isMaximized.value = false
+    isOpen.value = true
+    hasUnread.value = false
+  } else if (wasSidebarMode) {
+    // Keep behavior consistent with manual toggle: leave sidebar mode -> bubble.
     isOpen.value = false
     reanchorFloatingBubble()
     snapToEdge()
@@ -1925,20 +2231,22 @@ async function sendMessage(
   isTyping.value = true
   showInputMenu.value = false
   showNoteSelector.value = false
+  showModelSelector.value = false
   
   // Reset scroll state - user sending message means they want to see the response
   userScrolledUp.value = false
   showScrollToBottom.value = false
   
-  // Reset height
-  if (inputRef.value) {
-    inputRef.value.style.height = '24px' // Explicitly set to min-height
-    nextTick(() => {
-        if (inputRef.value) inputRef.value.style.height = '' // Then let CSS take over
-    })
-  }
+  // Reset to single-line baseline after sending
+  nextTick(() => {
+    if (inputRef.value) {
+      composerInputHeight.value = COMPOSER_TEXTAREA_MIN_HEIGHT
+      inputRef.value.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`
+      inputRef.value.style.overflowY = 'hidden'
+    }
+  })
   
-  currentStatus.value = isResume ? t('agent.running') : t('agent.thinking')
+  currentStatus.value = isResume ? t('agent.running') : THINKING_STATUS_TEXT
   
   // Ensure keyboard on mobile doesn't hide input
   nextTick(() => {
@@ -1997,6 +2305,8 @@ async function sendMessage(
       active_note_id: activeNoteId,
       use_knowledge: explicitKnowledge,  // @ knowledge search flag
       auto_accept_writes: autoAcceptEdits.value,
+      model_provider_id: selectedModelProviderId.value,
+      model_name: selectedModelName.value,
       resume: options?.resume || null
     }
 
@@ -2051,7 +2361,7 @@ async function sendMessage(
               
               // 1. Status Update
               if (chunk.type === 'status') {
-                  const statusText = String(chunk.text || '')
+                  const statusText = normalizeStatusText(String(chunk.text || ''))
                   if (pendingExecutionApproval.value) {
                       currentStatus.value = ''
                   } else if (approvalBusy.value) {
@@ -2095,6 +2405,7 @@ async function sendMessage(
                   if (!msg.parts) msg.parts = []
                   
                   if (chunk.part_type === 'text') {
+                      finalizeAwaitingReadTools()
                       // Find or create text part at the end
                       const lastPart = msg.parts[msg.parts.length - 1]
                       if (lastPart && lastPart.type === 'text') {
@@ -2125,6 +2436,7 @@ async function sendMessage(
                               tool: chunk.tool,
                               toolId: chunk.tool_id,
                               status: chunk.status === 'pending' ? 'pending' : 'running',
+                              startedAt: Date.now(),
                               title: chunk.title,
                               inputPreview: chunk.input_preview
                           } as ToolPart)
@@ -2139,8 +2451,8 @@ async function sendMessage(
                               toolPart = findToolPartForCompletion(undefined, chunk.tool)
                           }
                           if (toolPart) {
-                              toolPart.status = 'completed'
                               toolPart.output = chunk.output
+                              markToolPartCompleted(toolPart, chunk.tool)
                           }
                           if (chunk.tool === 'update_note') {
                               const previousContent =
@@ -2604,10 +2916,7 @@ onMounted(() => {
 })
 
 watch(inputText, () => {
-  if (inputRef.value) {
-    inputRef.value.style.height = 'auto'
-    inputRef.value.style.height = Math.min(inputRef.value.scrollHeight, 120) + 'px'
-  }
+  nextTick(() => resizeComposerInput(inputRef.value))
 })
 
 watch(autoAcceptEdits, (enabled) => {
@@ -2669,27 +2978,27 @@ watch(
 /* ===== 馃帹 Theme: Warm Glass (Claude-Inspired) with Dark Mode Support ===== */
 .agent-container {
   /* Light Theme Variables (Default) */
-  --theme-bg: rgba(250, 248, 245, 0.85);
-  --theme-bg-solid: #FDFCFB;
+  --theme-bg: rgba(250, 248, 245, 0.72);
+  --theme-bg-solid: rgba(255, 255, 255, 0.86);
   --theme-text: #2D2A26;
   --theme-text-secondary: #6B6762;
   --theme-accent: #D97D54;
-  --theme-accent-light: #FEF3EE;
-  --theme-border: rgba(232, 228, 223, 0.6);
+  --theme-accent-light: rgba(254, 243, 238, 0.7);
+  --theme-border: rgba(232, 228, 223, 0.52);
   --theme-input-bg: rgba(0, 0, 0, 0.04);
   --theme-code-bg: #F3F4F6;
-  --theme-bubble-bg: rgba(255, 255, 255, 0.6);
+  --theme-bubble-bg: rgba(255, 255, 255, 0.54);
   --theme-bubble-active: rgba(255, 255, 255, 0.9);
-  --theme-header-bg: rgba(255, 255, 255, 0.5);
-  --theme-footer-bg: white;
-  --theme-suggestion-bg: #FFFFFF;
-  --theme-surface: #ffffff;
+  --theme-header-bg: rgba(255, 255, 255, 0.38);
+  --theme-footer-bg: rgba(255, 255, 255, 0.36);
+  --theme-suggestion-bg: rgba(255, 255, 255, 0.58);
+  --theme-surface: rgba(255, 255, 255, 0.52);
   --theme-hover: rgba(24, 28, 35, 0.06);
-  --theme-bg-secondary: rgba(248, 245, 241, 0.9);
-  --theme-bg-hover: rgba(244, 240, 235, 0.9);
+  --theme-bg-secondary: rgba(248, 245, 241, 0.68);
+  --theme-bg-hover: rgba(244, 240, 235, 0.76);
   --theme-ring: rgba(217, 125, 84, 0.25);
-  --theme-shadow-soft: 0 18px 48px rgba(26, 18, 11, 0.12);
-  --theme-shadow-strong: 0 24px 60px rgba(26, 18, 11, 0.2);
+  --theme-shadow-soft: 0 16px 40px rgba(26, 18, 11, 0.14);
+  --theme-shadow-strong: 0 28px 72px rgba(26, 18, 11, 0.22);
   --hero-grad-1: #bf6d43;
   --hero-grad-2: #d99f62;
   --hero-grad-3: #80583f;
@@ -2700,36 +3009,63 @@ watch(
 
 /* Dark Theme Override */
 [data-theme="dark"] .agent-container {
-  --theme-bg: rgba(35, 35, 38, 0.92);
-  --theme-bg-solid: #2A2A2E;
+  --theme-bg: rgba(20, 22, 28, 0.74);
+  --theme-bg-solid: rgba(30, 33, 40, 0.88);
   --theme-text: #E8E8E6;
   --theme-text-secondary: #A8A8A5;
   --theme-accent: #E8A87C;
   --theme-accent-light: rgba(232, 168, 124, 0.15);
-  --theme-border: rgba(60, 60, 65, 0.8);
+  --theme-border: rgba(126, 132, 150, 0.28);
   --theme-input-bg: rgba(255, 255, 255, 0.06);
   --theme-code-bg: #1E1E22;
-  --theme-bubble-bg: rgba(50, 50, 55, 0.8);
+  --theme-bubble-bg: rgba(50, 50, 55, 0.64);
   --theme-bubble-active: rgba(60, 60, 65, 0.95);
-  --theme-header-bg: rgba(40, 40, 45, 0.8);
-  --theme-footer-bg: #232326;
-  --theme-suggestion-bg: #2A2A2E;
-  --theme-surface: #2f3035;
-  --theme-hover: rgba(255, 255, 255, 0.08);
-  --theme-bg-secondary: rgba(46, 46, 51, 0.95);
-  --theme-bg-hover: rgba(56, 56, 62, 0.95);
+  --theme-header-bg: rgba(40, 40, 45, 0.52);
+  --theme-footer-bg: rgba(35, 35, 38, 0.58);
+  --theme-suggestion-bg: rgba(42, 42, 46, 0.62);
+  --theme-surface: rgba(42, 45, 54, 0.62);
+  --theme-hover: rgba(255, 255, 255, 0.085);
+  --theme-bg-secondary: rgba(34, 37, 46, 0.72);
+  --theme-bg-hover: rgba(54, 58, 69, 0.78);
   --theme-ring: rgba(232, 168, 124, 0.28);
-  --theme-shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.45);
-  --theme-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --theme-shadow-soft: 0 22px 52px rgba(0, 0, 0, 0.56);
+  --theme-shadow-strong: 0 34px 82px rgba(0, 0, 0, 0.66);
   --hero-grad-1: #f1bb8f;
   --hero-grad-2: #f0d5a5;
   --hero-grad-3: #c69266;
 }
 
+[data-theme="dark"] .chat-input-unified-box {
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .send-btn-compact {
+  background: linear-gradient(160deg, rgba(232, 168, 124, 0.24), rgba(69, 55, 47, 0.4));
+  color: #f6dcc1;
+}
+
+[data-theme="dark"] .agent-chat::before {
+  background:
+    radial-gradient(140% 60% at 20% 0%, rgba(255, 255, 255, 0.08), transparent 48%),
+    radial-gradient(120% 70% at 80% 100%, rgba(255, 255, 255, 0.035), transparent 58%);
+}
+
+[data-theme="dark"] .agent-chat__messages {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+}
+
+[data-theme="dark"] .agent-chat__header,
+[data-theme="dark"] .agent-chat__footer {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 /* Classic Theme Override */
 [data-theme="classic"] .agent-container {
-  --theme-bg: rgba(255, 255, 255, 1);
-  --theme-bg-solid: #FFFFFF;
+  --theme-bg: rgba(255, 255, 255, 0.84);
+  --theme-bg-solid: rgba(255, 255, 255, 0.95);
   --theme-text: #1F1F1F;
   --theme-text-secondary: #666666;
   --theme-accent: #D97D54;
@@ -2737,15 +3073,15 @@ watch(
   --theme-border: rgba(0, 0, 0, 0.06);
   --theme-input-bg: rgba(0, 0, 0, 0.02);
   --theme-code-bg: #FAFAFA;
-  --theme-bubble-bg: rgba(255, 255, 255, 0.98);
+  --theme-bubble-bg: rgba(255, 255, 255, 0.7);
   --theme-bubble-active: rgba(255, 255, 255, 1);
-  --theme-header-bg: rgba(255, 255, 255, 1);
-  --theme-footer-bg: #FFFFFF;
-  --theme-suggestion-bg: #FFFFFF;
-  --theme-surface: #ffffff;
+  --theme-header-bg: rgba(255, 255, 255, 0.74);
+  --theme-footer-bg: rgba(255, 255, 255, 0.72);
+  --theme-suggestion-bg: rgba(255, 255, 255, 0.8);
+  --theme-surface: rgba(255, 255, 255, 0.74);
   --theme-hover: rgba(17, 24, 39, 0.06);
-  --theme-bg-secondary: rgba(248, 249, 251, 0.95);
-  --theme-bg-hover: rgba(240, 244, 248, 0.95);
+  --theme-bg-secondary: rgba(248, 249, 251, 0.75);
+  --theme-bg-hover: rgba(240, 244, 248, 0.85);
   --theme-ring: rgba(217, 125, 84, 0.22);
   --theme-shadow-soft: 0 16px 38px rgba(15, 23, 42, 0.12);
   --theme-shadow-strong: 0 20px 52px rgba(15, 23, 42, 0.18);
@@ -2757,8 +3093,8 @@ watch(
 /* Glassmorphism Panel Base */
 .glass-panel {
   background: var(--theme-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px) saturate(1.16);
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
   border: 1px solid var(--theme-border);
   box-shadow: var(--theme-shadow-soft);
 }
@@ -2841,10 +3177,36 @@ watch(
   z-index: 10000;
   
   /* Warm Texture with theme support */
-  background: var(--theme-bg);
-  transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 88%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 86%, transparent));
+  transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
   border: 1px solid var(--theme-border);
   box-shadow: var(--theme-shadow-strong);
+  isolation: isolate;
+}
+
+.agent-chat::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.32), transparent 24%, transparent 72%, rgba(255, 255, 255, 0.14));
+  z-index: 0;
+}
+
+.agent-chat::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  border-radius: calc(18px - 1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44), inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+  z-index: 0;
+}
+
+.agent-chat > * {
+  position: relative;
+  z-index: 1;
 }
 
 .agent-container--sidebar {
@@ -2864,6 +3226,10 @@ watch(
   border-left: 1px solid var(--theme-border);
   box-shadow: none;
   transform-origin: top right;
+}
+
+.agent-chat.sidebar-mode::after {
+  border-radius: 0;
 }
 
 /* Responsive Chat Window - Scale up on larger screens */
@@ -2924,13 +3290,15 @@ watch(
 
 /* Header */
 .agent-chat__header {
-  padding: 12px 14px;
-  background: var(--theme-header-bg);
+  padding: 11px 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--theme-header-bg) 90%, white 10%), color-mix(in srgb, var(--theme-header-bg) 96%, transparent));
   border-bottom: 1px solid var(--theme-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: background 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .agent-chat__title {
@@ -2946,23 +3314,37 @@ watch(
   color: transparent;
   animation: heroGradientFlow 5.2s ease-in-out infinite;
 }
-.agent-chat__avatar { font-size: 17px; color: var(--theme-accent); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 30%, transparent)); }
+.agent-chat__avatar {
+  width: 17px;
+  height: 17px;
+  color: var(--theme-accent);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 30%, transparent));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.agent-chat__avatar svg {
+  width: 100%;
+  height: 100%;
+}
 .agent-chat__actions { display: flex; gap: 4px; }
 
 /* Header Buttons */
 .header-btn {
-  width: 30px; height: 30px;
-  border: 1px solid transparent;
-  background: transparent;
+  width: 29px; height: 29px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 76%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 70%, transparent);
   cursor: pointer; color: var(--theme-text-secondary);
-  border-radius: 8px;
+  border-radius: 999px;
   display: flex; align-items: center; justify-content: center;
-  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+  transition: background 0.2s ease, color 0.16s ease, border-color 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 .header-btn:hover {
-  background: var(--theme-hover);
-  border-color: var(--theme-border);
+  background: color-mix(in srgb, var(--theme-bg-hover) 74%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-border));
   color: var(--theme-text);
+  box-shadow: 0 8px 14px color-mix(in srgb, #000 14%, transparent);
 }
 .header-btn:active {
   transform: scale(0.96);
@@ -2980,7 +3362,7 @@ watch(
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden; /* Prevent horizontal scroll */
-  padding: 18px 16px;
+  padding: 20px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -3071,18 +3453,25 @@ watch(
 .agent-chat__welcome p {
   margin: 0;
   color: color-mix(in srgb, var(--theme-text-secondary) 72%, transparent);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.55;
   max-width: 430px;
   text-wrap: pretty;
 }
 .welcome-icon {
-  font-size: 23px;
+  width: 23px;
+  height: 23px;
   color: var(--theme-accent);
   margin-bottom: 10px;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.88;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 22%, transparent));
+}
+.welcome-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 @keyframes heroGradientFlow {
@@ -3322,7 +3711,7 @@ watch(
 /* Common Message Container */
 .message {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   position: relative;
   /* Remove fixed width from base class to allow flexibility */
 }
@@ -3331,13 +3720,15 @@ watch(
 .message--user .message {
   width: fit-content;
   max-width: 85%;
-  background: var(--theme-bg-solid);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-bg-solid) 60%, transparent), color-mix(in srgb, var(--theme-surface) 62%, transparent));
   color: var(--theme-text);
-  border: 1px solid var(--theme-border);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 58%, rgba(255, 255, 255, 0.12));
   padding: 10px 16px;
-  border-radius: 18px;
+  border-radius: 20px;
   border-bottom-right-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  box-shadow:
+    0 10px 20px color-mix(in srgb, #000 8%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
   margin-left: auto; /* Ensure it stays right even if flex weirdness happens */
 }
 
@@ -3349,19 +3740,6 @@ watch(
   padding-left: 0;
 }
 
-/* Hide User Avatar (Claude Style) */
-.message--user .message__avatar {
-  display: none;
-}
-
-/* Assistant Avatar - Subtle Asterisk */
-.message--assistant .message__avatar {
-  font-size: 18px;
-  color: var(--theme-accent);
-  margin-top: 4px; /* Align with first line of text */
-  flex-shrink: 0;
-}
-
 .message__content {
   flex: 1;
   overflow: hidden; /* Prevent horizontal overflow */
@@ -3370,7 +3748,7 @@ watch(
 }
 
 .message__text {
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.6;
   white-space: normal;
   word-wrap: break-word;
@@ -3387,28 +3765,31 @@ watch(
   grid-template-columns: 28px 1fr;
   align-items: center;
   gap: 8px;
-  margin: 5px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--theme-border);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
-  box-shadow: 0 3px 10px color-mix(in srgb, #000 6%, transparent);
+  margin: 4px 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 48%, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 62%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 54%, transparent));
+  box-shadow:
+    0 8px 18px color-mix(in srgb, #000 8%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13);
 }
 
 .tool-part--running {
-  border-color: color-mix(in srgb, var(--theme-accent) 35%, var(--theme-border));
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border));
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-accent-light) 36%, var(--theme-surface)), color-mix(in srgb, var(--theme-bg-secondary) 80%, transparent));
 }
 
 .tool-part--pending {
-  border-color: rgba(194, 124, 0, 0.36);
+  border-color: rgba(194, 124, 0, 0.24);
 }
 
 .tool-part--completed {
-  border-color: color-mix(in srgb, var(--theme-border) 70%, #55a86a 30%);
+  border-color: color-mix(in srgb, var(--theme-border) 78%, #55a86a 22%);
 }
 
 .tool-part--error {
-  border-color: rgba(231, 76, 60, 0.36);
+  border-color: rgba(231, 76, 60, 0.24);
 }
 
 .tool-part__icon-wrap {
@@ -3418,13 +3799,20 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--theme-accent-light) 70%, var(--theme-surface));
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 25%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent-light) 52%, var(--theme-surface));
+  border: 1px solid color-mix(in srgb, var(--theme-border) 74%, var(--theme-accent) 26%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .tool-part__icon {
   font-size: 11px;
   opacity: 0.85;
+}
+
+.tool-part__icon-svg {
+  width: 13px;
+  height: 13px;
+  color: color-mix(in srgb, var(--theme-accent) 68%, var(--theme-text-secondary));
 }
 
 .tool-part__main {
@@ -3442,7 +3830,7 @@ watch(
 }
 
 .tool-part__name {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.2;
   font-weight: 530;
   color: var(--theme-text-secondary);
@@ -3535,17 +3923,18 @@ watch(
 /* Status Update (Floating & Pulsing) */
 .status-update {
   align-self: flex-start;
-  margin: 6px 0 12px 34px;
-  padding: 5px 10px;
-  background: color-mix(in srgb, var(--theme-accent-light) 50%, var(--theme-surface));
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));
+  margin: 4px 0 10px 34px;
+  padding: 5px 11px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-accent-light) 32%, var(--theme-surface)), color-mix(in srgb, var(--theme-bg-secondary) 66%, transparent));
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 14%, var(--theme-border));
   border-radius: 999px;
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--theme-accent);
-  opacity: 0.95;
+  opacity: 0.96;
+  box-shadow: 0 8px 14px color-mix(in srgb, #000 8%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   animation: shimmer 2s infinite ease-in-out;
 }
 
@@ -3573,17 +3962,24 @@ watch(
 
 /* ========== Compact & Unified Input Area (v2) ========== */
 .agent-chat__footer {
-  padding: 10px 12px 12px;
-  background: var(--theme-footer-bg);
+  padding: 12px 14px 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-footer-bg) 62%, transparent) 0%,
+    color-mix(in srgb, var(--theme-footer-bg) 86%, transparent) 42%,
+    color-mix(in srgb, var(--theme-footer-bg) 96%, transparent) 100%
+  );
   border-top: 1px solid var(--theme-border);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 220ms ease, border-color 220ms ease;
+  backdrop-filter: blur(16px) saturate(1.12);
+  -webkit-backdrop-filter: blur(16px) saturate(1.12);
 }
 
 /* Responsive footer in maximized mode - match chat area width */
 .agent-chat.maximized .agent-chat__footer {
   display: flex;
   justify-content: center;
-  padding: 12px 20px;
+  padding: 14px 22px 16px;
 }
 
 .agent-chat.maximized .agent-chat__footer .chat-input-unified-box {
@@ -3604,20 +4000,40 @@ watch(
 
 .chat-input-unified-box {
   display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 8px 9px;
-  background: var(--theme-surface);
-  border: 1px solid var(--theme-border);
-  border-radius: 14px;
-  transition: background 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--theme-surface) 90%, white 10%),
+    color-mix(in srgb, var(--theme-bg-secondary) 88%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, rgba(255, 255, 255, 0.22));
+  border-radius: 20px;
   position: relative;
-  box-shadow: 0 8px 22px color-mix(in srgb, #000 8%, transparent);
+  transition: background 180ms ease, box-shadow 220ms ease, border-color 180ms ease, transform 160ms ease;
+  box-shadow:
+    0 14px 30px color-mix(in srgb, #000 13%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.07);
+}
+
+.chat-input-unified-box::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  border-radius: 19px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.18), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.06));
 }
 
 .chat-input-unified-box:focus-within {
-  border-color: color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border));
-  box-shadow: 0 0 0 3px var(--theme-ring);
+  border-color: color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border));
+  box-shadow:
+    0 0 0 3px var(--theme-ring),
+    0 16px 36px color-mix(in srgb, #000 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  transform: translateY(-1px);
 }
 
 /* + Menu Wrapper & Button */
@@ -3625,134 +4041,167 @@ watch(
   position: relative;
   display: flex;
   align-items: center;
-  margin-bottom: 1px; /* Visual alignment with textarea bottom */
+  margin-bottom: 0;
+  z-index: 2;
 }
 
 .menu-trigger-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 68%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 64%, transparent);
   color: var(--theme-text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: transform 140ms ease, background 180ms ease, border-color 180ms ease, color 140ms ease, box-shadow 180ms ease;
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .menu-trigger-btn:hover, .menu-trigger-btn.active {
   color: var(--theme-accent);
-  background: var(--theme-accent-light);
+  background: color-mix(in srgb, var(--theme-accent-light) 72%, var(--theme-surface));
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border));
+  box-shadow: 0 8px 14px color-mix(in srgb, #000 12%, transparent);
+}
+
+.menu-trigger-btn:active {
+  transform: scale(0.96);
 }
 
 .menu-trigger-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 /* Redesigned Popup Menu (Smaller) */
 .input-menu-popup {
   position: absolute;
-  bottom: 36px;
-  left: -4px;
-  min-width: 170px;
-  background: var(--theme-surface);
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
-  box-shadow: var(--theme-shadow-soft);
+  bottom: 42px;
+  left: 0;
+  min-width: 232px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-surface) 94%, white 6%), color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent));
+  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, rgba(255, 255, 255, 0.26));
+  border-radius: 14px;
+  box-shadow: 0 20px 40px color-mix(in srgb, #000 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.44);
   overflow: hidden;
-  z-index: 100;
-  padding: 4px;
+  z-index: 120;
+  padding: 6px;
 }
 
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 9px;
+  padding: 10px 11px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s;
+  border-radius: 9px;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
   font-size: 13px;
   color: var(--theme-text);
+  font-weight: 520;
 }
 
 .menu-item:hover {
-  background: var(--theme-accent-light);
+  background: color-mix(in srgb, var(--theme-accent-light) 74%, var(--theme-surface));
   color: var(--theme-accent);
+  transform: translateX(1px);
 }
 
 .menu-icon {
-  font-size: 12px;
-  width: 14px;
+  width: 15px;
+  height: 15px;
   text-align: center;
   color: var(--theme-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+
+.menu-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .menu-item:hover .menu-icon {
   color: var(--theme-accent);
 }
 
-.menu-icon.smaller { font-size: 10px; }
+.menu-icon.smaller {
+  width: 14px;
+  height: 14px;
+}
 
 /* Menu Fade Transition */
 .menu-fade-enter-active, .menu-fade-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.22, 0.68, 0.2, 1), filter 180ms ease;
 }
 .menu-fade-enter-from, .menu-fade-leave-to {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(8px) scale(0.98);
+  filter: blur(2px);
 }
 
 /* Auto-resize Textarea */
 .chat-input-unified-box textarea {
   flex: 1;
-  min-height: 26px;
-  max-height: 120px;
-  padding: 4px 2px;
+  min-height: 30px;
+  max-height: 128px;
+  padding: 5px 2px;
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.5;
   resize: none;
   outline: none;
   overflow-y: auto;
   color: var(--theme-text);
+  z-index: 2;
 }
 
 .chat-input-unified-box textarea::placeholder {
   color: var(--theme-text-secondary);
-  opacity: 0.6;
-  font-size: 13px;
+  opacity: 0.68;
+  font-size: 11px;
 }
 
 /* Compact Send/Stop Buttons */
 .send-btn-compact, .stop-btn-compact {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: transform 140ms ease, box-shadow 180ms ease, background 180ms ease, color 140ms ease;
   flex-shrink: 0;
-  margin-bottom: 1px;
+  margin-bottom: 0;
+  z-index: 2;
 }
 
 .send-btn-compact {
-  background: transparent;
-  color: var(--theme-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-accent-light) 72%, white 28%), color-mix(in srgb, var(--theme-surface) 88%, transparent));
+  color: color-mix(in srgb, var(--theme-accent) 82%, var(--theme-text));
+  box-shadow: 0 8px 14px color-mix(in srgb, var(--theme-accent) 20%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .send-btn-compact:hover:not(:disabled) {
-  color: var(--theme-accent);
-  background: var(--theme-accent-light);
+  color: #fff;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--hero-grad-1) 92%, white 8%), color-mix(in srgb, var(--hero-grad-2) 90%, var(--hero-grad-3)));
+  box-shadow: 0 12px 20px color-mix(in srgb, var(--theme-accent) 40%, transparent);
+  transform: translateY(-1px);
+}
+
+.send-btn-compact:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
 }
 
 .send-btn-compact:disabled {
@@ -3761,12 +4210,13 @@ watch(
 }
 
 .send-btn-compact svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .stop-btn-compact {
   background: #EF4444;
+  box-shadow: 0 10px 18px color-mix(in srgb, #ef4444 35%, transparent);
 }
 
 .stop-icon-small {
@@ -3779,18 +4229,18 @@ watch(
 /* Note Selector Dropdown (Even smaller) */
 .note-selector-dropdown {
   position: absolute;
-  bottom: 36px;
-  left: -4px;
+  bottom: 42px;
+  left: 0;
   width: 220px;
   max-height: 200px;
-  background: var(--theme-surface);
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
-  box-shadow: var(--theme-shadow-soft);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-surface) 94%, white 6%), color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent));
+  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, rgba(255, 255, 255, 0.26));
+  border-radius: 14px;
+  box-shadow: 0 20px 40px color-mix(in srgb, #000 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.44);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  z-index: 100;
+  z-index: 120;
 }
 
 .selector-header {
@@ -3823,7 +4273,19 @@ watch(
   background: var(--theme-accent-light);
 }
 
-.item-icon { font-size: 11px; }
+.item-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--theme-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-icon svg {
+  width: 100%;
+  height: 100%;
+}
 .item-title {
   font-size: 12px;
   color: var(--theme-text);
@@ -3868,13 +4330,14 @@ watch(
   align-items: center;
   gap: 5px;
   padding: 4px 9px;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 12px;
   line-height: 1.2;
-  border: 1px solid var(--theme-border);
-  background: color-mix(in srgb, var(--theme-surface) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, rgba(255, 255, 255, 0.18));
+  background: color-mix(in srgb, var(--theme-surface) 68%, transparent);
   color: var(--theme-text-secondary);
   max-width: 220px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .mentioned-pill {
@@ -3959,10 +4422,24 @@ watch(
   font-size: 12px;
   color: var(--theme-text-secondary);
   margin: 0 12px 8px;
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-surface) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 46%, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 56%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 58%, transparent));
   flex-wrap: wrap;
+  box-shadow: 0 10px 22px color-mix(in srgb, #000 10%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.agent-approval-bar,
+.agent-task-card,
+.agent-execution-panel {
+  transition: border-color 180ms ease, box-shadow 220ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.agent-approval-bar:hover,
+.agent-task-card:hover,
+.agent-execution-panel:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-border));
+  box-shadow: 0 12px 24px color-mix(in srgb, #000 14%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .agent-approval-bar__label {
@@ -3973,19 +4450,21 @@ watch(
 }
 
 .agent-approval-btn {
-  border: 1px solid var(--theme-border);
-  background: var(--theme-surface);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 70%, rgba(255, 255, 255, 0.12));
+  background: color-mix(in srgb, var(--theme-surface) 78%, transparent);
   color: var(--theme-text);
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .agent-approval-btn:hover:not(:disabled) {
   background: var(--theme-hover);
+  box-shadow: 0 8px 14px color-mix(in srgb, #000 10%, transparent);
 }
 
 .agent-approval-btn:active:not(:disabled) {
@@ -4008,20 +4487,21 @@ watch(
 }
 
 .agent-approval-preview {
-  border: 1px solid var(--theme-border);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, rgba(255, 255, 255, 0.16));
   margin: 0 12px 8px;
   padding: 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 72%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 68%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .agent-task-card {
   margin: 0 12px 8px;
   padding: 10px;
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 44%, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 52%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 56%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .agent-task-card__title {
@@ -4046,9 +4526,10 @@ watch(
 
 .agent-execution-panel {
   margin: 0 12px 8px;
-  border: 1px solid var(--theme-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 44%, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 52%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 56%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   overflow: hidden;
 }
 
@@ -4058,7 +4539,7 @@ watch(
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--theme-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 56%, transparent);
 }
 
 .agent-execution-panel__title {
@@ -4080,7 +4561,8 @@ watch(
   font-size: 12px;
   color: var(--theme-text-secondary);
   padding: 7px 10px;
-  border-top: 1px solid var(--theme-border);
+  border-top: 1px solid color-mix(in srgb, var(--theme-border) 70%, transparent);
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .agent-execution-item:first-child {
@@ -4111,6 +4593,56 @@ watch(
 
 .agent-execution-item--error .agent-execution-item__status {
   color: #ef4444;
+}
+
+.agent-execution-item:hover {
+  background: color-mix(in srgb, var(--theme-bg-hover) 72%, transparent);
+}
+
+/* Panel transitions: subtle material lift/fade */
+.panel-elevate-enter-active,
+.panel-elevate-leave-active {
+  transition: opacity 200ms ease, transform 220ms cubic-bezier(0.22, 0.68, 0.2, 1), filter 220ms ease;
+}
+
+.panel-elevate-enter-from,
+.panel-elevate-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.992);
+  filter: blur(2px);
+}
+
+.panel-elevate-enter-to,
+.panel-elevate-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+/* Execution record list motion */
+.record-item-enter-active,
+.record-item-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.record-item-enter-from,
+.record-item-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.record-item-move {
+  transition: transform 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-elevate-enter-active,
+  .panel-elevate-leave-active,
+  .record-item-enter-active,
+  .record-item-leave-active,
+  .record-item-move {
+    transition: none;
+  }
 }
 
 .agent-approval-preview__summary {
@@ -4501,4 +5033,1213 @@ watch(
   transform: translateY(-10px);
   opacity: 0;
 }
+
+/* ===== Shadcn-like Chat Refinement (UI only, no logic changes) ===== */
+.agent-chat {
+  --chat-surface: color-mix(in srgb, var(--theme-surface) 94%, #ffffff 6%);
+  --chat-surface-soft: color-mix(in srgb, var(--theme-bg-secondary) 82%, #ffffff 18%);
+  --chat-border: color-mix(in srgb, var(--theme-border) 84%, #d7dbe2 16%);
+  --chat-ring: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  --chat-text-soft: color-mix(in srgb, var(--theme-text-secondary) 86%, transparent);
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  box-shadow:
+    0 14px 30px color-mix(in srgb, #0f172a 10%, transparent),
+    0 2px 10px color-mix(in srgb, #0f172a 7%, transparent);
+}
+
+.agent-chat::before,
+.agent-chat::after {
+  display: none;
+}
+
+.agent-chat__header {
+  background: color-mix(in srgb, var(--chat-surface) 96%, white 4%);
+  border-bottom: 1px solid var(--chat-border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.agent-chat__title {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.header-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 78%, transparent);
+  box-shadow: none;
+  color: var(--chat-text-soft);
+}
+
+.header-btn:hover {
+  background: color-mix(in srgb, var(--theme-bg-hover) 72%, var(--chat-surface) 28%);
+  border-color: color-mix(in srgb, var(--theme-accent) 26%, var(--chat-border));
+  box-shadow: 0 0 0 2px var(--chat-ring);
+  color: var(--theme-text);
+  transform: none;
+}
+
+.agent-chat__messages {
+  padding: 18px 14px 14px;
+  gap: 14px;
+}
+
+.message--assistant .message {
+  padding-right: 4px;
+}
+
+.message--user .message {
+  border-radius: 14px;
+  border-bottom-right-radius: 6px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--theme-accent-light) 40%, var(--chat-surface));
+  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 8%, transparent);
+  padding: 8px 12px;
+}
+
+.message__text {
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--theme-text) 96%, transparent);
+}
+
+.tool-part {
+  border-radius: 12px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 70%, var(--chat-surface) 30%);
+  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 7%, transparent);
+  padding: 8px 10px;
+}
+
+.tool-part--running {
+  border-color: color-mix(in srgb, var(--theme-accent) 22%, var(--chat-border));
+  background: color-mix(in srgb, var(--theme-accent-light) 34%, var(--chat-surface) 66%);
+}
+
+.tool-part__icon-wrap {
+  background: color-mix(in srgb, var(--chat-surface) 86%, white 14%);
+  border: 1px solid var(--chat-border);
+  box-shadow: none;
+}
+
+.tool-part__output {
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 86%, var(--chat-surface-soft) 14%);
+}
+
+.status-update {
+  margin-left: 0;
+  border-radius: 10px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 72%, var(--chat-surface) 28%);
+  box-shadow: none;
+  color: var(--chat-text-soft);
+  animation: none;
+}
+
+.agent-chat__footer {
+  background: color-mix(in srgb, var(--chat-surface) 96%, white 4%);
+  border-top: 1px solid var(--chat-border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.chat-input-unified-box {
+  border-radius: 12px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 96%, white 4%);
+  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 8%, transparent);
+}
+
+.chat-input-unified-box::before {
+  display: none;
+}
+
+.chat-input-unified-box:focus-within {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--chat-border));
+  box-shadow: 0 0 0 3px var(--chat-ring);
+  transform: none;
+}
+
+.menu-trigger-btn,
+.send-btn-compact,
+.stop-btn-compact {
+  border-radius: 10px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 80%, var(--chat-surface) 20%);
+  box-shadow: none;
+}
+
+.agent-task-card,
+.agent-execution-panel,
+.agent-approval-preview {
+  border-radius: 12px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 64%, var(--chat-surface) 36%);
+  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 7%, transparent);
+}
+
+.agent-task-card:hover,
+.agent-execution-panel:hover {
+  box-shadow: 0 3px 10px color-mix(in srgb, #0f172a 8%, transparent);
+  transform: none;
+}
+
+.agent-execution-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--chat-border) 80%, transparent);
+}
+
+/* ===== C mode: full shadcn-style revamp (light + dark) ===== */
+.agent-chat {
+  border-radius: 14px;
+}
+
+.agent-chat__title > span:last-child,
+.tool-part__name--running,
+.agent-chat__welcome h3 {
+  background: none !important;
+  color: var(--theme-text) !important;
+  animation: none !important;
+}
+
+.agent-chat__avatar {
+  color: var(--theme-text-secondary);
+  filter: none;
+}
+
+.agent-chat__welcome p,
+.hero-card__desc,
+.hero-list__items,
+.suggestion-chip,
+.agent-execution-item__time,
+.tool-part__output,
+.status-update {
+  color: var(--chat-text-soft);
+}
+
+.agent-chat__hero-cards,
+.agent-chat__hero-list,
+.agent-chat__suggestions {
+  max-width: 560px;
+}
+
+.hero-card {
+  border-radius: 12px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 94%, white 6%);
+  min-height: 96px;
+}
+
+.hero-card:hover {
+  background: color-mix(in srgb, var(--chat-surface-soft) 80%, var(--chat-surface) 20%);
+  box-shadow: 0 2px 10px color-mix(in srgb, #0f172a 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.hero-card__title {
+  color: var(--theme-text);
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.hero-action-strip {
+  border: 1px dashed color-mix(in srgb, var(--chat-border) 70%, transparent);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--chat-surface-soft) 54%, transparent);
+}
+
+.hero-action-strip__label {
+  color: var(--chat-text-soft);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hero-action-btn {
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 98%, transparent);
+  color: var(--theme-text);
+  font-size: 11px;
+}
+
+.hero-action-btn:hover {
+  background: color-mix(in srgb, var(--chat-surface-soft) 78%, transparent);
+  transform: translateY(-1px);
+}
+
+.suggestion-chip {
+  border-radius: 10px !important;
+  min-height: 34px;
+  background: color-mix(in srgb, var(--chat-surface) 98%, transparent);
+  border-color: var(--chat-border);
+}
+
+.suggestion-chip:hover {
+  background: color-mix(in srgb, var(--chat-surface-soft) 76%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 18%, var(--chat-border));
+}
+
+.message--assistant .message {
+  padding: 0 2px;
+}
+
+.message--user .message {
+  background: color-mix(in srgb, var(--chat-surface-soft) 80%, var(--theme-accent-light) 20%);
+}
+
+.tool-part {
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  border-radius: 10px;
+}
+
+.tool-part__icon-wrap {
+  width: 22px;
+  height: 22px;
+}
+
+.tool-part__name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.tool-part__pending {
+  border-radius: 999px;
+  font-size: 10px;
+  border-color: color-mix(in srgb, #f59e0b 35%, var(--chat-border));
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: color-mix(in srgb, #b45309 84%, var(--theme-text));
+}
+
+.tool-part__spinner {
+  width: 11px;
+  height: 11px;
+}
+
+.status-update {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}
+
+.agent-chat__context-bar {
+  padding: 0 14px 8px;
+}
+
+.context-pill {
+  border-radius: 999px;
+  border-color: var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 76%, var(--chat-surface) 24%);
+  box-shadow: none;
+}
+
+.agent-approval-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 0 14px 10px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface-soft) 74%, var(--chat-surface) 26%);
+}
+
+.agent-approval-bar > *:not(.agent-approval-bar__label) {
+  justify-self: end;
+  margin-left: 6px;
+}
+
+.agent-approval-bar__label {
+  font-size: 11px;
+  color: var(--theme-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-approval-btn {
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 96%, transparent);
+  font-size: 11px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.agent-approval-btn:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px var(--chat-ring);
+}
+
+.agent-approval-btn--accept {
+  border-color: color-mix(in srgb, #10b981 32%, var(--chat-border));
+  color: color-mix(in srgb, #047857 84%, var(--theme-text));
+}
+
+.agent-approval-btn--reject {
+  border-color: color-mix(in srgb, #ef4444 30%, var(--chat-border));
+  color: color-mix(in srgb, #b91c1c 84%, var(--theme-text));
+}
+
+.agent-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 0 14px 10px;
+}
+
+.agent-task-card,
+.agent-execution-panel {
+  margin: 0;
+}
+
+.agent-task-card__title,
+.agent-execution-panel__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--chat-text-soft);
+}
+
+.agent-task-card__row {
+  grid-template-columns: 64px minmax(0, 1fr);
+  font-size: 11px;
+}
+
+.agent-execution-list {
+  max-height: 180px;
+  overflow: auto;
+}
+
+.agent-execution-item {
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  font-size: 11px;
+  min-height: 34px;
+}
+
+.agent-execution-item__status {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--chat-surface) 88%, var(--chat-surface-soft) 12%);
+  border: 1px solid var(--chat-border);
+  min-width: 58px;
+  text-align: center;
+}
+
+.agent-execution-item--completed .agent-execution-item__status {
+  color: color-mix(in srgb, #047857 84%, var(--theme-text));
+  border-color: color-mix(in srgb, #10b981 30%, var(--chat-border));
+  background: color-mix(in srgb, #10b981 12%, transparent);
+}
+
+.agent-execution-item--running .agent-execution-item__status {
+  color: color-mix(in srgb, #1d4ed8 84%, var(--theme-text));
+  border-color: color-mix(in srgb, #3b82f6 30%, var(--chat-border));
+  background: color-mix(in srgb, #3b82f6 12%, transparent);
+}
+
+.agent-chat__footer {
+  padding: 10px 12px 12px;
+}
+
+.chat-input-unified-box {
+  border-radius: 14px;
+  padding: 10px;
+  min-height: 54px;
+}
+
+.menu-trigger-btn,
+.send-btn-compact,
+.stop-btn-compact {
+  width: 34px;
+  height: 34px;
+}
+
+.send-btn-compact {
+  border-color: color-mix(in srgb, var(--theme-accent) 26%, var(--chat-border));
+}
+
+.input-menu-popup {
+  border-radius: 12px;
+  border-color: var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 95%, white 5%);
+  box-shadow: 0 12px 30px color-mix(in srgb, #0f172a 16%, transparent);
+}
+
+.input-menu-item {
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+@media (min-width: 1180px) {
+  .agent-ops-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 780px) {
+  .agent-chat {
+    border-radius: 10px;
+  }
+  .agent-chat__header,
+  .agent-chat__messages,
+  .agent-chat__footer {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .agent-approval-bar {
+    margin-left: 10px;
+    margin-right: 10px;
+    grid-template-columns: 1fr;
+  }
+  .agent-approval-bar > *:not(.agent-approval-bar__label) {
+    justify-self: start;
+    margin-left: 0;
+  }
+  .agent-ops-grid {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+[data-theme="dark"] .agent-chat {
+  --chat-surface: color-mix(in srgb, var(--theme-surface) 88%, #020617 12%);
+  --chat-surface-soft: color-mix(in srgb, var(--theme-bg-secondary) 76%, #020617 24%);
+  --chat-border: color-mix(in srgb, var(--theme-border) 70%, #334155 30%);
+  --chat-text-soft: color-mix(in srgb, var(--theme-text-secondary) 84%, transparent);
+  box-shadow:
+    0 18px 40px color-mix(in srgb, #000 35%, transparent),
+    0 2px 12px color-mix(in srgb, #000 24%, transparent);
+}
+
+[data-theme="dark"] .header-btn,
+[data-theme="dark"] .menu-trigger-btn,
+[data-theme="dark"] .send-btn-compact,
+[data-theme="dark"] .stop-btn-compact,
+[data-theme="dark"] .agent-approval-btn {
+  background: color-mix(in srgb, var(--chat-surface-soft) 80%, #0b1220 20%);
+}
+
+[data-theme="dark"] .message--user .message,
+[data-theme="dark"] .tool-part,
+[data-theme="dark"] .agent-task-card,
+[data-theme="dark"] .agent-execution-panel,
+[data-theme="dark"] .agent-approval-preview,
+[data-theme="dark"] .input-menu-popup {
+  background: color-mix(in srgb, var(--chat-surface-soft) 74%, #0b1220 26%);
+}
+
+/* Composer: compact shadcn-like layout */
+.agent-chat__footer {
+  padding: 8px 10px 9px;
+}
+
+.chat-input-unified-box {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  border-radius: 16px;
+  padding: 10px 10px 8px;
+  min-height: 94px;
+}
+
+.context-attach-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: none;
+  background: color-mix(in srgb, var(--chat-surface-soft) 90%, transparent);
+  color: var(--theme-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 180ms ease, transform 120ms ease, box-shadow 180ms ease;
+}
+
+.context-attach-btn:hover {
+  background: color-mix(in srgb, var(--chat-surface-soft) 78%, var(--theme-bg-secondary) 22%);
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.context-attach-btn__icon {
+  color: var(--chat-text-soft);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.context-attach-btn__text {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-input-unified-box textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 2px 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.chat-input-unified-box textarea::placeholder {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.chat-input-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chat-input-bottom__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menu-trigger-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: none;
+  box-shadow: none;
+}
+
+.composer-mode-btn {
+  height: 34px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.composer-source-pill {
+  color: var(--chat-text-soft);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.send-btn-compact,
+.stop-btn-compact {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: none;
+  box-shadow: none;
+}
+
+.send-btn-compact {
+  background: #0f0f10;
+  color: #ffffff;
+  border: none;
+}
+
+.send-btn-compact:hover:not(:disabled) {
+  background: #1d1d20;
+  border-color: #1d1d20;
+  box-shadow: 0 6px 16px rgba(15, 15, 16, 0.25);
+}
+
+.send-btn-compact:disabled {
+  opacity: 0.35;
+}
+
+.send-btn-compact svg {
+  width: 16px;
+  height: 16px;
+}
+
+.input-menu-popup {
+  bottom: 42px;
+  min-width: 230px;
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.menu-item {
+  padding: 9px 10px;
+  font-size: 14px;
+  border-radius: 10px;
+  gap: 9px;
+  border: none;
+}
+
+.menu-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-ops-grid {
+  margin-bottom: 6px;
+}
+
+@media (max-width: 780px) {
+  .chat-input-unified-box {
+    min-height: 84px;
+    gap: 7px;
+  }
+
+  .context-attach-btn__text {
+    max-width: 180px;
+  }
+
+  .chat-input-unified-box textarea {
+    min-height: 34px;
+    font-size: 13px;
+  }
+
+  .chat-input-unified-box textarea::placeholder {
+    font-size: 12px;
+  }
+
+  .composer-source-pill {
+    display: none;
+  }
+}
+
+[data-theme="dark"] .send-btn-compact {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #f8fafc;
+}
+
+[data-theme="dark"] .send-btn-compact:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+/* ===== Right-reference full chat redesign override ===== */
+.agent-chat {
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 70%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 97%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 10%, transparent);
+}
+
+.agent-chat__header {
+  min-height: 52px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 65%, transparent);
+  background: transparent;
+}
+
+.agent-chat__title {
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.agent-chat__avatar {
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: none;
+  color: var(--theme-accent);
+  opacity: 0.95;
+}
+
+.agent-chat__actions {
+  gap: 2px;
+}
+
+.header-btn {
+  width: 28px;
+  height: 28px;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--theme-text) 72%, transparent);
+}
+
+.header-btn:hover {
+  background: color-mix(in srgb, var(--theme-bg-secondary) 86%, transparent) !important;
+  color: var(--theme-text);
+}
+
+.header-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.agent-chat__status {
+  margin-left: 4px;
+}
+
+.agent-chat__messages {
+  padding: 10px 14px;
+  gap: 10px;
+}
+
+.message-wrapper {
+  margin-bottom: 8px;
+}
+
+.message {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.message--assistant .message__text {
+  font-size: 14px;
+  line-height: 1.58;
+  color: color-mix(in srgb, var(--theme-text) 94%, transparent);
+}
+
+.message--user .message {
+  display: inline-flex;
+  background: color-mix(in srgb, var(--theme-surface-soft, var(--theme-bg-secondary)) 92%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
+  border-radius: 999px;
+  padding: 8px 14px !important;
+}
+
+.message--user .message__text {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.tool-part {
+  margin-top: 8px;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 92%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 45%, transparent);
+}
+
+.tool-part__name {
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.tool-part__output {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--theme-text-secondary) 90%, transparent);
+}
+
+.agent-approval-bar {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  margin: 2px 14px 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 45%, transparent);
+}
+
+.agent-approval-bar__label {
+  display: block !important;
+  font-size: 12.5px;
+}
+
+.agent-approval-bar__actions {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  overflow-x: auto;
+}
+
+.agent-approval-btn {
+  flex: 0 0 auto !important;
+  border: none !important;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 78%, transparent);
+  box-shadow: none !important;
+  font-size: 12px;
+  height: 28px;
+  padding: 0 11px;
+}
+
+.agent-approval-btn--accept {
+  background: color-mix(in srgb, #10b981 16%, var(--theme-bg-secondary));
+  color: color-mix(in srgb, #065f46 82%, var(--theme-text));
+}
+
+.agent-approval-btn--reject {
+  background: color-mix(in srgb, #ef4444 13%, var(--theme-bg-secondary));
+  color: color-mix(in srgb, #7f1d1d 84%, var(--theme-text));
+}
+
+.agent-task-card,
+.agent-execution-panel,
+.agent-approval-preview {
+  border: none;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 88%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 42%, transparent);
+}
+
+.agent-task-card__title,
+.agent-execution-panel__title {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.agent-task-card__row,
+.agent-execution-item {
+  font-size: 12px;
+}
+
+/* Composer */
+.agent-chat__footer {
+  padding: 6px 10px 8px !important;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border) 58%, transparent) !important;
+}
+
+.chat-input-unified-box {
+  gap: 6px !important;
+  border-radius: 14px !important;
+  padding: 8px 10px 6px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  border: none !important;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 42%, transparent) !important;
+}
+
+.chat-input-unified-box::before {
+  display: none;
+}
+
+.context-attach-btn {
+  height: 30px !important;
+  padding: 0 10px !important;
+  border-radius: 11px !important;
+  border: none !important;
+  background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg-secondary)) !important;
+  font-size: 12px !important;
+}
+
+.context-attach-btn__icon {
+  font-size: 14px !important;
+}
+
+.chat-input-unified-box textarea {
+  flex: none !important;
+  min-height: 28px !important;
+  max-height: 220px !important;
+  font-size: 12px !important;
+  line-height: 1.38 !important;
+  overflow-y: hidden;
+}
+
+.chat-input-unified-box textarea::placeholder {
+  font-size: 12px !important;
+}
+
+.chat-input-bottom {
+  gap: 6px !important;
+}
+
+.chat-input-bottom__left {
+  gap: 6px !important;
+}
+
+.menu-trigger-btn,
+.send-btn-compact,
+.stop-btn-compact {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.menu-trigger-btn {
+  width: 30px !important;
+  height: 30px !important;
+  background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg-secondary)) !important;
+}
+
+.composer-mode-btn,
+.composer-source-pill {
+  font-size: 12px !important;
+}
+
+.composer-model-wrapper {
+  position: relative;
+}
+
+.composer-model-btn {
+  height: 30px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text);
+  font-size: 12px;
+  font-weight: 520;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.composer-model-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.composer-model-btn__label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model-btn__caret {
+  font-size: 10px;
+  color: var(--chat-text-soft);
+}
+
+.composer-model-menu {
+  left: 0;
+  right: auto;
+  min-width: 250px !important;
+}
+
+.menu-item--model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.menu-item--disabled {
+  opacity: 0.72;
+  cursor: default;
+  pointer-events: none;
+}
+
+.model-option__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.model-option__name {
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-option__provider {
+  font-size: 10.5px;
+  color: var(--chat-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-option__check {
+  font-size: 12px;
+  color: color-mix(in srgb, #10b981 72%, var(--theme-text));
+  flex-shrink: 0;
+}
+
+.menu-divider {
+  margin: 4px 2px;
+  height: 1px;
+  background: color-mix(in srgb, var(--theme-border) 68%, transparent);
+}
+
+.send-btn-compact,
+.stop-btn-compact {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.input-menu-popup {
+  min-width: 220px !important;
+  padding: 6px !important;
+  border-radius: 12px !important;
+  border: none !important;
+  box-shadow:
+    0 14px 34px color-mix(in srgb, #000 14%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 46%, transparent) !important;
+}
+
+.menu-item {
+  border: none !important;
+  font-size: 12px !important;
+  border-radius: 10px !important;
+}
+
+@media (max-width: 780px) {
+  .agent-chat__header {
+    padding: 8px 10px;
+  }
+
+  .agent-chat__messages {
+    padding: 8px 10px;
+  }
+
+  .agent-chat__footer {
+    padding: 6px 8px !important;
+  }
+
+  .chat-input-unified-box {
+    min-height: 0 !important;
+    padding: 7px 8px 6px !important;
+  }
+
+  .context-attach-btn {
+    height: 28px !important;
+    font-size: 11px !important;
+  }
+
+  .chat-input-unified-box textarea {
+    min-height: 24px !important;
+    font-size: 11.5px !important;
+  }
+
+  .composer-model-btn__label {
+    max-width: 96px;
+  }
+
+  .composer-source-pill {
+    display: none;
+  }
+}
+
+[data-theme="dark"] .agent-chat {
+  background: color-mix(in srgb, #0f172a 70%, var(--theme-surface) 30%);
+  border-color: color-mix(in srgb, #334155 56%, transparent);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 42%, transparent);
+}
+
+[data-theme="dark"] .chat-input-unified-box,
+[data-theme="dark"] .tool-part,
+[data-theme="dark"] .agent-approval-bar,
+[data-theme="dark"] .agent-task-card,
+[data-theme="dark"] .agent-execution-panel,
+[data-theme="dark"] .agent-approval-preview,
+[data-theme="dark"] .input-menu-popup {
+  background: color-mix(in srgb, #0b1220 68%, var(--theme-bg-secondary) 32%);
+}
+
+/* Flat cleanup: remove irregular blotchy shadows from translucent layers */
+.agent-chat,
+.agent-chat__header,
+.agent-chat__messages,
+.agent-chat__footer {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-image: none !important;
+}
+
+.agent-chat::before,
+.agent-chat::after {
+  display: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+.agent-chat {
+  background: #fdfdfd !important;
+  box-shadow: none !important;
+}
+
+.agent-chat__messages {
+  background: #fdfdfd !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .agent-chat {
+  background: #0b1220 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .agent-chat__messages {
+  background: #0b1220 !important;
+  box-shadow: none !important;
+}
+
+/* Tool status row: text-first execution style */
+.tool-part {
+  grid-template-columns: 1fr !important;
+  gap: 0 !important;
+}
+
+.tool-part__icon-wrap,
+.tool-part__spinner {
+  display: none !important;
+}
+
+/* Cyber execution gradient (blue-purple) for running state text */
+.tool-part__name--running,
+.status-update__text {
+  background-image: linear-gradient(
+    120deg,
+    #59b0ff 0%,
+    #7d87ff 35%,
+    #9a6dff 62%,
+    #c98dff 82%,
+    #59b0ff 100%
+  ) !important;
+  background-size: 240% 240% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  animation: heroGradientFlow 3.8s linear infinite !important;
+  font-weight: 560 !important;
+}
+
+[data-theme="dark"] .tool-part__name--running,
+[data-theme="dark"] .status-update__text {
+  background-image: linear-gradient(
+    120deg,
+    #7bc6ff 0%,
+    #93a0ff 34%,
+    #b28cff 62%,
+    #dba6ff 84%,
+    #7bc6ff 100%
+  ) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-part__name--running,
+  .status-update__text {
+    animation: none !important;
+    background-size: 100% 100% !important;
+  }
+}
+
 </style>
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Notes API endpoints for direct note operations.
 """
 from typing import Optional, List
@@ -16,7 +16,12 @@ def safe_print(msg: str):
     try:
         print(msg)
     except UnicodeEncodeError:
-        print(msg.encode('gbk', errors='replace').decode('gbk'))
+        try:
+            import sys
+            sys.stdout.buffer.write((msg + '\n').encode('utf-8', errors='replace'))
+            sys.stdout.buffer.flush()
+        except Exception:
+            print(msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
 
 
 class NoteCreate(BaseModel):
@@ -197,3 +202,5 @@ async def sync_note_vector(request: VectorSyncRequest):
     except Exception as e:
         safe_print(f"[API] Vector sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
