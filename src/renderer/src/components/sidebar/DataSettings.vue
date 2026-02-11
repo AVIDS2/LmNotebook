@@ -2,100 +2,215 @@
   <Teleport to="body">
     <div class="settings-overlay" @click.self="$emit('close')">
       <div class="settings-modal" @click.stop>
-        <div class="settings-header">
-          <h2>数据设置</h2>
-          <button class="close-btn" @click="$emit('close')">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <header class="settings-header">
+          <div>
+            <h2 class="settings-title">{{ t('settings.title') }}</h2>
+            <p class="settings-subtitle">{{ t('settings.subtitle') }}</p>
+          </div>
+          <button class="icon-btn" @click="$emit('close')" :title="t('common.close')">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
               <path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </button>
-        </div>
+        </header>
 
-        <div class="settings-content">
-          <!-- 数据统计 -->
-          <section class="settings-section">
-            <h3>数据统计</h3>
-            <div class="stats-grid">
-              <div class="stat-item">
-                <span class="stat-value">{{ stats.noteCount }}</span>
-                <span class="stat-label">笔记数量</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-value">{{ stats.categoryCount }}</span>
-                <span class="stat-label">分类数量</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-value">{{ formatSize(stats.dbSize) }}</span>
-                <span class="stat-label">数据库大小</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-value">{{ imageStats.count }}</span>
-                <span class="stat-label">分离图片</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-value">{{ formatSize(imageStats.totalSize) }}</span>
-                <span class="stat-label">图片占用</span>
-              </div>
-            </div>
-            <p class="section-hint" v-if="imageStats.count > 0">
-              大于 100KB 的图片会自动分离存储到 images 目录
-            </p>
-          </section>
+        <div class="settings-main">
+          <aside class="settings-nav">
+            <button
+              v-for="tab in tabs"
+              :key="tab.key"
+              class="settings-nav-item"
+              :class="{ 'settings-nav-item--active': activeTab === tab.key }"
+              @click="activeTab = tab.key"
+            >
+              {{ tab.label }}
+            </button>
+          </aside>
 
-          <!-- 数据目录 -->
-          <section class="settings-section">
-            <h3>数据存储位置</h3>
-            <p class="section-desc">将数据目录设置到云盘文件夹（如 OneDrive、Dropbox）可实现自动云同步</p>
-            <div class="path-input">
-              <input type="text" :value="config.dataDirectory" readonly class="input" />
-              <button class="btn btn--secondary" @click="selectDataDirectory">更改</button>
-            </div>
-            <div class="path-actions">
-              <button class="btn btn--link" @click="openDataDirectory">在文件管理器中打开</button>
-              <button class="btn btn--link btn--warning" @click="resetToDefault" v-if="!isDefaultDirectory">恢复默认目录</button>
-            </div>
-          </section>
-
-          <!-- 自动备份 -->
-          <section class="settings-section">
-            <h3>自动备份</h3>
-            <div class="toggle-row">
-              <span>启用自动备份</span>
-              <label class="toggle">
-                <input type="checkbox" v-model="config.autoBackup" @change="saveConfig" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="form-row" v-if="config.autoBackup">
-              <label>最大备份数量</label>
-              <select v-model.number="config.maxBackups" @change="saveConfig" class="select">
-                <option :value="5">5 个</option>
-                <option :value="10">10 个</option>
-                <option :value="20">20 个</option>
-                <option :value="50">50 个</option>
-              </select>
-            </div>
-          </section>
-
-          <!-- 备份管理 -->
-          <section class="settings-section">
-            <h3>备份管理</h3>
-            <div class="backup-actions">
-              <button class="btn btn--primary" @click="createBackup" :disabled="isCreatingBackup">
-                {{ isCreatingBackup ? '备份中...' : '立即备份' }}
-              </button>
-            </div>
-            
-            <div class="backup-list" v-if="backups.length > 0">
-              <div class="backup-item" v-for="backup in backups" :key="backup.filename">
-                <div class="backup-info">
-                  <span class="backup-name">{{ backup.filename }}</span>
-                  <span class="backup-meta">{{ formatSize(backup.size) }} · {{ formatDate(backup.createdAt) }}</span>
+          <section class="settings-panel">
+            <template v-if="activeTab === 'general'">
+              <div class="settings-card">
+                <div class="settings-row">
+                  <div>
+                    <h3>{{ t('settings.general.appVersion') }}</h3>
+                    <p>{{ appMeta.name }} {{ appMeta.version }}</p>
+                  </div>
+                  <span class="badge" :class="{ 'badge--muted': !appMeta.packaged }">
+                    {{ appMeta.packaged ? t('settings.general.buildRelease') : t('settings.general.buildDev') }}
+                  </span>
                 </div>
-                <button class="btn btn--sm btn--secondary" @click="restoreBackup(backup)">恢复</button>
+                <div class="settings-row">
+                  <div>
+                    <h3>{{ t('settings.general.language') }}</h3>
+                    <p>{{ t('settings.general.languageHint') }}</p>
+                  </div>
+                  <select class="select" :value="locale" @change="handleLocaleChange">
+                    <option value="zh-CN">{{ t('language.zh-CN') }}</option>
+                    <option value="en-US">{{ t('language.en-US') }}</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--stackable">
+                  <div>
+                    <h3>{{ t('settings.general.theme') }}</h3>
+                    <p>{{ t('settings.general.themeHint') }}</p>
+                  </div>
+                  <div class="segmented">
+                    <button
+                      class="segmented__item"
+                      :class="{ 'segmented__item--active': uiStore.theme === 'classic' }"
+                      @click="setTheme('classic')"
+                    >
+                      {{ t('sidebar.theme.classic') }}
+                    </button>
+                    <button
+                      class="segmented__item"
+                      :class="{ 'segmented__item--active': uiStore.theme === 'light' }"
+                      @click="setTheme('light')"
+                    >
+                      {{ t('sidebar.theme.light') }}
+                    </button>
+                    <button
+                      class="segmented__item"
+                      :class="{ 'segmented__item--active': uiStore.theme === 'dark' }"
+                      @click="setTheme('dark')"
+                    >
+                      {{ t('sidebar.theme.dark') }}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-            <p class="empty-text" v-else>暂无备份</p>
+            </template>
+
+            <template v-else-if="activeTab === 'data'">
+              <div class="settings-card">
+                <h3 class="card-title">{{ t('settings.data.stats') }}</h3>
+                <div class="stats-grid">
+                  <div class="stat-item">
+                    <span class="stat-value">{{ stats.noteCount }}</span>
+                    <span class="stat-label">{{ t('settings.data.notes') }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-value">{{ stats.categoryCount }}</span>
+                    <span class="stat-label">{{ t('settings.data.categories') }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-value">{{ formatSize(stats.dbSize) }}</span>
+                    <span class="stat-label">{{ t('settings.data.databaseSize') }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-value">{{ imageStats.count }}</span>
+                    <span class="stat-label">{{ t('settings.data.images') }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-value">{{ formatSize(imageStats.totalSize) }}</span>
+                    <span class="stat-label">{{ t('settings.data.imageSize') }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <h3 class="card-title">{{ t('settings.data.storage') }}</h3>
+                <p class="muted">{{ t('settings.data.storageHint') }}</p>
+                <div class="path-row">
+                  <input type="text" class="input" :value="config.dataDirectory" readonly />
+                  <button class="btn" @click="selectDataDirectory">{{ t('settings.actions.change') }}</button>
+                </div>
+                <div class="action-row">
+                  <button class="btn btn--ghost" @click="openDataDirectory">{{ t('settings.actions.open') }}</button>
+                  <button v-if="!isDefaultDirectory" class="btn btn--ghost" @click="resetToDefault">{{ t('settings.actions.resetDefault') }}</button>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="activeTab === 'backup'">
+              <div class="settings-card">
+                <div class="settings-row">
+                  <div>
+                    <h3>{{ t('settings.backup.autoBackup') }}</h3>
+                    <p>{{ t('settings.backup.autoBackupHint') }}</p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" v-model="config.autoBackup" @change="saveConfig" />
+                    <span></span>
+                  </label>
+                </div>
+
+                <div class="settings-row" v-if="config.autoBackup">
+                  <div>
+                    <h3>{{ t('settings.backup.maxCount') }}</h3>
+                    <p>{{ t('settings.backup.maxCountHint') }}</p>
+                  </div>
+                  <select v-model.number="config.maxBackups" @change="saveConfig" class="select">
+                    <option :value="5">5</option>
+                    <option :value="10">10</option>
+                    <option :value="20">20</option>
+                    <option :value="50">50</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-row">
+                  <h3>{{ t('settings.backup.backups') }}</h3>
+                  <button class="btn btn--primary" @click="createBackup" :disabled="isCreatingBackup">
+                    {{ isCreatingBackup ? t('settings.backup.creating') : t('settings.backup.createNow') }}
+                  </button>
+                </div>
+
+                <div class="backup-list" v-if="backups.length > 0">
+                  <div class="backup-item" v-for="backup in backups" :key="backup.filename">
+                    <div>
+                      <div class="backup-name">{{ backup.filename }}</div>
+                      <div class="backup-meta">{{ formatSize(backup.size) }} · {{ formatDate(backup.createdAt) }}</div>
+                    </div>
+                    <button class="btn" @click="restoreBackup(backup)">{{ t('settings.actions.restore') }}</button>
+                  </div>
+                </div>
+                <p class="muted" v-else>{{ t('settings.backup.empty') }}</p>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="settings-card">
+                <div class="settings-row">
+                  <div>
+                    <h3>{{ t('settings.update.currentVersion') }}</h3>
+                    <p>{{ appMeta.version }}</p>
+                  </div>
+                  <span class="badge">{{ updaterStageLabel }}</span>
+                </div>
+
+                <div class="settings-row">
+                  <div>
+                    <h3>{{ t('settings.update.autoCheck') }}</h3>
+                    <p>{{ t('settings.update.autoCheckHint') }}</p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" :checked="updateState.autoCheck" @change="handleUpdateAutoCheck" />
+                    <span></span>
+                  </label>
+                </div>
+
+                <div class="update-actions">
+                  <button class="btn" @click="checkUpdates" :disabled="isChecking || !appMeta.packaged">
+                    {{ t('settings.update.checkNow') }}
+                  </button>
+                  <button class="btn" @click="downloadUpdate" :disabled="!canDownload">
+                    {{ t('settings.update.download') }}
+                  </button>
+                  <button class="btn btn--primary" @click="installUpdate" :disabled="!canInstall">
+                    {{ t('settings.update.installRestart') }}
+                  </button>
+                </div>
+
+                <div class="progress" v-if="isDownloading">
+                  <div class="progress-bar" :style="{ width: `${Math.max(0, Math.min(100, updateState.percent || 0))}%` }"></div>
+                </div>
+
+                <p class="muted">{{ updateState.message }}</p>
+                <p class="muted" v-if="!appMeta.packaged">{{ t('settings.update.devHint') }}</p>
+              </div>
+            </template>
           </section>
         </div>
       </div>
@@ -104,18 +219,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useNotifyStore } from '@/stores/notifyStore'
+import { useI18n } from '@/i18n'
+import { useUIStore, type ThemeMode } from '@/stores/uiStore'
 
-const emit = defineEmits<{
-  close: []
-}>()
+const emit = defineEmits<{ close: [] }>()
+
+type TabKey = 'general' | 'data' | 'backup' | 'update'
 
 interface AppConfig {
   dataDirectory: string
   autoBackup: boolean
   backupDirectory: string
   maxBackups: number
+  updateAutoCheck: boolean
 }
 
 interface BackupInfo {
@@ -136,75 +254,182 @@ interface ImageStats {
   totalSize: number
 }
 
+type UpdaterStage =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+  | 'disabled-dev'
+
+interface UpdaterState {
+  stage: UpdaterStage
+  message: string
+  currentVersion: string
+  availableVersion?: string
+  percent?: number
+  autoCheck: boolean
+}
+
+const { t, locale, setLocale } = useI18n()
+const uiStore = useUIStore()
+const notify = useNotifyStore()
+
+const activeTab = ref<TabKey>('general')
+const appMeta = ref({ name: 'Origin Notes', version: '1.0.0', packaged: false })
 const config = ref<AppConfig>({
   dataDirectory: '',
   autoBackup: true,
   backupDirectory: '',
-  maxBackups: 10
+  maxBackups: 10,
+  updateAutoCheck: true
 })
-
-const stats = ref<DbStats>({
-  noteCount: 0,
-  categoryCount: 0,
-  dbSize: 0
-})
-
-const imageStats = ref<ImageStats>({
-  count: 0,
-  totalSize: 0
-})
-
-const notify = useNotifyStore()
-
+const stats = ref<DbStats>({ noteCount: 0, categoryCount: 0, dbSize: 0 })
+const imageStats = ref<ImageStats>({ count: 0, totalSize: 0 })
 const backups = ref<BackupInfo[]>([])
 const isCreatingBackup = ref(false)
 const defaultDirectory = ref('')
-
-// 计算是否为默认目录
-const isDefaultDirectory = computed(() => {
-  return config.value.dataDirectory === defaultDirectory.value
+const updateState = ref<UpdaterState>({
+  stage: 'idle',
+  message: t('settings.update.ready'),
+  currentVersion: appMeta.value.version,
+  autoCheck: true
 })
+
+let unsubscribeUpdater: (() => void) | null = null
+
+const tabs = computed(() => [
+  { key: 'general' as const, label: t('settings.tabs.general') },
+  { key: 'data' as const, label: t('settings.tabs.data') },
+  { key: 'backup' as const, label: t('settings.tabs.backup') },
+  { key: 'update' as const, label: t('settings.tabs.update') }
+])
+
+const isDefaultDirectory = computed(() => config.value.dataDirectory === defaultDirectory.value)
+const isChecking = computed(() => updateState.value.stage === 'checking')
+const isDownloading = computed(() => updateState.value.stage === 'downloading')
+const canDownload = computed(() => updateState.value.stage === 'available')
+const canInstall = computed(() => updateState.value.stage === 'downloaded')
+const updaterStageLabel = computed(() => {
+  const map: Record<UpdaterStage, string> = {
+    idle: t('settings.update.stageIdle'),
+    checking: t('settings.update.stageChecking'),
+    available: t('settings.update.stageAvailable'),
+    'not-available': t('settings.update.stageLatest'),
+    downloading: t('settings.update.stageDownloading'),
+    downloaded: t('settings.update.stageDownloaded'),
+    error: t('settings.update.stageError'),
+    'disabled-dev': t('settings.update.stageDisabled')
+  }
+  return map[updateState.value.stage] || updateState.value.stage
+})
+
+function handleLocaleChange(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value as 'zh-CN' | 'en-US'
+  setLocale(value)
+}
+
+function setTheme(mode: ThemeMode): void {
+  uiStore.setTheme(mode)
+}
 
 onMounted(async () => {
-  await loadConfig()
-  await loadStats()
-  await loadImageStats()
-  await loadBackups()
-  // 获取默认目录路径
-  defaultDirectory.value = await window.electronAPI.db.getDefaultDataPath()
+  await Promise.all([
+    loadAppMeta(),
+    loadConfig(),
+    loadStats(),
+    loadImageStats(),
+    loadBackups(),
+    loadDefaultDirectory(),
+    loadUpdaterState()
+  ])
+
+  if (window.electronAPI.updater?.onStatus) {
+    unsubscribeUpdater = window.electronAPI.updater.onStatus((state) => {
+      updateState.value = state
+    })
+  }
 })
 
-async function loadConfig() {
+onBeforeUnmount(() => {
+  unsubscribeUpdater?.()
+})
+
+async function loadAppMeta(): Promise<void> {
+  const meta = await window.electronAPI.app.getMeta()
+  appMeta.value = meta
+}
+
+async function loadConfig(): Promise<void> {
   config.value = await window.electronAPI.config.get()
 }
 
-async function loadStats() {
+async function loadStats(): Promise<void> {
   stats.value = await window.electronAPI.db.getStats()
 }
 
-async function loadImageStats() {
+async function loadImageStats(): Promise<void> {
   imageStats.value = await window.electronAPI.image.getStats()
 }
 
-async function loadBackups() {
+async function loadBackups(): Promise<void> {
   backups.value = await window.electronAPI.backup.list()
 }
 
-async function saveConfig() {
-  await window.electronAPI.config.save(config.value)
+async function loadDefaultDirectory(): Promise<void> {
+  defaultDirectory.value = await window.electronAPI.db.getDefaultDataPath()
 }
 
-async function selectDataDirectory() {
+async function loadUpdaterState(): Promise<void> {
+  if (!window.electronAPI.updater?.getState) return
+  updateState.value = await window.electronAPI.updater.getState()
+}
+
+async function saveConfig(): Promise<void> {
+  config.value = await window.electronAPI.config.save(config.value)
+}
+
+async function handleUpdateAutoCheck(event: Event): Promise<void> {
+  const enabled = (event.target as HTMLInputElement).checked
+  updateState.value = await window.electronAPI.updater.setAutoCheck(enabled)
+  config.value = await window.electronAPI.config.save({ updateAutoCheck: enabled })
+}
+
+async function checkUpdates(): Promise<void> {
+  try {
+    updateState.value = await window.electronAPI.updater.checkForUpdates()
+  } catch (error) {
+    notify.add(`检查更新失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+async function downloadUpdate(): Promise<void> {
+  try {
+    updateState.value = await window.electronAPI.updater.downloadUpdate()
+  } catch (error) {
+    notify.add(`下载更新失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+async function installUpdate(): Promise<void> {
+  const confirmed = confirm(t('settings.update.confirmInstall'))
+  if (!confirmed) return
+  await window.electronAPI.updater.quitAndInstall()
+}
+
+async function selectDataDirectory(): Promise<void> {
   const result = await window.electronAPI.dialog.selectDirectory({
-    title: '选择数据存储目录',
+    title: t('settings.data.pickDirectory'),
     defaultPath: config.value.dataDirectory
   })
-  
+
   if (result.success && result.path) {
     const confirmMove = confirm(
-      `确定要将数据迁移到新目录吗？\n\n新目录: ${result.path}\n\n迁移后应用将重启。`
+      `${t('settings.data.confirmMove')}\n\n${result.path}\n\n${t('settings.data.willRestart')}`
     )
-    
+
     if (confirmMove) {
       const migrateResult = await window.electronAPI.data.migrate(result.path)
       if (!migrateResult.success) {
@@ -214,15 +439,15 @@ async function selectDataDirectory() {
   }
 }
 
-async function openDataDirectory() {
+async function openDataDirectory(): Promise<void> {
   await window.electronAPI.shell.openPath(config.value.dataDirectory)
 }
 
-async function resetToDefault() {
+async function resetToDefault(): Promise<void> {
   const confirmed = confirm(
-    `确定要恢复到默认目录吗？\n\n默认目录: ${defaultDirectory.value}\n\n数据将迁移回默认位置，应用将重启。`
+    `${t('settings.data.confirmReset')}\n\n${defaultDirectory.value}\n\n${t('settings.data.willRestart')}`
   )
-  
+
   if (confirmed) {
     const result = await window.electronAPI.data.migrate(defaultDirectory.value)
     if (!result.success) {
@@ -231,35 +456,31 @@ async function resetToDefault() {
   }
 }
 
-async function createBackup() {
+async function createBackup(): Promise<void> {
   isCreatingBackup.value = true
   try {
     const result = await window.electronAPI.backup.create()
     if (result) {
       await loadBackups()
-      notify.add('备份创建成功', 'success')
+      notify.add(t('settings.backup.createSuccess'), 'success')
     } else {
-      notify.add('备份创建失败', 'error')
+      notify.add(t('settings.backup.createFailed'), 'error')
     }
   } finally {
     isCreatingBackup.value = false
   }
 }
 
-async function restoreBackup(backup: BackupInfo) {
-  const confirmed = confirm(
-    `确定要从此备份恢复吗？\n\n${backup.filename}\n\n当前数据将被覆盖，恢复后需要重启应用。`
-  )
-  
-  if (confirmed) {
-    const success = await window.electronAPI.backup.restore(backup.path)
-    if (success) {
-      notify.add('备份恢复成功。请关闭并重新打开应用以加载恢复的数据。', 'success', 6000)
-      // 关闭设置弹窗
-      emit('close')
-    } else {
-      notify.add('备份恢复失败，请重试。', 'error')
-    }
+async function restoreBackup(backup: BackupInfo): Promise<void> {
+  const confirmed = confirm(`${t('settings.backup.confirmRestore')}\n\n${backup.filename}`)
+  if (!confirmed) return
+
+  const success = await window.electronAPI.backup.restore(backup.path)
+  if (success) {
+    notify.add(t('settings.backup.restoreSuccess'), 'success', 6000)
+    emit('close')
+  } else {
+    notify.add(t('settings.backup.restoreFailed'), 'error')
   }
 }
 
@@ -270,7 +491,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', {
+  return new Date(timestamp).toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -284,308 +505,419 @@ function formatDate(timestamp: number): string {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  z-index: 50000;
+  background: color-mix(in srgb, #0f172a 24%, transparent);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  padding: 24px;
 }
 
 .settings-modal {
+  width: min(980px, calc(100vw - 44px));
+  height: min(700px, calc(100vh - 44px));
   background: var(--color-bg-card);
-  border-radius: 12px;
-  width: 520px;
-  max-height: 80vh;
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
 }
 
 .settings-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--color-border-light);
-  
-  h2 {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--color-text-primary);
-  }
+  padding: 18px 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
 }
 
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
+.settings-title {
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.settings-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
   border-radius: 8px;
   background: transparent;
   color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-  
+
   &:hover {
     background: var(--color-bg-hover);
     color: var(--color-text-primary);
   }
 }
 
-.settings-content {
+.settings-main {
   flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-}
-
-.settings-section {
-  margin-bottom: 28px;
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
-  
-  h3 {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--color-text-primary);
-    margin-bottom: 12px;
-  }
-}
-
-.section-desc {
-  font-size: 13px;
-  color: var(--color-text-muted);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
-
-.section-hint {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  margin-top: 12px;
-  padding: 8px 12px;
-  background: var(--color-bg-secondary);
-  border-radius: 6px;
-  border-left: 3px solid var(--color-accent, #6366F1);
-}
-
-.stats-grid {
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 180px 1fr;
+}
+
+.settings-nav {
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-nav-item {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  &--active {
+    border-color: color-mix(in srgb, var(--color-border) 66%, transparent);
+    background: color-mix(in srgb, var(--color-bg-hover) 90%, transparent);
+    color: var(--color-text-primary);
+  }
+}
+
+.settings-panel {
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.stat-item {
-  background: var(--color-bg-secondary);
-  border-radius: 8px;
-  padding: 16px;
-  text-align: center;
+.settings-card {
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  border-radius: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-bg-primary) 97%, transparent);
 }
 
-.stat-value {
-  display: block;
-  font-size: 24px;
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 42%, transparent);
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+}
+
+.settings-row--stackable {
+  align-items: flex-start;
+}
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  border-radius: 9px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg-hover) 48%, transparent);
+}
+
+.segmented__item {
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.segmented__item:last-child {
+  border-right: none;
+}
+
+.segmented__item:hover {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-hover) 88%, transparent);
+}
+
+.segmented__item--active {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-primary) 92%, transparent);
+  font-weight: 600;
+}
+
+.card-title {
+  margin: 0 0 10px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
-.stat-label {
-  display: block;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  margin-top: 4px;
-}
-
-.path-input {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  
-  .input {
-    flex: 1;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border-dark);
-    border-radius: 8px;
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    font-size: 13px;
-  }
-}
-
-.path-actions {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
+.badge {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--color-text-secondary);
-  font-size: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 66%, transparent);
+  background: color-mix(in srgb, var(--color-bg-hover) 90%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 
-.toggle {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  
-  input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
+.badge--muted {
+  opacity: 0.75;
 }
 
-.toggle-slider {
-  position: absolute;
-  inset: 0;
-  background: var(--color-border-dark);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    left: 3px;
-    top: 3px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-  }
-  
-  input:checked + & {
-    background: #10B981;
-    
-    &::before {
-      transform: translateX(20px);
-    }
-  }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.form-row {
+.stat-item {
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text-primary);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.path-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.action-row {
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
-  
-  label {
-    color: var(--color-text-secondary);
-    font-size: 14px;
-  }
-}
-
-.select {
-  padding: 8px 12px;
-  border: 1px solid var(--color-border-dark);
-  border-radius: 8px;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.backup-actions {
-  margin-bottom: 16px;
+  gap: 8px;
 }
 
 .backup-list {
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .backup-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px;
-  background: var(--color-bg-secondary);
-  border-radius: 8px;
-}
-
-.backup-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+  border-radius: 10px;
+  padding: 8px 10px;
 }
 
 .backup-name {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-text-primary);
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .backup-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-hover) 92%, transparent);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 52%, transparent);
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #111827 0%, #374151 100%);
+  transition: width 200ms ease;
+}
+
+.muted {
+  margin: 0;
   font-size: 12px;
   color: var(--color-text-muted);
 }
 
-.empty-text {
-  font-size: 13px;
-  color: var(--color-text-muted);
-  text-align: center;
-  padding: 20px;
+.input,
+.select,
+.btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
 }
 
-// 按钮样式
+.input {
+  padding: 0 10px;
+}
+
+.select {
+  padding: 0 10px;
+  min-width: 100px;
+}
+
 .btn {
-  padding: 10px 16px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: 0 12px;
   cursor: pointer;
-  transition: background 0.2s, opacity 0.2s;
-  
+
+  &:hover {
+    background: var(--color-bg-hover);
+  }
+
   &:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
   }
-  
-  &--primary {
-    background: var(--color-accent, #6366F1);
-    color: white;
-    
-    &:hover:not(:disabled) {
-      opacity: 0.9;
+}
+
+.btn--primary {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(90deg, #111827 0%, #1f2937 100%);
+
+  &:hover {
+    opacity: 0.9;
+    background: linear-gradient(90deg, #111827 0%, #1f2937 100%);
+  }
+}
+
+.btn--ghost {
+  background: transparent;
+}
+
+.switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+
+  input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  span {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-border) 74%, transparent);
+    transition: background 0.16s ease;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.16s ease;
     }
   }
-  
-  &--secondary {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-    
-    &:hover:not(:disabled) {
-      background: var(--color-bg-active);
+
+  input:checked + span {
+    background: #111827;
+
+    &::before {
+      transform: translateX(18px);
     }
   }
-  
-  &--link {
-    background: transparent;
-    color: var(--color-accent, #6366F1);
-    padding: 4px 0;
-    
-    &:hover {
-      text-decoration: underline;
-    }
+}
+
+@media (max-width: 900px) {
+  .settings-modal {
+    width: min(100vw, 100vw);
+    height: min(100vh, 100vh);
+    border-radius: 0;
   }
-  
-  &--warning {
-    color: #F59E0B;
+
+  .settings-main {
+    grid-template-columns: 1fr;
   }
-  
-  &--sm {
-    padding: 6px 12px;
-    font-size: 13px;
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-row--stackable {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

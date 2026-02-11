@@ -1,24 +1,24 @@
 // 极简米白配色方案 - 线条勾勒风格
-$color-bg-primary: #FAFAF8;      // 米白主背景
-$color-bg-secondary: #F5F5F3;    // 次级背景
+$color-bg-primary: #F7F8FA;      // 冷白主背景
+$color-bg-secondary: #F2F4F7;    // 次级背景
 $color-bg-card: #FFFFFF;         // 卡片白
-$color-bg-hover: #F0F0EE;        // 悬浮背景
-$color-bg-active: #EAEAE8;       // 激活背景
+$color-bg-hover: #ECEFF3;        // 悬浮背景
+$color-bg-active: #E5E9EF;       // 激活背景
 
-$color-primary: #3D3D3D;         // 主色调 - 深灰（用于线条和文字强调）
-$color-primary-light: #5A5A5A;   // 浅一点
-$color-primary-dark: #2A2A2A;    // 深一点
+$color-primary: #2F333A;         // 主色调 - 深冷灰（用于线条和文字强调）
+$color-primary-light: #444B55;   // 浅一点
+$color-primary-dark: #1F232A;    // 深一点
 
-$color-accent: #B8A080;          // 点缀色 - 淡金棕（仅用于小点缀）
+$color-accent: #A88A65;          // 点缀色 - 淡金棕（仅用于小点缀）
 
-$color-text-primary: #2C2C2A;    // 主文字
-$color-text-secondary: #6B6B68;  // 次级文字
-$color-text-muted: #9C9C98;      // 弱化文字
-$color-text-placeholder: #BBBBB8; // 占位符
+$color-text-primary: #232730;    // 主文字
+$color-text-secondary: #5F6671;  // 次级文字
+$color-text-muted: #8B93A0;      // 弱化文字
+$color-text-placeholder: #A6AEBA; // 占位符
 
-$color-border: #E0E0DE;          // 边框色
-$color-border-light: #EAEAE8;    // 浅边框
-$color-border-dark: #D0D0CE;     // 深边框（用于勾勒）
+$color-border: #DBE0E7;          // 边框色
+$color-border-light: #E7EBF1;    // 浅边框
+$color-border-dark: #CCD3DC;     // 深边框（用于勾勒）
 
 $color-danger: #C45C5C;          // 危险色
 $color-warning: #C9A456;         // 警告色
@@ -35,10 +35,10 @@ $category-colors: (
 );
 
 // 圆角
-$radius-sm: 6px;
-$radius-md: 10px;
-$radius-lg: 14px;
-$radius-xl: 18px;
+$radius-sm: 4px;
+$radius-md: 7px;
+$radius-lg: 10px;
+$radius-xl: 14px;
 
 // 阴影（非常柔和）
 $shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -59,7 +59,7 @@ $titlebar-height: 40px;
 
 // 字体
 $font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-$font-size-xs: 12px;
+$font-size-xs: 11px;
 $font-size-sm: 13px;
 $font-size-md: 14px;
 $font-size-lg: 16px;

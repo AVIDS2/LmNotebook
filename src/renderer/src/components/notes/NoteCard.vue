@@ -13,6 +13,7 @@
     :draggable="!isSelectionMode"
     :data-id="note.id"
     @click="handleClick"
+    @contextmenu.prevent="handleContextMenu"
     @dragstart="handleDragStart"
     @dragover.prevent="handleDragOver"
     @dragleave="handleDragLeave"
@@ -27,28 +28,26 @@
       </div>
     </div>
 
-    <div v-if="!isSelectionMode" class="note-card__status">
-      <div v-if="note.isLocked" class="note-card__lock" :title="locale === 'zh-CN' ? '已加锁' : 'Locked'">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <rect x="2.5" y="5.5" width="7" height="5" rx="1.2" stroke="currentColor" stroke-width="1.2"/>
-          <path d="M4 5.5V4.2C4 3 4.9 2 6 2C7.1 2 8 3 8 4.2V5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
+    <div class="note-card__content">
+      <div class="note-card__row">
+        <h3 class="note-card__title" v-html="highlightedTitle"></h3>
+        <span v-if="categoryName" class="note-card__category">
+          {{ categoryName }}
+        </span>
       </div>
-      <div v-if="note.isPinned" class="note-card__pin" :title="locale === 'zh-CN' ? '已置顶' : 'Pinned'">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M6 1L7 4L10 4.5L7.5 7L8 11L6 9.5L4 11L4.5 7L2 4.5L5 4L6 1Z" fill="currentColor"/>
-        </svg>
+
+      <p v-if="!isCompact" class="note-card__preview" v-html="highlightedPreview"></p>
+
+      <div class="note-card__meta">
+        <span class="note-card__date">{{ formatDate(note.updatedAt) }}</span>
+        <span class="note-card__meta-spacer"></span>
+        <span v-if="note.isPinned" class="note-card__meta-badge">
+          {{ locale === 'zh-CN' ? '置顶' : 'Pinned' }}
+        </span>
+        <span v-if="note.isLocked" class="note-card__meta-badge">
+          {{ locale === 'zh-CN' ? '锁定' : 'Locked' }}
+        </span>
       </div>
-    </div>
-
-    <h3 class="note-card__title" v-html="highlightedTitle"></h3>
-    <p class="note-card__preview" v-html="highlightedPreview"></p>
-
-    <div class="note-card__footer">
-      <span class="note-card__date">{{ formatDate(note.updatedAt) }}</span>
-      <span v-if="categoryName" class="note-card__category" :style="{ background: categoryColor }">
-        {{ categoryName }}
-      </span>
     </div>
   </div>
 </template>
@@ -72,6 +71,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   click: []
+  contextmenu: [event: MouseEvent]
   'toggle-select': []
   dragstart: [id: string]
   dragover: [id: string]
@@ -83,9 +83,14 @@ const emit = defineEmits<{
 const categoryStore = useCategoryStore()
 const noteStore = useNoteStore()
 const { t, locale } = useI18n()
+const isCompact = computed(() => props.viewMode === 'compact')
 
 function handleClick() {
   emit('click')
+}
+
+function handleContextMenu(event: MouseEvent) {
+  emit('contextmenu', event)
 }
 
 function handleDragStart(e: DragEvent) {
@@ -148,7 +153,6 @@ const highlightedPreview = computed(() => highlightText(displayPreview.value, no
 
 const category = computed(() => categoryStore.getCategoryById(props.note.categoryId))
 const categoryName = computed(() => category.value?.name)
-const categoryColor = computed(() => category.value?.color)
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp)
@@ -168,53 +172,33 @@ function formatDate(timestamp: number): string {
   return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
 }
 </script>
+
 <style lang="scss" scoped>
 .note-card {
   position: relative;
-  padding: $spacing-md;
-  background: var(--color-bg-card);
-  border: 1px solid color-mix(in srgb, var(--color-border) 42%, transparent);
-  border-radius: $radius-lg;
-  margin-bottom: $spacing-sm;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  margin-bottom: 1px;
   cursor: pointer;
-  
-  // Performance-oriented transitions with light motion.
-  transition: background-color 0.16s ease,
-              border-color 0.16s ease,
-              transform 0.16s ease,
-              box-shadow 0.16s ease;
-  
-  // Keep paint and layout work constrained for smoother scrolling.
+  transition: background-color 0.14s ease, border-color 0.14s ease;
   content-visibility: auto;
   contain: layout style paint;
-  contain-intrinsic-size: 0 90px;
-  will-change: transform;
-  backface-visibility: hidden;
-  -webkit-font-smoothing: antialiased;
+  contain-intrinsic-size: 0 58px;
 
   &:hover {
-    background: var(--color-bg-hover);
-    border-color: color-mix(in srgb, var(--color-border) 76%, transparent);
-    transform: translateY(-1px);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-  }
-  
-  &:active {
-    transform: translateY(0);
-    transition-duration: 0.08s;
+    background: color-mix(in srgb, var(--color-bg-hover) 88%, transparent);
+    border-color: transparent;
   }
 
   &--active {
-    border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-border-dark));
-    background: var(--color-bg-card);
-
-    .note-card__title {
-      color: var(--color-text-primary);
-    }
+    border-color: color-mix(in srgb, var(--color-border) 64%, transparent);
+    background: color-mix(in srgb, var(--color-bg-hover) 96%, transparent);
   }
 
   &--pinned {
-    border-left: 3px solid var(--color-accent);
+    border-left: 1px solid color-mix(in srgb, var(--color-border-dark) 70%, transparent);
   }
 
   &--dragging {
@@ -227,14 +211,8 @@ function formatDate(timestamp: number): string {
     background: var(--color-bg-active);
   }
 
-  // Selection mode.
   &--selection-mode {
     padding-left: $spacing-md + 28px;
-    cursor: pointer;
-
-    &:hover {
-      background: var(--color-bg-hover);
-    }
   }
 
   &--selected {
@@ -247,49 +225,10 @@ function formatDate(timestamp: number): string {
   }
 
   &--compact {
-    padding: 8px 10px;
-    border-radius: $radius-md;
-    margin-bottom: 4px;
-    border-width: 1px;
-    contain-intrinsic-size: 0 44px;
-
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-    }
-
-    .note-card__status {
-      top: 9px;
-      right: 8px;
-      gap: 4px;
-    }
-
-    .note-card__title {
-      margin-bottom: 2px;
-      padding-right: 26px;
-      font-size: $font-size-sm;
-      font-weight: 500;
-    }
-
-    .note-card__preview {
-      margin-bottom: 0;
-      -webkit-line-clamp: 1;
-      font-size: 12px;
-      color: var(--color-text-muted);
-    }
-
-    .note-card__footer {
-      margin-top: 4px;
-    }
-
-    .note-card__category {
-      padding: 1px 6px;
-      font-size: 11px;
-    }
+    contain-intrinsic-size: 0 56px;
   }
 }
 
-// Selection checkbox.
 .note-card__checkbox {
   position: absolute;
   left: $spacing-md;
@@ -311,8 +250,7 @@ function formatDate(timestamp: number): string {
   align-items: center;
   justify-content: center;
   background: var(--color-bg-card);
-  transition: background-color 0.1s ease, 
-              border-color 0.1s ease;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
 
   &:hover {
     border-color: var(--color-accent);
@@ -321,73 +259,83 @@ function formatDate(timestamp: number): string {
   &--checked {
     background: var(--color-accent);
     border-color: var(--color-accent);
-    color: white;
+    color: #fff;
   }
 }
 
-.note-card__status {
-  position: absolute;
-  top: $spacing-sm;
-  right: $spacing-sm;
+.note-card__content {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-card__row {
+  display: flex;
   align-items: center;
-}
-
-.note-card__lock {
-  color: var(--color-text-muted);
-}
-
-.note-card__pin {
-  color: var(--color-accent);
+  gap: 6px;
 }
 
 .note-card__title {
-  font-size: $font-size-md;
-  font-weight: 500;
-  margin-bottom: $spacing-xs;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 460;
+  margin-bottom: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-right: 32px;
   color: var(--color-text-primary);
+  letter-spacing: -0.01em;
 }
 
 .note-card__preview {
-  font-size: $font-size-sm;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-bottom: $spacing-sm;
+  margin-bottom: 0;
 }
 
-.note-card__footer {
+.note-card__meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+  min-height: 16px;
 }
 
 .note-card__date {
-  font-size: $font-size-xs;
+  font-size: 11px;
   color: var(--color-text-muted);
 }
 
-.note-card__category {
-  font-size: $font-size-xs;
-  padding: 2px 8px;
-  border-radius: $radius-sm;
-  color: white;
+.note-card__meta-spacer {
+  flex: 1;
 }
 
-// Search highlight style.
+.note-card__meta-badge {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.note-card__category {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  opacity: 0.82;
+}
+
 :deep(.search-highlight) {
-  background: #fef08a;
-  color: #854d0e;
+  background: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  color: var(--color-text-primary);
   padding: 0 2px;
   border-radius: 2px;
 }
 </style>
-

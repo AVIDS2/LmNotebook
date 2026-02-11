@@ -90,6 +90,7 @@ export interface AppConfig {
   autoBackup: boolean
   backupDirectory: string
   maxBackups: number
+  updateAutoCheck: boolean
 }
 
 // 备份信息类型
@@ -103,6 +104,45 @@ export interface BackupInfo {
 export interface ConfigAPI {
   get: () => Promise<AppConfig>
   save: (config: Partial<AppConfig>) => Promise<AppConfig>
+}
+
+export interface AppMeta {
+  name: string
+  version: string
+  packaged: boolean
+}
+
+export interface AppAPI {
+  getMeta: () => Promise<AppMeta>
+}
+
+export type UpdaterStage =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+  | 'disabled-dev'
+
+export interface UpdaterState {
+  stage: UpdaterStage
+  message: string
+  currentVersion: string
+  availableVersion?: string
+  percent?: number
+  autoCheck: boolean
+  lastCheckedAt?: number
+}
+
+export interface UpdaterAPI {
+  getState: () => Promise<UpdaterState>
+  setAutoCheck: (enabled: boolean) => Promise<UpdaterState>
+  checkForUpdates: () => Promise<UpdaterState>
+  downloadUpdate: () => Promise<UpdaterState>
+  quitAndInstall: () => Promise<boolean>
+  onStatus: (callback: (state: UpdaterState) => void) => () => void
 }
 
 export interface BackupAPI {
@@ -136,6 +176,7 @@ export interface IElectronAPI {
   maximizeWindow: () => void
   closeWindow: () => void
   isMaximized: () => Promise<boolean>
+  app: AppAPI
   exportFile: (options: ExportOptions) => Promise<ExportResult>
   importFile: (options: ImportOptions) => Promise<ImportResult>
   platform: string
@@ -145,6 +186,7 @@ export interface IElectronAPI {
   data: DataAPI
   dialog: DialogAPI
   shell: ShellAPI
+  updater: UpdaterAPI
   image: ImageAPI
   exportPdf: (htmlContent: string) => Promise<Uint8Array | null>
 }

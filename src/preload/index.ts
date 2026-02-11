@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 平台信息
   platform: process.platform,
 
+  app: {
+    getMeta: () => ipcRenderer.invoke('app-get-meta')
+  },
+
   // ==================== SQLite Data API ====================
   db: {
     // 笔记操作
@@ -87,6 +91,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   shell: {
     openPath: (path: string) => ipcRenderer.invoke('shell-open-path', path)
+  },
+
+  updater: {
+    getState: () => ipcRenderer.invoke('updater-get-state'),
+    setAutoCheck: (enabled: boolean) => ipcRenderer.invoke('updater-set-auto-check', enabled),
+    checkForUpdates: () => ipcRenderer.invoke('updater-check-for-updates'),
+    downloadUpdate: () => ipcRenderer.invoke('updater-download-update'),
+    quitAndInstall: () => ipcRenderer.invoke('updater-quit-and-install'),
+    onStatus: (callback: (state: unknown) => void) => {
+      const handler = (_event: unknown, state: unknown) => callback(state)
+      ipcRenderer.on('updater-event', handler as any)
+      return () => ipcRenderer.removeListener('updater-event', handler as any)
+    }
   },
 
   // ==================== 图片存储 API ====================

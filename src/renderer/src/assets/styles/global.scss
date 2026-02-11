@@ -4,26 +4,26 @@
 // ========== CSS 鍙橀噺涓婚绯荤粺 ==========
 :root {
   // 浜壊涓婚锛堥粯璁わ級
-  --color-bg-primary: #FAFAF8;
-  --color-bg-secondary: #F5F5F3;
+  --color-bg-primary: #F7F8FA;
+  --color-bg-secondary: #F2F4F7;
   --color-bg-card: #FFFFFF;
-  --color-bg-hover: #F0F0EE;
-  --color-bg-active: #EAEAE8;
+  --color-bg-hover: #ECEFF3;
+  --color-bg-active: #E5E9EF;
   
-  --color-primary: #3D3D3D;
-  --color-primary-light: #5A5A5A;
-  --color-primary-dark: #2A2A2A;
+  --color-primary: #2F333A;
+  --color-primary-light: #444B55;
+  --color-primary-dark: #1F232A;
   
-  --color-accent: #B8A080;
+  --color-accent: #A88A65;
   
-  --color-text-primary: #2C2C2A;
-  --color-text-secondary: #6B6B68;
-  --color-text-muted: #9C9C98;
-  --color-text-placeholder: #BBBBB8;
+  --color-text-primary: #232730;
+  --color-text-secondary: #5F6671;
+  --color-text-muted: #8B93A0;
+  --color-text-placeholder: #A6AEBA;
   
-  --color-border: #E0E0DE;
-  --color-border-light: #EAEAE8;
-  --color-border-dark: #D0D0CE;
+  --color-border: #DBE0E7;
+  --color-border-light: #E7EBF1;
+  --color-border-dark: #CCD3DC;
   
   --color-danger: #C45C5C;
   --color-warning: #C9A456;
@@ -74,25 +74,25 @@
 
 [data-theme="classic"] {
   --color-bg-primary: #FFFFFF;
-  --color-bg-secondary: #FFFFFF;
+  --color-bg-secondary: #FAFBFC;
   --color-bg-card: #FFFFFF;
-  --color-bg-hover: #FCFCFC;
-  --color-bg-active: #F8F8F8;
+  --color-bg-hover: #F4F7FA;
+  --color-bg-active: #EEF2F7;
 
-  --color-primary: #2E2E2E;
-  --color-primary-light: #474747;
-  --color-primary-dark: #1E1E1E;
+  --color-primary: #2A2F36;
+  --color-primary-light: #424A56;
+  --color-primary-dark: #1D2228;
 
-  --color-accent: #4D4D4D;
+  --color-accent: #8B97A8;
 
-  --color-text-primary: #1F1F1F;
-  --color-text-secondary: #5A5A5A;
-  --color-text-muted: #8A8A8A;
-  --color-text-placeholder: #B0B0B0;
+  --color-text-primary: #232730;
+  --color-text-secondary: #5D6673;
+  --color-text-muted: #8891A0;
+  --color-text-placeholder: #A5AEBB;
 
-  --color-border: #F0F0F0;
-  --color-border-light: #F5F5F5;
-  --color-border-dark: #EAEAEA;
+  --color-border: #E3E8EF;
+  --color-border-light: #EDF1F6;
+  --color-border-dark: #D5DEE8;
 
   --color-danger: #666666;
   --color-warning: #707070;
@@ -119,7 +119,7 @@ html, body, #app {
 
 body {
   font-family: $font-family;
-  font-size: $font-size-md;
+  font-size: $font-size-sm;
   color: var(--color-text-primary);
   background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;

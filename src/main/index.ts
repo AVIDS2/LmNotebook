@@ -4,6 +4,7 @@ import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import { createWriteStream } from 'fs'
 import { is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import * as database from './database'
 import * as imageStore from './imageStore'
 
@@ -11,6 +12,106 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
 let backendProcess: ChildProcess | null = null
+
+type UpdaterStage =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+  | 'disabled-dev'
+
+interface UpdaterState {
+  stage: UpdaterStage
+  message: string
+  currentVersion: string
+  availableVersion?: string
+  percent?: number
+  autoCheck: boolean
+  lastCheckedAt?: number
+}
+
+let updaterState: UpdaterState = {
+  stage: app.isPackaged ? 'idle' : 'disabled-dev',
+  message: app.isPackaged ? 'Ready' : 'Updater disabled in development mode',
+  currentVersion: app.getVersion(),
+  autoCheck: database.getConfig().updateAutoCheck
+}
+
+function emitUpdaterState(partial: Partial<UpdaterState> = {}): UpdaterState {
+  updaterState = { ...updaterState, ...partial }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater-event', updaterState)
+  }
+  return updaterState
+}
+
+function setupAutoUpdater(): void {
+  if (!app.isPackaged) {
+    emitUpdaterState({
+      stage: 'disabled-dev',
+      message: 'Updater disabled in development mode',
+      currentVersion: app.getVersion()
+    })
+    return
+  }
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    emitUpdaterState({
+      stage: 'checking',
+      message: 'Checking for updates...',
+      lastCheckedAt: Date.now()
+    })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    emitUpdaterState({
+      stage: 'available',
+      message: `Update available: ${info.version}`,
+      availableVersion: info.version,
+      percent: undefined
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    emitUpdaterState({
+      stage: 'not-available',
+      message: 'You are using the latest version',
+      availableVersion: undefined,
+      percent: undefined
+    })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    emitUpdaterState({
+      stage: 'downloading',
+      message: `Downloading update (${Math.round(progress.percent)}%)`,
+      percent: progress.percent
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    emitUpdaterState({
+      stage: 'downloaded',
+      message: `Update ready to install: ${info.version}`,
+      availableVersion: info.version,
+      percent: 100
+    })
+  })
+
+  autoUpdater.on('error', (error) => {
+    emitUpdaterState({
+      stage: 'error',
+      message: error?.message || 'Failed to check for updates',
+      percent: undefined
+    })
+  })
+}
 
 // Register custom protocol as privileged before app ready.
 protocol.registerSchemesAsPrivileged([
@@ -134,7 +235,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      spellcheck: false
     },
     show: false
   })
@@ -199,6 +301,12 @@ ipcMain.on('window-close', () => {
 ipcMain.handle('window-is-maximized', () => {
   return mainWindow?.isMaximized()
 })
+
+ipcMain.handle('app-get-meta', () => ({
+  name: app.getName(),
+  version: app.getVersion(),
+  packaged: app.isPackaged
+}))
 
 // Export file dialog.
 ipcMain.handle('export-file', async (_event, options: { defaultName: string; filters: { name: string; extensions: string[] }[]; content: string }) => {
@@ -308,6 +416,56 @@ ipcMain.handle('config-save', (_event, config: Parameters<typeof database.saveCo
 ipcMain.handle('backup-create', (_event, customPath?: string) => database.createBackup(customPath))
 ipcMain.handle('backup-list', () => database.getBackupList())
 
+ipcMain.handle('updater-get-state', () => emitUpdaterState())
+ipcMain.handle('updater-set-auto-check', (_event, enabled: boolean) => {
+  const cfg = database.saveConfig({ updateAutoCheck: !!enabled })
+  return emitUpdaterState({ autoCheck: cfg.updateAutoCheck })
+})
+ipcMain.handle('updater-check-for-updates', async () => {
+  if (!app.isPackaged) {
+    return emitUpdaterState({
+      stage: 'disabled-dev',
+      message: 'Updater disabled in development mode'
+    })
+  }
+  try {
+    emitUpdaterState({ stage: 'checking', message: 'Checking for updates...', lastCheckedAt: Date.now() })
+    await autoUpdater.checkForUpdates()
+    return emitUpdaterState()
+  } catch (error) {
+    return emitUpdaterState({
+      stage: 'error',
+      message: error instanceof Error ? error.message : 'Failed to check for updates'
+    })
+  }
+})
+ipcMain.handle('updater-download-update', async () => {
+  if (!app.isPackaged) {
+    return emitUpdaterState({
+      stage: 'disabled-dev',
+      message: 'Updater disabled in development mode'
+    })
+  }
+  try {
+    await autoUpdater.downloadUpdate()
+    return emitUpdaterState()
+  } catch (error) {
+    return emitUpdaterState({
+      stage: 'error',
+      message: error instanceof Error ? error.message : 'Failed to download update'
+    })
+  }
+})
+ipcMain.handle('updater-quit-and-install', () => {
+  if (!app.isPackaged) {
+    return false
+  }
+  setImmediate(() => {
+    autoUpdater.quitAndInstall()
+  })
+  return true
+})
+
 ipcMain.handle('backup-restore', async (_event, backupPath: string) => {
   const result = database.restoreFromBackup(backupPath)
   if (result) {
@@ -363,6 +521,8 @@ ipcMain.handle('image-stats', () => imageStore.getImageStats())
 ipcMain.handle('image-cleanup', (_event, usedImageRefs: string[]) => imageStore.cleanupUnusedImages(usedImageRefs))
 
 app.whenReady().then(() => {
+  setupAutoUpdater()
+
   // Register file protocol handler: origin-image://
   protocol.registerFileProtocol('origin-image', (request, callback) => {
     const filename = request.url.replace('origin-image://', '')
@@ -376,10 +536,23 @@ app.whenReady().then(() => {
 
   if (mainWindow) {
     createTray(mainWindow)
+    emitUpdaterState()
   }
 
   // Check and perform automatic backup.
   performAutoBackup()
+
+  const cfg = database.getConfig()
+  if (app.isPackaged && cfg.updateAutoCheck) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((error) => {
+        emitUpdaterState({
+          stage: 'error',
+          message: error instanceof Error ? error.message : 'Failed to check for updates'
+        })
+      })
+    }, 2500)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

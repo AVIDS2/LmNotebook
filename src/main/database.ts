@@ -10,6 +10,7 @@ interface AppConfig {
     autoBackup: boolean
     backupDirectory: string
     maxBackups: number
+    updateAutoCheck: boolean
 }
 
 const CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
@@ -20,7 +21,8 @@ function getDefaultConfig(): AppConfig {
         dataDirectory: defaultDataPath,
         autoBackup: true,
         backupDirectory: join(defaultDataPath, 'backups'),
-        maxBackups: 10
+        maxBackups: 10,
+        updateAutoCheck: true
     }
 }
 

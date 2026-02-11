@@ -256,20 +256,31 @@
           </button>
 
           <!-- 分类选择 -->
-          <div class="note-editor__category-select">
-            <select
-              :value="noteStore.currentNote.categoryId || ''"
-              @change="handleCategoryChange"
+          <div class="note-editor__category-select toolbar-dropdown" ref="categoryDropdownRef">
+            <button
+              class="toolbar-dropdown__trigger note-editor__category-trigger"
+              :class="{ 'toolbar-dropdown__trigger--active': categoryDropdownOpen }"
+              @click.stop="toggleCategoryDropdown"
             >
-              <option value="">{{ t('editor.categoryNone') }}</option>
-              <option
+              <span class="toolbar-dropdown__label">{{ currentCategoryLabel }}</span>
+              <svg width="10" height="10" viewBox="0 0 10 10">
+                <path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              </svg>
+            </button>
+            <div v-show="categoryDropdownOpen" class="toolbar-dropdown__menu note-editor__category-menu">
+              <button class="toolbar-dropdown__item" @click="handleCategoryChange('')">
+                {{ t('editor.categoryNone') }}
+              </button>
+              <button
                 v-for="cat in categoryStore.categories"
                 :key="cat.id"
-                :value="cat.id"
+                class="toolbar-dropdown__item"
+                :class="{ 'toolbar-dropdown__item--active': (noteStore.currentNote?.categoryId || '') === cat.id }"
+                @click="handleCategoryChange(cat.id)"
               >
                 {{ cat.name }}
-              </option>
-            </select>
+              </button>
+            </div>
           </div>
 
           <!-- Markdown 渲染按钮 -->
@@ -323,6 +334,9 @@
           :value="localTitle"
           class="note-editor__title"
           type="text"
+          spellcheck="false"
+          autocorrect="off"
+          autocapitalize="off"
           :placeholder="t('editor.titlePlaceholder')"
           :readonly="noteStore.currentView === 'trash'"
           @input="handleTitleInput"
@@ -447,6 +461,35 @@
     <div class="menu-item danger" @click="deleteImage">删除图片</div>
   </div>
 
+  <div
+    v-if="textContextMenu.visible"
+    ref="textContextMenuRef"
+    class="editor-context-menu"
+    :style="textContextMenuStyle"
+    @click.stop
+  >
+    <button
+      class="editor-context-menu__item"
+      :disabled="!textContextMenu.hasSelection"
+      @click="copySelectedText"
+    >
+      {{ t('editor.contextCopy') }}
+    </button>
+    <button class="editor-context-menu__item" @click="pasteText">
+      {{ t('editor.contextPaste') }}
+    </button>
+    <button class="editor-context-menu__item" @click="selectAllEditorText">
+      {{ t('editor.contextSelectAll') }}
+    </button>
+    <button
+      class="editor-context-menu__item"
+      :disabled="!textContextMenu.hasSelection"
+      @click="triggerAiOnSelection"
+    >
+      {{ t('editor.contextAiSelected') }}
+    </button>
+  </div>
+
   <!-- AI 选中文本浮动菜单 -->
   <div 
     v-if="selectionMenu.visible && !aiResult.visible" 
@@ -459,57 +502,57 @@
         class="selection-ai-menu__btn" 
         @click="handleAIAction('polish')"
         :disabled="aiProcessing"
-        title="润色"
+        :title="t('editor.aiQuick.polish')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M7 1L8.5 4.5L12 5.5L9 8L10 12L7 10L4 12L5 8L2 5.5L5.5 4.5L7 1Z" stroke="currentColor" stroke-width="1.2" fill="none"/>
         </svg>
-        润色
+        {{ t('editor.aiQuick.polish') }}
       </button>
       <button 
         class="selection-ai-menu__btn" 
         @click="handleAIAction('translate')"
         :disabled="aiProcessing"
-        title="翻译"
+        :title="t('editor.aiQuick.translate')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M2 3H8M5 3V11M8 7L11 11M11 7L8 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-        翻译
+        {{ t('editor.aiQuick.translate') }}
       </button>
       <button 
         class="selection-ai-menu__btn" 
         @click="handleAIAction('explain')"
         :disabled="aiProcessing"
-        title="解释"
+        :title="t('editor.aiQuick.explain')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.2" fill="none"/>
           <path d="M7 4V8M7 10V10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-        解释
+        {{ t('editor.aiQuick.explain') }}
       </button>
       <button 
         class="selection-ai-menu__btn" 
         @click="handleAIAction('summarize')"
         :disabled="aiProcessing"
-        title="总结"
+        :title="t('editor.aiQuick.summarize')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M3 3H11M3 6H9M3 9H7M3 12H5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-        总结
+        {{ t('editor.aiQuick.summarize') }}
       </button>
       <button 
         class="selection-ai-menu__btn" 
         @click="handleAIAction('expand')"
         :disabled="aiProcessing"
-        title="扩写"
+        :title="t('editor.aiQuick.expand')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-        扩写
+        {{ t('editor.aiQuick.expand') }}
       </button>
       <div class="selection-ai-menu__divider"></div>
       <button 
@@ -517,12 +560,12 @@
         @click="toggleAskInput"
         :disabled="aiProcessing"
         :class="{ 'selection-ai-menu__btn--active': showAskInput }"
-        title="自由提问"
+        :title="t('editor.aiQuick.ask')"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M7 1C3.7 1 1 3.2 1 6C1 7.5 1.8 8.8 3 9.7V13L6 10.5C6.3 10.5 6.7 10.5 7 10.5C10.3 10.5 13 8.3 13 5.5C13 3.2 10.3 1 7 1Z" stroke="currentColor" stroke-width="1.2" fill="none"/>
         </svg>
-        询问
+        {{ t('editor.aiQuick.ask') }}
       </button>
     </div>
     <!-- 自由提问输入框 -->
@@ -531,7 +574,7 @@
         ref="askInputRef"
         v-model="askInputText"
         type="text"
-        placeholder="针对选中文本提问..."
+        :placeholder="t('editor.aiQuick.askPlaceholder')"
         @keyup.enter="handleAskSubmit"
         @keyup.esc="showAskInput = false"
         :disabled="aiProcessing"
@@ -563,8 +606,8 @@
     <div class="ai-result-panel__header">
       <span class="ai-result-panel__action-label">{{ aiResult.actionLabel }}</span>
       <div class="ai-result-panel__header-actions">
-        <button v-if="aiProcessing" class="ai-result-panel__stop" @click="cancelAIProcessing">停止</button>
-        <button class="ai-result-panel__close" @click="closeAIResult" title="关闭">
+        <button v-if="aiProcessing" class="ai-result-panel__stop" @click="cancelAIProcessing">{{ t('editor.aiQuick.stop') }}</button>
+        <button class="ai-result-panel__close" @click="closeAIResult" :title="t('editor.aiQuick.close')">
           <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5"/></svg>
         </button>
       </div>
@@ -575,14 +618,14 @@
     <div class="ai-result-panel__actions">
       <button class="ai-result-panel__btn ai-result-panel__btn--primary" :disabled="aiProcessing" @click="applyAIResult('insert')">
         <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
-        确认插入
+        {{ t('editor.aiQuick.insertConfirm') }}
       </button>
       <button class="ai-result-panel__btn" :disabled="aiProcessing" @click="applyAIResult('replace')">
         <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6H10M6 2V10" stroke="currentColor" stroke-width="1.5"/></svg>
-        替换选中
+        {{ t('editor.aiQuick.replaceSelection') }}
       </button>
       <button class="ai-result-panel__btn ai-result-panel__btn--secondary" @click="closeAIResult">
-        取消
+        {{ t('common.cancel') }}
       </button>
     </div>
   </div>
@@ -893,6 +936,7 @@ const headingDropdownRef = ref<HTMLElement>()
 const listDropdownRef = ref<HTMLElement>()
 const insertDropdownRef = ref<HTMLElement>()
 const moreMenuRef = ref<HTMLElement>()
+const categoryDropdownRef = ref<HTMLElement>()
 const moreMenuButtonRef = ref<HTMLElement>()
 const moreMenuFloatingRef = ref<HTMLElement>()
 
@@ -903,6 +947,7 @@ const highlightDropdownOpen = ref(false)
 const headingDropdownOpen = ref(false)
 const listDropdownOpen = ref(false)
 const insertDropdownOpen = ref(false)
+const categoryDropdownOpen = ref(false)
 const moreMenuOpen = ref(false)
 const exportSubmenuOpen = ref(false)
 
@@ -1127,6 +1172,7 @@ function closeAllDropdowns() {
   headingDropdownOpen.value = false
   listDropdownOpen.value = false
   insertDropdownOpen.value = false
+  categoryDropdownOpen.value = false
   moreMenuOpen.value = false
   exportSubmenuOpen.value = false
 }
@@ -1166,6 +1212,12 @@ function toggleInsertDropdown() {
   const wasOpen = insertDropdownOpen.value
   closeAllDropdowns()
   insertDropdownOpen.value = !wasOpen
+}
+
+function toggleCategoryDropdown() {
+  const wasOpen = categoryDropdownOpen.value
+  closeAllDropdowns()
+  categoryDropdownOpen.value = !wasOpen
 }
 
 function toggleMoreMenu() {
@@ -1408,6 +1460,13 @@ const imageContextMenu = reactive({
   x: 0,
   y: 0
 })
+const textContextMenuRef = ref<HTMLElement | null>(null)
+const textContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  hasSelection: false
+})
 
 // ========== AI 选中文本菜单状态 ==========
 const selectionMenu = reactive({
@@ -1419,7 +1478,7 @@ const selectionMenu = reactive({
   selectionTo: 0
 })
 const aiProcessing = ref(false)
-const aiStatusText = ref('处理中...')
+const aiStatusText = ref(t('editor.aiQuick.processing'))
 const aiAbortController = ref<AbortController | null>(null)
 let aiTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -1448,13 +1507,16 @@ const aiResultHtml = computed(() => {
   return DOMPurify.sanitize(source.replace(/\n/g, '<br/>'))
 })
 
-// 操作标签映射
-const actionLabels: Record<string, string> = {
-  polish: '润色后',
-  translate: '翻译结果',
-  explain: '解释',
-  summarize: '总结',
-  expand: '扩写后'
+function getActionLabel(action: string): string {
+  const keyMap: Record<string, string> = {
+    polish: 'editor.aiQuick.resultPolish',
+    translate: 'editor.aiQuick.resultTranslate',
+    explain: 'editor.aiQuick.resultExplain',
+    summarize: 'editor.aiQuick.resultSummarize',
+    expand: 'editor.aiQuick.resultExpand',
+    ask: 'editor.aiQuick.resultAsk'
+  }
+  return t(keyMap[action] || 'editor.aiQuick.resultAsk')
 }
 
 // 选中菜单位置计算
@@ -1498,6 +1560,19 @@ const selectionMenuStyle = computed(() => {
   return {
     left: x + 'px',
     top: y + 'px'
+  }
+})
+
+const textContextMenuStyle = computed(() => {
+  const padding = 8
+  const menuWidth = 180
+  const menuHeight = 166
+  const maxX = window.innerWidth - menuWidth - padding
+  const maxY = window.innerHeight - menuHeight - padding
+
+  return {
+    left: `${Math.max(padding, Math.min(textContextMenu.x, maxX))}px`,
+    top: `${Math.max(padding, Math.min(textContextMenu.y, maxY))}px`
   }
 })
 
@@ -1886,32 +1961,70 @@ function deleteImage(): void {
   selectedImagePos.value = null
 }
 
-// 监听编辑器中的图片右键事件
-const attachImageListeners = (container: HTMLElement) => {
-  // 右键菜单
-  container.addEventListener('contextmenu', (e: MouseEvent) => {
-    const target = e.target as HTMLElement
-    if (target.tagName === 'IMG') {
-      e.preventDefault()
-      selectedImage.value = target as HTMLImageElement
-      if (editor.value) {
-        const pos = editor.value.view.posAtDOM(target, 0)
-        selectedImagePos.value = pos
-      }
-      imageContextMenu.x = e.clientX
-      imageContextMenu.y = e.clientY
-      imageContextMenu.visible = true
+let contextMenuBoundContainer: HTMLElement | null = null
+
+function hideTextContextMenu(): void {
+  textContextMenu.visible = false
+}
+
+function updateTextContextSelectionState(): void {
+  const selectedText = window.getSelection()?.toString() || ''
+  textContextMenu.hasSelection = selectedText.trim().length > 0
+}
+
+function handleEditorContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement
+  if (!target) return
+
+  if (target.tagName === 'IMG') {
+    e.preventDefault()
+    selectedImage.value = target as HTMLImageElement
+    if (editor.value) {
+      const pos = editor.value.view.posAtDOM(target, 0)
+      selectedImagePos.value = pos
     }
-  })
+    imageContextMenu.x = e.clientX
+    imageContextMenu.y = e.clientY
+    imageContextMenu.visible = true
+    hideTextContextMenu()
+    return
+  }
+
+  if (target.closest('.ProseMirror')) {
+    e.preventDefault()
+    imageContextMenu.visible = false
+    showCustomInput.value = false
+    customSizeValue.value = ''
+    updateTextContextSelectionState()
+    textContextMenu.x = e.clientX
+    textContextMenu.y = e.clientY
+    textContextMenu.visible = true
+    return
+  }
+
+  hideTextContextMenu()
+}
+
+function bindEditorContextMenu(container: HTMLElement): void {
+  if (contextMenuBoundContainer === container) return
+  if (contextMenuBoundContainer) {
+    contextMenuBoundContainer.removeEventListener('contextmenu', handleEditorContextMenu)
+  }
+  container.addEventListener('contextmenu', handleEditorContextMenu)
+  contextMenuBoundContainer = container
 }
 
 // 监听容器 DOM 变化，当笔记切换显现后绑定事件
 watch(editorContainerRef, (newVal, oldVal) => {
   if (oldVal) {
     oldVal.removeEventListener('scroll', updateActiveOutlineByScroll)
+    oldVal.removeEventListener('contextmenu', handleEditorContextMenu)
+    if (contextMenuBoundContainer === oldVal) {
+      contextMenuBoundContainer = null
+    }
   }
   if (newVal) {
-    attachImageListeners(newVal)
+    bindEditorContextMenu(newVal)
     newVal.addEventListener('scroll', updateActiveOutlineByScroll, { passive: true })
     nextTick(() => {
       scheduleOutlineSync()
@@ -1919,6 +2032,44 @@ watch(editorContainerRef, (newVal, oldVal) => {
     })
   }
 })
+
+async function copySelectedText(): Promise<void> {
+  const selectedText = window.getSelection()?.toString()?.trim() || ''
+  if (!selectedText) return
+
+  try {
+    await navigator.clipboard.writeText(selectedText)
+  } catch {
+    document.execCommand('copy')
+  }
+  hideTextContextMenu()
+}
+
+async function pasteText(): Promise<void> {
+  if (!editor.value) return
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text) {
+      editor.value.chain().focus().insertContent(text).run()
+    }
+  } catch (error) {
+    console.warn('Clipboard paste failed:', error)
+  }
+  hideTextContextMenu()
+}
+
+function selectAllEditorText(): void {
+  if (!editor.value) return
+  editor.value.chain().focus().selectAll().run()
+  updateTextContextSelectionState()
+  hideTextContextMenu()
+}
+
+function triggerAiOnSelection(): void {
+  if (!textContextMenu.hasSelection) return
+  hideTextContextMenu()
+  handleSelectionChange()
+}
 
 watch(moreMenuOpen, (open) => {
   if (!open) return
@@ -1943,6 +2094,7 @@ onMounted(() => {
   document.addEventListener('click', (e) => {
     // 关闭图片右键菜单
     imageContextMenu.visible = false
+    hideTextContextMenu()
     showCustomInput.value = false
     customSizeValue.value = ''
     
@@ -2084,7 +2236,7 @@ async function handleAIAction(action: string): Promise<void> {
   const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
   aiResult.text = ''
   aiResult.action = action
-  aiResult.actionLabel = actionLabels[action] || action
+  aiResult.actionLabel = getActionLabel(action)
   aiResult.x = (selectionMenu.x + endCoords.right) / 2
   aiResult.y = endCoords.bottom
   aiResult.visible = true
@@ -2104,7 +2256,7 @@ async function handleAIAction(action: string): Promise<void> {
     }
   } finally {
     aiProcessing.value = false
-    aiStatusText.value = aiResult.text ? '已完成' : '处理中...'
+    aiStatusText.value = aiResult.text ? t('editor.aiQuick.done') : t('editor.aiQuick.processing')
   }
 }
 
@@ -2161,7 +2313,7 @@ async function handleAskSubmit(): Promise<void> {
   const endCoords = view.coordsAtPos(selectionMenu.selectionTo)
   aiResult.text = ''
   aiResult.action = 'ask'
-  aiResult.actionLabel = '回答'
+  aiResult.actionLabel = getActionLabel('ask')
   aiResult.x = (selectionMenu.x + endCoords.right) / 2
   aiResult.y = endCoords.bottom
   aiResult.visible = true
@@ -2183,13 +2335,13 @@ async function handleAskSubmit(): Promise<void> {
     }
   } finally {
     aiProcessing.value = false
-    aiStatusText.value = aiResult.text ? '已完成' : '处理中...'
+    aiStatusText.value = aiResult.text ? t('editor.aiQuick.done') : t('editor.aiQuick.processing')
   }
 }
 
 function cancelAIProcessing(): void {
   if (!aiProcessing.value) return
-  aiStatusText.value = '已取消'
+  aiStatusText.value = t('editor.aiQuick.canceled')
   aiAbortController.value?.abort()
 }
 
@@ -2199,14 +2351,14 @@ async function requestTextProcess(
 ): Promise<string | null> {
   aiAbortController.value?.abort()
   aiAbortController.value = new AbortController()
-  aiStatusText.value = '处理中...'
+  aiStatusText.value = t('editor.aiQuick.processing')
 
   if (aiTimeoutTimer) {
     clearTimeout(aiTimeoutTimer)
     aiTimeoutTimer = null
   }
   aiTimeoutTimer = setTimeout(() => {
-    aiStatusText.value = '请求超时，已取消'
+    aiStatusText.value = t('editor.aiQuick.timeoutCanceled')
     aiAbortController.value?.abort()
   }, 45000)
 
@@ -2524,14 +2676,24 @@ async function handleTitleBlur(): Promise<void> {
   }
 }
 
+const currentCategoryLabel = computed(() => {
+  const categoryId = noteStore.currentNote?.categoryId
+  if (!categoryId) return t('editor.categoryNone')
+  return categoryStore.getCategoryById(categoryId)?.name || t('editor.categoryNone')
+})
+
 // 处理分类变化
-async function handleCategoryChange(event: Event): Promise<void> {
-  const select = event.target as HTMLSelectElement
+async function handleCategoryChange(eventOrCategoryId: Event | string): Promise<void> {
+  const categoryId = typeof eventOrCategoryId === 'string'
+    ? eventOrCategoryId
+    : (eventOrCategoryId.target as HTMLSelectElement).value
+
   if (noteStore.currentNote) {
     await noteStore.updateNote(noteStore.currentNote.id, {
-      categoryId: select.value || null
+      categoryId: categoryId || null
     })
   }
+  categoryDropdownOpen.value = false
 }
 
 // 切换置顶
@@ -2731,6 +2893,10 @@ onBeforeUnmount(() => {
   if (outlineSyncRaf !== null) {
     cancelAnimationFrame(outlineSyncRaf)
     outlineSyncRaf = null
+  }
+  if (contextMenuBoundContainer) {
+    contextMenuBoundContainer.removeEventListener('contextmenu', handleEditorContextMenu)
+    contextMenuBoundContainer = null
   }
   editor.value?.destroy()
   cancelPendingSaves()
@@ -3095,26 +3261,9 @@ onBeforeUnmount(() => {
     height: 26px;
   }
   
-  .note-editor__category-select select {
-    max-width: 60px;
+  .note-editor__category-trigger {
+    min-width: 70px;
     font-size: 11px;
-  }
-}
-
-.note-editor__category-select {
-  select {
-    padding: $spacing-xs $spacing-sm;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-sm;
-    background: var(--color-bg-card);
-    font-size: $font-size-xs;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    outline: none;
-
-    &:focus {
-      border-color: var(--color-primary);
-    }
   }
 }
 
@@ -3467,6 +3616,53 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.editor-context-menu {
+  position: fixed;
+  min-width: 180px;
+  background: color-mix(in srgb, var(--color-bg-card) 95%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 6px;
+  z-index: 10001;
+  animation: editor-context-pop 140ms cubic-bezier(0.22, 0.9, 0.26, 1) both;
+}
+
+.editor-context-menu__item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--color-bg-hover);
+  }
+
+  &:disabled {
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+  }
+}
+
+@keyframes editor-context-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 // 图片右键菜单（全局定位）
@@ -4139,5 +4335,107 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Obsidian-like lightweight pass */
+.note-editor {
+  background: var(--color-bg-primary);
+}
+
+.note-editor__toolbar {
+  min-height: 34px;
+  padding: 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 52%, transparent);
+  background: var(--color-bg-primary);
+}
+
+.note-editor__tools {
+  gap: 2px;
+}
+
+.note-editor__actions {
+  gap: 2px;
+}
+
+.note-editor__tool,
+.toolbar-dropdown__trigger {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11.5px;
+}
+
+.note-editor__tool:hover:not(:disabled),
+.toolbar-dropdown__trigger:hover {
+  background: var(--color-bg-hover);
+  border-color: color-mix(in srgb, var(--color-border) 56%, transparent);
+  box-shadow: none;
+}
+
+.toolbar-divider {
+  height: 10px;
+  margin: 0 1px;
+  opacity: 0.32;
+}
+
+.toolbar-dropdown__menu,
+.toolbar-dropdown__submenu-panel {
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--color-border) 60%, transparent);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.toolbar-dropdown__item {
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.note-editor__content {
+  padding: 0 8px;
+}
+
+.note-editor :deep(.ProseMirror) {
+  font-size: 14px;
+  line-height: 1.68;
+  max-width: 790px;
+  margin: 0 auto;
+  padding: 12px 8px 56px;
+}
+
+.note-editor__category-select {
+  position: relative;
+}
+
+.note-editor__category-trigger {
+  min-width: 92px;
+  justify-content: space-between;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 10px;
+  height: 28px;
+}
+
+.note-editor__category-menu {
+  min-width: 140px;
+  max-width: 220px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.note-editor__category-menu .toolbar-dropdown__item {
+  border-radius: 9px;
+  min-height: 28px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.note-editor__category-menu .toolbar-dropdown__item--active {
+  background: color-mix(in srgb, var(--color-bg-hover) 78%, transparent);
+  font-weight: 600;
 }
 </style>

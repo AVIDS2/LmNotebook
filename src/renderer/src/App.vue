@@ -5,37 +5,6 @@
       <div class="titlebar__drag-region"></div>
       <div class="titlebar__title">Origin Notes</div>
       <div class="titlebar__controls">
-        <template v-if="!showStartupPage">
-          <button
-            class="titlebar__utility-btn titlebar__locale-btn"
-            @click.stop="toggleLocale"
-            :title="t('language.toggleTitle')"
-          >
-            {{ locale === 'zh-CN' ? 'EN' : '中' }}
-          </button>
-          <button
-            class="titlebar__utility-btn"
-            :class="{ 'titlebar__utility-btn--active': !uiStore.noteListCollapsed }"
-            @click.stop="toggleNoteListPanel"
-            :title="uiStore.noteListCollapsed ? t('app.expandNoteList') : t('app.collapseNoteList')"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <line x1="9" y1="5" x2="9" y2="19" />
-            </svg>
-          </button>
-          <button
-            class="titlebar__utility-btn"
-            :class="{ 'titlebar__utility-btn--active': isAgentSidebarMode }"
-            @click.stop="toggleAgentSidebarFromTitlebar"
-            :title="isAgentSidebarMode ? t('app.hideAgentSidebar') : t('app.showAgentSidebar')"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <line x1="15" y1="4" x2="15" y2="20" />
-            </svg>
-          </button>
-        </template>
         <button class="titlebar__btn" @click="handleMinimize">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="1" y="5.5" width="10" height="1" fill="currentColor"/>
@@ -77,18 +46,14 @@
     >
       <div
         class="panel panel--sidebar"
-        :style="{ width: uiStore.sidebarCollapsed ? '56px' : `${uiStore.sidebarWidth}px` }"
+        :style="{ width: '56px' }"
       >
-        <TheSidebar :collapsed="uiStore.sidebarCollapsed" @toggle="uiStore.toggleSidebar" />
-        <div
-          class="resizer"
-          @mousedown="startResizeWithAutoExpand('sidebar', $event)"
-        ></div>
+        <TheSidebar />
       </div>
 
       <div
         class="panel panel--notelist"
-        :style="{ width: uiStore.noteListCollapsed ? '44px' : `${uiStore.noteListWidth}px` }"
+        :style="{ width: uiStore.noteListCollapsed ? '38px' : `${uiStore.noteListWidth}px` }"
       >
         <NoteList :collapsed="uiStore.noteListCollapsed" @toggle-collapse="uiStore.toggleNoteListCollapsed" />
         <div
@@ -126,13 +91,11 @@ import { useCategoryStore } from '@/stores/categoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { noteRepository } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
-import { useI18n } from '@/i18n'
 import { shouldShowStartupPage } from '@/utils/startupVisibility'
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
-const { t, locale, toggleLocale } = useI18n()
 const isAgentSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
 const isBootstrapped = ref(false)
 const showStartupPage = computed(() =>
@@ -148,18 +111,6 @@ const syncAgentSidebarMode = () => {
 const applyAdaptiveLayout = () => {
   uiStore.adaptLayoutForViewport(window.innerWidth, isAgentSidebarMode.value)
 }
-const toggleNoteListPanel = () => {
-  uiStore.toggleNoteListCollapsed()
-  applyAdaptiveLayout()
-}
-const toggleAgentSidebarFromTitlebar = () => {
-  const next = !isAgentSidebarMode.value
-  localStorage.setItem('origin_agent_sidebar_mode', next ? '1' : '0')
-  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: next } }))
-  isAgentSidebarMode.value = next
-  applyAdaptiveLayout()
-}
-
 type ResizeTarget = 'sidebar' | 'notelist' | 'agent' | null
 const isResizing = ref(false)
 const resizeTarget = ref<ResizeTarget>(null)
@@ -194,10 +145,7 @@ function startResize(target: 'sidebar' | 'notelist' | 'agent', e: MouseEvent): v
   }, 4000)
 }
 
-function startResizeWithAutoExpand(target: 'sidebar' | 'notelist', e: MouseEvent): void {
-  if (target === 'sidebar' && uiStore.sidebarCollapsed) {
-    uiStore.setSidebarCollapsed(false)
-  }
+function startResizeWithAutoExpand(target: 'notelist', e: MouseEvent): void {
   if (target === 'notelist' && uiStore.noteListCollapsed) {
     uiStore.setNoteListCollapsed(false)
   }
@@ -369,8 +317,8 @@ watch(isAgentSidebarMode, () => {
   display: flex;
   align-items: center;
   height: $titlebar-height;
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
   position: relative;
   flex-shrink: 0;
   transition: background-color 0.3s ease;
@@ -379,15 +327,15 @@ watch(isAgentSidebarMode, () => {
     position: absolute;
     top: 0;
     left: 0;
-    right: 320px;
+    right: 126px;
     height: 100%;
     -webkit-app-region: drag;
   }
 
   &__title {
-    margin-left: $spacing-md;
-    font-size: $font-size-sm;
-    font-weight: 500;
+    margin-left: 10px;
+    font-size: 13px;
+    font-weight: 600;
     color: var(--color-text-secondary);
     pointer-events: none;
   }
@@ -395,16 +343,16 @@ watch(isAgentSidebarMode, () => {
   &__controls {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 0;
     margin-left: auto;
     -webkit-app-region: no-drag;
   }
 
   &__utility-btn {
-    width: 30px;
+    width: 34px;
     height: 24px;
-    border: 1px solid var(--color-border-light);
-    border-radius: 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
     background: transparent;
     color: var(--color-text-secondary);
     cursor: pointer;
@@ -415,9 +363,9 @@ watch(isAgentSidebarMode, () => {
 
     &:hover {
       background: var(--color-bg-hover);
-      border-color: var(--color-border);
+      border-color: color-mix(in srgb, var(--color-border) 54%, transparent);
       color: var(--color-text-primary);
-      transform: translateY(-1px);
+      transform: translateY(-0.5px);
     }
 
     &:active {
@@ -432,9 +380,9 @@ watch(isAgentSidebarMode, () => {
   }
 
   &__locale-btn {
-    width: 34px;
-    font-size: 11px;
-    font-weight: 700;
+    width: 36px;
+    font-size: 13px;
+    font-weight: 600;
     letter-spacing: 0.02em;
   }
 
@@ -448,18 +396,18 @@ watch(isAgentSidebarMode, () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 46px;
+    width: 42px;
     height: $titlebar-height;
     border: none;
     background: transparent;
     color: var(--color-text-secondary);
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 0;
     transition: background $transition-fast, color $transition-fast, transform 0.12s ease;
 
     &:hover {
       background: var(--color-bg-hover);
-      transform: translateY(-1px);
+      transform: translateY(-0.5px);
     }
 
     &:active {
@@ -478,6 +426,7 @@ watch(isAgentSidebarMode, () => {
   display: flex;
   flex: 1;
   overflow: hidden;
+  background: var(--color-bg-primary);
   transition: padding-right 0.2s ease;
 
   &--agent-sidebar {
@@ -502,6 +451,7 @@ watch(isAgentSidebarMode, () => {
   display: flex;
   flex-shrink: 0;
   will-change: width;
+  background: var(--color-bg-primary);
 
   &--sidebar {
     z-index: 2;
@@ -533,13 +483,13 @@ watch(isAgentSidebarMode, () => {
     right: 0;
     width: 1px;
     height: 100%;
-    background: color-mix(in srgb, var(--color-border) 52%, transparent);
+    background: transparent;
     transition: width 0.14s ease, background-color 0.14s ease;
   }
 
   &:hover::after {
-    width: 2px;
-    background: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+    width: 1px;
+    background: color-mix(in srgb, var(--color-border-dark) 72%, transparent);
   }
 }
 
@@ -553,7 +503,7 @@ watch(isAgentSidebarMode, () => {
   top: var(--app-titlebar-height);
   bottom: 0;
   right: var(--agent-sidebar-width);
-  width: 7px;
+  width: 6px;
   cursor: col-resize;
   z-index: 30;
 
@@ -564,13 +514,48 @@ watch(isAgentSidebarMode, () => {
     left: 2px;
     width: 1px;
     height: 100%;
-    background: color-mix(in srgb, var(--color-border) 48%, transparent);
+    background: transparent;
     transition: width 0.14s ease, background-color 0.14s ease;
   }
 
   &:hover::after {
-    width: 2px;
-    background: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+    width: 1px;
+    background: color-mix(in srgb, var(--color-border-dark) 72%, transparent);
+  }
+}
+
+/* Shell density pass: keep hierarchy minimal and avoid heavy nested cards */
+.app-container {
+  :deep(.sidebar-rail) {
+    background: var(--color-bg-secondary);
+  }
+
+  :deep(.note-list) {
+    background: var(--color-bg-secondary);
+  }
+
+  :deep(.search-bar) {
+    margin: 6px 8px 8px;
+    border-radius: 10px;
+    box-shadow: none;
+  }
+
+  :deep(.note-list__header) {
+    min-height: 30px;
+    padding: 4px 8px;
+  }
+
+  :deep(.note-list__content) {
+    padding: 2px 8px 8px;
+  }
+
+  :deep(.note-card--active) {
+    border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
+    background: color-mix(in srgb, var(--color-bg-hover) 94%, transparent);
+  }
+
+  :deep(.note-editor__toolbar) {
+    background: var(--color-bg-primary);
   }
 }
 </style>

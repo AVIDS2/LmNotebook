@@ -110,4 +110,28 @@ watch(() => noteStore.currentView, () => {
     border-color: var(--color-border);
   }
 }
+
+/* Lightweight enterprise pass */
+.search-bar {
+  gap: 6px;
+  margin: 0 8px 8px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--color-bg-primary) 96%, transparent);
+  border-color: color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.search-bar__input {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.search-bar__clear {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+}
 </style>

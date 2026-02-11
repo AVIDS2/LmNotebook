@@ -1,18 +1,18 @@
 ﻿import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
-const DEFAULT_SIDEBAR_WIDTH = 200
-const DEFAULT_NOTELIST_WIDTH = 280
-const DEFAULT_AGENT_SIDEBAR_WIDTH = 460
+const DEFAULT_SIDEBAR_WIDTH = 176
+const DEFAULT_NOTELIST_WIDTH = 252
+const DEFAULT_AGENT_SIDEBAR_WIDTH = 430
 
-const SIDEBAR_MIN = 160
+const SIDEBAR_MIN = 132
 const SIDEBAR_MAX = 300
-const NOTELIST_MIN = 220
+const NOTELIST_MIN = 188
 const NOTELIST_MAX = 450
 const AGENT_SIDEBAR_MIN = 280
 const AGENT_SIDEBAR_MAX = 620
-const COLLAPSED_SIDEBAR_WIDTH = 56
-const COLLAPSED_NOTELIST_WIDTH = 44
+const COLLAPSED_SIDEBAR_WIDTH = 44
+const COLLAPSED_NOTELIST_WIDTH = 32
 
 const STORAGE_KEY_SIDEBAR = 'origin-notes-sidebar-width'
 const STORAGE_KEY_NOTELIST = 'origin-notes-notelist-width'
@@ -22,6 +22,8 @@ const STORAGE_KEY_LOCALE = 'origin-notes-locale'
 const STORAGE_KEY_LAYOUT_PRESET = 'origin-notes-layout-preset'
 const STORAGE_KEY_NOTELIST_COLLAPSED = 'origin-notes-notelist-collapsed'
 const STORAGE_KEY_NOTELIST_LAYER_MODE = 'origin-notes-notelist-layer-mode'
+const STORAGE_KEY_UI_VERSION = 'origin-notes-ui-version'
+const UI_VERSION = 'ob-rebuild-v3'
 
 export type ThemeMode = 'light' | 'classic' | 'dark'
 export type LocaleCode = 'zh-CN' | 'en-US'
@@ -60,37 +62,37 @@ export const useUIStore = defineStore('ui', () => {
     agent: { sidebarCollapsed: boolean; sidebarWidth: number; noteListWidth: number; agentSidebarWidth: number }
   }> = {
     writing: {
-      normal: { sidebarCollapsed: true, sidebarWidth: 180, noteListWidth: 240, agentSidebarWidth: 360 },
-      agent: { sidebarCollapsed: true, sidebarWidth: 180, noteListWidth: 220, agentSidebarWidth: 340 }
+      normal: { sidebarCollapsed: true, sidebarWidth: 156, noteListWidth: 214, agentSidebarWidth: 340 },
+      agent: { sidebarCollapsed: true, sidebarWidth: 156, noteListWidth: 198, agentSidebarWidth: 320 }
     },
     balanced: {
       normal: { sidebarCollapsed: false, sidebarWidth: DEFAULT_SIDEBAR_WIDTH, noteListWidth: DEFAULT_NOTELIST_WIDTH, agentSidebarWidth: DEFAULT_AGENT_SIDEBAR_WIDTH },
-      agent: { sidebarCollapsed: false, sidebarWidth: 180, noteListWidth: 240, agentSidebarWidth: 380 }
+      agent: { sidebarCollapsed: false, sidebarWidth: 160, noteListWidth: 220, agentSidebarWidth: 360 }
     },
     research: {
-      normal: { sidebarCollapsed: false, sidebarWidth: 220, noteListWidth: 360, agentSidebarWidth: 520 },
-      agent: { sidebarCollapsed: false, sidebarWidth: 190, noteListWidth: 280, agentSidebarWidth: 420 }
+      normal: { sidebarCollapsed: false, sidebarWidth: 186, noteListWidth: 294, agentSidebarWidth: 470 },
+      agent: { sidebarCollapsed: false, sidebarWidth: 168, noteListWidth: 246, agentSidebarWidth: 390 }
     }
   }
 
   const PRESET_CONSTRAINTS: Record<LayoutPreset, LayoutConstraint> = {
     writing: {
-      minEditorWidth: 640,
+      minEditorWidth: 620,
       minSidebarWidth: COLLAPSED_SIDEBAR_WIDTH,
       minNoteListWidth: NOTELIST_MIN,
-      minAgentSidebarWidth: 320
+      minAgentSidebarWidth: 300
     },
     balanced: {
-      minEditorWidth: 580,
+      minEditorWidth: 560,
       minSidebarWidth: SIDEBAR_MIN,
       minNoteListWidth: NOTELIST_MIN,
-      minAgentSidebarWidth: 330
+      minAgentSidebarWidth: 310
     },
     research: {
-      minEditorWidth: 440,
+      minEditorWidth: 420,
       minSidebarWidth: SIDEBAR_MIN,
-      minNoteListWidth: 280,
-      minAgentSidebarWidth: 400
+      minNoteListWidth: 250,
+      minAgentSidebarWidth: 360
     },
     custom: {
       minEditorWidth: 520,
@@ -120,6 +122,16 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function loadSavedState(): void {
+    const savedUIVersion = localStorage.getItem(STORAGE_KEY_UI_VERSION)
+    const shouldMigrateUI = savedUIVersion !== UI_VERSION
+    if (shouldMigrateUI) {
+      // One-time visual migration for redesigned shell density.
+      localStorage.removeItem(STORAGE_KEY_SIDEBAR)
+      localStorage.removeItem(STORAGE_KEY_NOTELIST)
+      localStorage.removeItem(STORAGE_KEY_LAYOUT_PRESET)
+      localStorage.removeItem(STORAGE_KEY_NOTELIST_LAYER_MODE)
+    }
+
     const savedSidebar = localStorage.getItem(STORAGE_KEY_SIDEBAR)
     const savedNoteList = localStorage.getItem(STORAGE_KEY_NOTELIST)
     const savedAgentSidebar = localStorage.getItem(STORAGE_KEY_AGENT_SIDEBAR)
@@ -175,6 +187,14 @@ export const useUIStore = defineStore('ui', () => {
         const preset = PRESET_VALUES[savedLayoutPreset].normal
         sidebarCollapsed.value = preset.sidebarCollapsed
       }
+    }
+
+    if (shouldMigrateUI) {
+      layoutPreset.value = 'balanced'
+      sidebarCollapsed.value = false
+      noteListCollapsed.value = false
+      noteListLayerMode.value = 'none'
+      localStorage.setItem(STORAGE_KEY_UI_VERSION, UI_VERSION)
     }
 
     applyTheme(theme.value)

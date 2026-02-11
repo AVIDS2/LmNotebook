@@ -83,23 +83,20 @@ const { t } = useI18n()
   --gold-2: #e0b175;
   --gold-3: #8a5e41;
   display: grid;
-  gap: clamp(14px, 2.4vh, 24px);
-  width: min(1240px, calc(100vw - 48px));
+  gap: clamp(10px, 1.8vh, 16px);
+  width: min(1240px, calc(100vw - 24px));
   margin: 0 auto;
-  padding: clamp(16px, 2.6vh, 34px) 0 clamp(18px, 3vh, 30px);
+  padding: clamp(10px, 1.6vh, 20px) 0 clamp(10px, 1.8vh, 18px);
   min-height: 100%;
   align-content: start;
   overflow: hidden;
 }
 
 .startup-page__hero {
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, #ffffff 30%);
-  border-radius: 18px;
-  background:
-    radial-gradient(1200px 380px at -15% -65%, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent),
-    radial-gradient(800px 220px at 90% 120%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent),
-    var(--color-bg-card);
-  padding: clamp(18px, 3vw, 34px);
+  border: 1px solid color-mix(in srgb, var(--color-border) 66%, #ffffff 34%);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  padding: clamp(12px, 2vw, 18px);
   display: grid;
   gap: clamp(16px, 2vw, 28px);
   grid-template-columns: minmax(0, 1fr) minmax(230px, 300px);
@@ -111,7 +108,7 @@ const { t } = useI18n()
 }
 
 .startup-page__hero-side {
-  border-left: 1px solid color-mix(in srgb, var(--color-border-light) 78%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
   padding-left: clamp(14px, 1.8vw, 22px);
   display: grid;
   align-content: center;
@@ -121,8 +118,8 @@ const { t } = useI18n()
 .startup-page__badge {
   display: inline-flex;
   align-items: center;
-  height: 28px;
-  padding: 0 12px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
@@ -132,8 +129,8 @@ const { t } = useI18n()
 
 .startup-page__title {
   margin-top: 14px;
-  font-size: clamp(30px, 4vw, 58px);
-  line-height: 1.08;
+  font-size: clamp(26px, 3vw, 44px);
+  line-height: 1.1;
   letter-spacing: -0.03em;
   color: var(--color-text-primary);
   max-width: 18ch;
@@ -143,21 +140,21 @@ const { t } = useI18n()
   margin-top: 12px;
   max-width: 56ch;
   color: var(--color-text-secondary);
-  font-size: clamp(14px, 1.2vw, 20px);
-  line-height: 1.7;
+  font-size: clamp(13px, 0.98vw, 16px);
+  line-height: 1.62;
 }
 
 .startup-page__cta {
-  margin-top: clamp(18px, 2.2vw, 28px);
+  margin-top: clamp(16px, 1.8vw, 22px);
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
 .startup-page__btn {
-  min-height: 42px;
-  padding: 10px 16px;
-  border-radius: 12px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border-radius: 8px;
   border: 1px solid var(--color-border-dark);
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
@@ -197,16 +194,16 @@ const { t } = useI18n()
 }
 
 .startup-page__panel {
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, #fff 30%);
-  border-radius: 18px;
-  background: var(--color-bg-card);
-  padding: clamp(14px, 2vw, 24px);
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, #fff 38%);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  padding: clamp(10px, 1.2vw, 14px);
 }
 
 .startup-page__metric {
-  border: 1px solid color-mix(in srgb, var(--color-border-light) 88%, transparent);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  border-radius: 8px;
+  padding: 9px 11px;
   background: var(--color-bg-primary);
 }
 
@@ -220,7 +217,7 @@ const { t } = useI18n()
 .startup-page__metric-value {
   margin-top: 6px;
   display: block;
-  font-size: clamp(24px, 2vw, 34px);
+  font-size: clamp(21px, 1.6vw, 28px);
   line-height: 1.12;
   color: var(--color-text-primary);
 }
@@ -242,22 +239,22 @@ const { t } = useI18n()
 }
 
 .startup-page__feature {
-  border: 1px solid color-mix(in srgb, var(--color-border-light) 88%, transparent);
-  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+  border-radius: 8px;
   background: var(--color-bg-primary);
-  padding: 16px;
+  padding: 10px;
   grid-column: span 2;
 
   h3 {
-    font-size: 18px;
+    font-size: 15px;
     color: var(--color-text-primary);
     letter-spacing: -0.01em;
   }
 
   p {
-    margin-top: 8px;
-    font-size: 14px;
-    line-height: 1.6;
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.56;
     color: var(--color-text-secondary);
   }
 }

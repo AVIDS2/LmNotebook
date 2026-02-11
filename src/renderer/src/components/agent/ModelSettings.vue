@@ -95,9 +95,30 @@
 
           <div class="form-group">
             <label>默认模型（活动模型）</label>
-            <select v-model="selectedProvider.activeModel">
-              <option v-for="model in parsedModels" :key="model" :value="model">{{ model }}</option>
-            </select>
+            <div class="model-dropdown" ref="activeModelDropdownRef">
+              <button
+                class="model-dropdown__trigger"
+                :class="{ 'model-dropdown__trigger--open': activeModelDropdownOpen }"
+                @click.stop="toggleActiveModelDropdown"
+              >
+                <span class="model-dropdown__label">{{ selectedProvider.activeModel || '请选择模型' }}</span>
+                <svg class="model-dropdown__caret" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3 5.5L7 9L11 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <div v-show="activeModelDropdownOpen" class="model-dropdown__menu">
+                <button
+                  v-for="model in parsedModels"
+                  :key="model"
+                  class="model-dropdown__item"
+                  :class="{ 'model-dropdown__item--active': model === selectedProvider.activeModel }"
+                  @click.stop="selectActiveModel(model)"
+                >
+                  <span>{{ model }}</span>
+                  <span v-if="model === selectedProvider.activeModel" class="model-dropdown__check">✓</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -118,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 
 const props = defineProps<{
   backendUrl: string
@@ -142,6 +163,8 @@ const selectedProvider = ref<Provider | null>(null)
 const isNew = ref(false)
 const showKey = ref(false)
 const modelsText = ref('')
+const activeModelDropdownOpen = ref(false)
+const activeModelDropdownRef = ref<HTMLElement | null>(null)
 
 // Drag and Drop state
 const draggedId = ref<string | null>(null)
@@ -234,12 +257,26 @@ function addNewProvider() {
     isActive: false
   }
   syncModelsTextFromProvider()
+  activeModelDropdownOpen.value = false
 }
 
 function selectProvider(provider: Provider) {
   selectedProvider.value = JSON.parse(JSON.stringify(normalizeProvider(provider)))
   syncModelsTextFromProvider()
   isNew.value = false
+  activeModelDropdownOpen.value = false
+}
+
+function toggleActiveModelDropdown() {
+  if (!selectedProvider.value || parsedModels.value.length === 0) return
+  activeModelDropdownOpen.value = !activeModelDropdownOpen.value
+}
+
+function selectActiveModel(model: string) {
+  if (!selectedProvider.value) return
+  selectedProvider.value.activeModel = model
+  selectedProvider.value.modelName = model
+  activeModelDropdownOpen.value = false
 }
 
 async function saveProvider() {
@@ -351,6 +388,14 @@ function handleDragEnd() {
   dragOverId.value = null
 }
 
+function handleDocumentClick(event: MouseEvent) {
+  const target = event.target as Node | null
+  if (!target) return
+  if (activeModelDropdownRef.value && !activeModelDropdownRef.value.contains(target)) {
+    activeModelDropdownOpen.value = false
+  }
+}
+
 watch(parsedModels, (models) => {
   if (!selectedProvider.value) return
   selectedProvider.value.models = models
@@ -360,7 +405,14 @@ watch(parsedModels, (models) => {
   selectedProvider.value.modelName = selectedProvider.value.activeModel || ''
 })
 
-onMounted(fetchProviders)
+onMounted(() => {
+  fetchProviders()
+  document.addEventListener('click', handleDocumentClick, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick, true)
+})
 </script>
 
 <style scoped>
@@ -646,6 +698,98 @@ onMounted(fetchProviders)
   min-height: 88px;
   resize: vertical;
   line-height: 1.45;
+}
+
+.model-dropdown {
+  position: relative;
+}
+
+.model-dropdown__trigger {
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: var(--theme-input-bg);
+  color: var(--theme-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.model-dropdown__trigger:hover {
+  background: color-mix(in srgb, var(--theme-input-bg) 88%, var(--theme-bg-card) 12%);
+}
+
+.model-dropdown__trigger--open {
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+.model-dropdown__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.model-dropdown__caret {
+  color: var(--theme-text-secondary);
+  flex-shrink: 0;
+}
+
+.model-dropdown__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  padding: 6px;
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-bg-card) 96%, transparent);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.model-dropdown__item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--theme-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.model-dropdown__item:hover {
+  background: var(--theme-bg-secondary);
+}
+
+.model-dropdown__item--active {
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-bg-card));
+  color: var(--theme-accent);
+  font-weight: 600;
+}
+
+.model-dropdown__check {
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .form-group input:focus {
