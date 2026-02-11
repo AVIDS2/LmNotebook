@@ -144,6 +144,12 @@ class NoteService:
         if content is not None:
             updates["content"] = content
             updates["plainText"] = self._extract_plain_text(content)
+            # IMPORTANT:
+            # If caller updates rendered HTML content but does not provide a synchronized
+            # markdown_source, clear stale markdownSource by default to prevent
+            # "editor display != agent read source" divergence.
+            if markdown_source is None:
+                updates["markdownSource"] = None
         if category_id is not None:
             updates["categoryId"] = category_id
         if markdown_source is not None:
@@ -259,14 +265,15 @@ class NoteService:
         plain_norm = self._normalize_for_similarity(plain_text)
         if len(md_norm) < 24 or len(plain_norm) < 24:
             return False
-
-        ratio = difflib.SequenceMatcher(None, md_norm[:4000], plain_norm[:4000]).ratio()
-        if ratio >= 0.20:
+        if md_norm == plain_norm:
             return False
 
-        probe = md_norm[:80]
-        if probe and probe in plain_norm:
+        md_probe = md_norm[:120]
+        plain_probe = plain_norm[:120]
+        if (md_probe and md_probe in plain_norm) or (plain_probe and plain_probe in md_norm):
             return False
-        return True
 
+        ratio = difflib.SequenceMatcher(None, md_norm[:6000], plain_norm[:6000]).ratio()
+        # Previous threshold (0.20) was too permissive and let clearly stale markdownSource pass.
+        return ratio < 0.62
 

@@ -193,9 +193,10 @@
                          :class="[`tool-part--${part.status}`]">
                       <div class="tool-part__main">
                         <div class="tool-part__line">
-                          <span class="tool-part__name" :class="{ 'tool-part__name--running': part.status !== 'completed' }">{{ part.title || part.tool }}</span>
+                          <span class="tool-part__name" :class="{ 'tool-part__name--running': part.status === 'running' }">{{ part.title || part.tool }}</span>
                           <span v-if="part.status === 'pending'" class="tool-part__pending">{{ t('agent.pendingConfirm') }}</span>
                           <span v-else-if="part.status === 'completed'" class="tool-part__check">✓</span>
+                          <span v-else-if="part.status === 'error'" class="tool-part__pending">{{ t('agent.failed') }}</span>
                         </div>
                         <span v-if="part.output" class="tool-part__output">{{ formatToolOutput(part.output) }}</span>
                       </div>
@@ -1363,9 +1364,6 @@ async function respondExecutionApproval(action: 'approve' | 'reject'): Promise<v
     ? (noteStore.currentNote?.content || '')
     : undefined
   approvalBusy.value = true
-  // Switch UI state immediately from "pending approval" to "executing"
-  pendingExecutionApproval.value = null
-  showApprovalPreview.value = false
   if (action === 'approve') {
     markToolPartRunningByApproval(approval)
     currentStatus.value = t('agent.running')
@@ -1383,9 +1381,10 @@ async function respondExecutionApproval(action: 'approve' | 'reject'): Promise<v
     if (action === 'approve') {
       await refreshUpdatedNoteRealtime(approval.noteId || null, beforeContent)
     }
+    pendingExecutionApproval.value = null
+    showApprovalPreview.value = false
   } catch (err) {
-    // Restore pending state on failure so user can retry approval action
-    pendingExecutionApproval.value = approval
+    // Keep approval in-place on failure so user can retry without visual jump.
     throw err
   } finally {
     approvalBusy.value = false
@@ -1868,21 +1867,35 @@ const handleResize = () => {
   }
 }
 
+let connectionHeartbeatTimer: ReturnType<typeof setInterval> | null = null
+
 // Initial Position setup
 onMounted(() => {
   checkConnection(true) // Start checks with "isStartup = true"
   void loadComposerModelProviders()
-  setInterval(() => checkConnection(false), 30000) // Regular heartbeat
+  if (connectionHeartbeatTimer) {
+    clearInterval(connectionHeartbeatTimer)
+  }
+  connectionHeartbeatTimer = setInterval(() => checkConnection(false), 30000) // Regular heartbeat
   
   window.addEventListener('resize', handleResize)
   window.addEventListener('origin-agent-sidebar-mode-changed', syncSidebarModeFromExternal as EventListener)
   window.addEventListener('storage', syncSidebarModeFromExternal)
   // Use capture phase so inside-panel @mousedown.stop won't block outside-click detection.
   document.addEventListener('mousedown', handleGlobalClick, true)
+  if (isSidebarMode.value) {
+    isOpen.value = true
+    hasUnread.value = false
+  }
+  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: isSidebarMode.value } }))
   setTimeout(snapToEdge, 100) // Initial dock
 })
 
 onUnmounted(() => {
+  if (connectionHeartbeatTimer) {
+    clearInterval(connectionHeartbeatTimer)
+    connectionHeartbeatTimer = null
+  }
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('origin-agent-sidebar-mode-changed', syncSidebarModeFromExternal as EventListener)
   window.removeEventListener('storage', syncSidebarModeFromExternal)
@@ -2006,16 +2019,27 @@ function clearChat() {
 
 const retryCount = ref(0)
 const maxRetries = 30 // Wait up to 30s for startup
+let healthCheckInFlight: Promise<boolean> | null = null
 
-async function checkConnection(isStartup = false) {
+async function runHealthCheck(): Promise<boolean> {
   try {
     const response = await fetch(`${BACKEND_URL}/health`)
-    isConnected.value = response.ok
-    if (isConnected.value) {
-        retryCount.value = 0 // Reset on success
-    }
+    return response.ok
   } catch {
-    isConnected.value = false
+    return false
+  }
+}
+
+async function checkConnection(isStartup = false) {
+  if (!healthCheckInFlight) {
+    healthCheckInFlight = runHealthCheck().finally(() => {
+      healthCheckInFlight = null
+    })
+  }
+  isConnected.value = await healthCheckInFlight
+
+  if (isConnected.value) {
+    retryCount.value = 0 // Reset on success
   }
 
   // Startup Intelligence: If starting up and failed, retry quickly
@@ -2336,6 +2360,31 @@ async function sendMessage(
                                   noteStore.currentNote = latest
                                 }
                               }
+                          }
+                      }
+                      else if (chunk.status === 'error') {
+                          // Update existing tool part globally - error may arrive after a resumed/blocked execution.
+                          let toolPart: ToolPart | null = null
+                          if (chunk.tool_id) {
+                              toolPart = findToolPartForCompletion(chunk.tool_id, chunk.tool)
+                          }
+                          if (!toolPart) {
+                              toolPart = findToolPartForCompletion(undefined, chunk.tool)
+                          }
+                          if (toolPart) {
+                              toolPart.status = 'error'
+                              toolPart.output = chunk.output
+                          } else {
+                              msg.parts.push({
+                                  type: 'tool',
+                                  tool: chunk.tool,
+                                  toolId: chunk.tool_id,
+                                  status: 'error',
+                                  startedAt: Date.now(),
+                                  title: chunk.title,
+                                  output: chunk.output,
+                                  inputPreview: chunk.input_preview
+                              } as ToolPart)
                           }
                       }
                   }
@@ -2762,17 +2811,6 @@ function handleContextMenu(event: MouseEvent, content: string) {
   const removeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { menu.remove(); document.removeEventListener('click', removeMenu) } }
   setTimeout(() => document.addEventListener('click', removeMenu), 0)
 }
-
-
-onMounted(() => {
-  checkConnection()
-  setInterval(checkConnection, 30000)
-  if (isSidebarMode.value) {
-    isOpen.value = true
-    hasUnread.value = false
-  }
-  window.dispatchEvent(new CustomEvent('origin-agent-sidebar-mode-changed', { detail: { enabled: isSidebarMode.value } }))
-})
 
 watch(inputText, () => {
   nextTick(() => resizeComposerInput(inputRef.value))
@@ -4465,21 +4503,19 @@ watch(
 /* Panel transitions: subtle material lift/fade */
 .panel-elevate-enter-active,
 .panel-elevate-leave-active {
-  transition: opacity 200ms ease, transform 220ms cubic-bezier(0.22, 0.68, 0.2, 1), filter 220ms ease;
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.22, 0.68, 0.2, 1);
 }
 
 .panel-elevate-enter-from,
 .panel-elevate-leave-to {
   opacity: 0;
-  transform: translateY(6px) scale(0.992);
-  filter: blur(2px);
+  transform: translateY(4px);
 }
 
 .panel-elevate-enter-to,
 .panel-elevate-leave-from {
   opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
+  transform: translateY(0);
 }
 
 /* Execution record list motion */

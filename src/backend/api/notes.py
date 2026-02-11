@@ -204,3 +204,36 @@ async def sync_note_vector(request: VectorSyncRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class VectorSyncBatchItem(BaseModel):
+    note_id: str = Field(..., description="Note ID")
+    title: str = Field(..., description="Note title")
+    content: str = Field(default="", description="Note plain text content")
+
+
+class VectorSyncBatchRequest(BaseModel):
+    items: List[VectorSyncBatchItem] = Field(default_factory=list)
+
+
+@router.post("/vector/sync/batch")
+async def sync_note_vectors_batch(request: VectorSyncBatchRequest):
+    """
+    Batch sync vectors for note updates.
+    This endpoint is optimized for editor bursts and avoids per-note round-trips.
+    """
+    try:
+        if not request.items:
+            return {"status": "success", "synced_count": 0}
+
+        service = NoteService()
+        docs = [
+            {"id": item.note_id, "title": item.title, "content": item.content}
+            for item in request.items
+        ]
+        count = await service.rag_service.upsert_documents_batch(docs)
+        safe_print(f"[API] Vector batch synced: {count} notes")
+        return {"status": "success", "synced_count": count}
+    except Exception as e:
+        safe_print(f"[API] Vector batch sync error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

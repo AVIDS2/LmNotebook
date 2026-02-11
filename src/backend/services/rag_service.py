@@ -64,6 +64,9 @@ class RAGService:
         self._loaded_initial = False
         self._sync_lock = asyncio.Lock()
         self._is_syncing = False
+        self._last_integrity_check_ms = 0
+        self._integrity_check_interval_ms = 30000
+        self._integrity_check_running = False
 
     def _get_embedding_fn(self):
         """Proxy-bypass Qwen Embedding Client."""
@@ -127,70 +130,73 @@ class RAGService:
         self.id_to_idx = {}
         safe_print("[OK] Created fresh FAISS index.")
 
-    async def _ensure_loaded(self):
+    async def _ensure_loaded(self, allow_integrity_check: bool = True):
         if self.index is None:
             await self._init_resources()
-            
-        # Auto-Hydration: Check if FAISS is out of sync with DB
-        # This handles: empty index, count mismatch, AND stale content
+
+        if allow_integrity_check:
+            await self._maybe_incremental_sync_with_db()
+
+        self._loaded_initial = True
+
+    async def _maybe_incremental_sync_with_db(self):
+        """
+        Lightweight integrity sync:
+        - Only reconcile missing/deleted IDs incrementally.
+        - Avoid full re-index on normal request paths.
+        """
+        import time
+
+        now_ms = int(time.time() * 1000)
+        if now_ms - self._last_integrity_check_ms < self._integrity_check_interval_ms:
+            return
+        if self._is_syncing or self._integrity_check_running:
+            return
+
+        self._last_integrity_check_ms = now_ms
+        self._integrity_check_running = True
         try:
             db_path = settings.NOTES_DB_PATH
-            if os.path.exists(db_path):
+            if not os.path.exists(db_path):
+                return
+
+            async with self._sync_lock:
                 async with aiosqlite.connect(db_path) as db:
                     db.row_factory = aiosqlite.Row
-                    cursor = await db.execute("SELECT count(*) as count FROM notes WHERE isDeleted = 0")
-                    row = await cursor.fetchone()
-                    db_count = row['count'] if row else 0
-                
-                faiss_count = self.index.ntotal if self.index else 0
-                needs_sync = False
-                sync_reason = ""
-                
-                # Check 1: Count mismatch
-                if db_count > 0 and (faiss_count == 0 or faiss_count != db_count):
-                    needs_sync = True
-                    sync_reason = f"Count mismatch: FAISS={faiss_count}, DB={db_count}"
-                
-                # Check 2: Content freshness (compare latest updatedAt with index sync time)
-                if not needs_sync and db_count > 0 and faiss_count > 0:
-                    # Get latest note update time from DB (Unix timestamp in ms)
-                    async with aiosqlite.connect(db_path) as db:
-                        db.row_factory = aiosqlite.Row
-                        cursor = await db.execute("SELECT MAX(updatedAt) as latest FROM notes WHERE isDeleted = 0")
-                        row = await cursor.fetchone()
-                        db_latest = row['latest'] if row else None
-                    
-                    # Get last sync time from metadata file (stored as Unix timestamp)
-                    last_sync_time = None
-                    if self.meta_file.exists():
-                        try:
-                            with open(self.meta_file, 'r', encoding='utf-8') as f:
-                                data = json.load(f)
-                                last_sync_time = data.get("last_sync_time")
-                        except:
-                            pass
-                    
-                    # If DB has newer content than our last sync, we need to resync
-                    # Both are now Unix timestamps (int), safe to compare
-                    if db_latest and (not last_sync_time or db_latest > last_sync_time):
-                        needs_sync = True
-                        sync_reason = f"Stale content: DB updated at {db_latest}, last sync at {last_sync_time}"
-                
-                if needs_sync:
-                    safe_print(f"[WARN] Index Desync: {sync_reason}. Auto-syncing...")
-                    # Fetch all notes manually to avoid circular dependency
-                    async with aiosqlite.connect(db_path) as db:
-                        db.row_factory = aiosqlite.Row
-                        cursor = await db.execute("SELECT id, title, content, plainText FROM notes WHERE isDeleted = 0")
-                        rows = await cursor.fetchall()
-                        notes = [dict(r) for r in rows]
-                    
-                    # Trigger Vectorization
-                    await self.reindex_from_db(notes)
+                    cursor = await db.execute(
+                        "SELECT id, title, plainText FROM notes WHERE isDeleted = 0"
+                    )
+                    rows = await cursor.fetchall()
+
+                db_notes = {str(r["id"]): dict(r) for r in rows}
+                db_ids = set(db_notes.keys())
+                local_ids = set(self.id_to_idx.keys())
+
+                missing_ids = db_ids - local_ids
+                stale_ids = local_ids - db_ids
+
+                if not missing_ids and not stale_ids:
+                    return
+
+                safe_print(
+                    f"[SYNC] Incremental reconcile: +{len(missing_ids)} / -{len(stale_ids)}"
+                )
+
+                for stale_id in stale_ids:
+                    await self._remove_document_internal(stale_id, persist=False)
+
+                for doc_id in missing_ids:
+                    note = db_notes[doc_id]
+                    title = note.get("title") or "Untitled"
+                    text = (note.get("plainText") or "").strip() or f"Title: {title}"
+                    await self._upsert_document_internal(doc_id, title, text, persist=False)
+
+                await self._save_to_disk()
+                safe_print("[OK] Incremental reconcile complete.")
         except Exception as e:
-            safe_print(f"[ERR] Auto-Hydration check failed: {e}")
-                
-        self._loaded_initial = True
+            safe_print(f"[ERR] Incremental integrity sync failed: {e}")
+        finally:
+            self._integrity_check_running = False
 
     async def _vectorize(self, texts: Any) -> np.ndarray:
         """Convert text to normalized numpy embeddings with batch size limiting."""
@@ -333,66 +339,169 @@ class RAGService:
 
     async def add_document(self, doc_id: str, title: str, content: str) -> None:
         """Add document with re-indexing support."""
-        await self._ensure_loaded()
+        await self._ensure_loaded(allow_integrity_check=False)
         text = content if (content and content.strip()) else f"Title: {title}"
         
         try:
-            # Check if exists and remove old
-            if doc_id in self.id_to_idx:
-                await self.remove_document(doc_id)
-                
-            embedding = await self._vectorize(text)
-            
-            # Dynamic Dimension Check
-            if self.index.d != embedding.shape[1]:
-                safe_print(f"[WARN] Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
-                # If dimension changed (e.g. model switch), we must rebuild index or error
-                # For safety, let's error on add, but ideally reindex_all should be called
-                # Here we will re-init index with new dimension for this item (clearing old)
-                # WARNING: This clears old index if dimensions clash.
-                # A safer approach is to raise error and ask user to reindex.
-                # But for 'Agentic' self-healing, let's just accept the new one if index was empty-ish
-                if self.index.ntotal == 0:
-                     self.index = faiss.IndexFlatIP(embedding.shape[1])
-                else:
-                     raise ValueError(f"Embedding dimension mismatch: {self.index.d} vs {embedding.shape[1]}. Please run reindex_all.")
-
-            self.index.add(embedding)
-            self.metadata.append({"id": doc_id, "title": title, "content": text})
-            self.id_to_idx[doc_id] = len(self.metadata) - 1
-            
-            # Save change
-            await self._save_to_disk()
+            async with self._sync_lock:
+                await self._upsert_document_internal(doc_id, title, text, persist=True)
             safe_print(f"[OK] Added to FAISS: {title}")
         except Exception as e:
             import traceback
             safe_print(f"[ERR] FAISS Add Error: {e}")
             traceback.print_exc()
 
+    async def _upsert_document_internal(self, doc_id: str, title: str, text: str, persist: bool = False) -> None:
+        """Upsert a single document embedding without triggering expensive full rebuilds."""
+        if doc_id in self.id_to_idx:
+            self._remove_documents_internal([doc_id])
+
+        embedding = await self._vectorize(text)
+        if embedding.size == 0:
+            return
+
+        # Dynamic Dimension Check
+        if self.index.d != embedding.shape[1]:
+            safe_print(f"[WARN] Dimension Mismatch (Index: {self.index.d}, New: {embedding.shape[1]}). Rebuilding index...")
+            if self.index.ntotal == 0:
+                self.index = faiss.IndexFlatIP(embedding.shape[1])
+            else:
+                raise ValueError(
+                    f"Embedding dimension mismatch: {self.index.d} vs {embedding.shape[1]}. "
+                    "Please run reindex_all."
+                )
+
+        self.index.add(embedding)
+        self.metadata.append({"id": doc_id, "title": title, "content": text})
+        self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
+
+        if persist:
+            await self._save_to_disk()
+
     async def remove_document(self, doc_id: str) -> None:
         """
         FAISS IndexFlat doesn't support easy deletion by ID without rebuilding.
         For small collections, we rebuild or just filter.
         """
-        if doc_id not in self.id_to_idx: return
-        
+        await self._ensure_loaded(allow_integrity_check=False)
+        async with self._sync_lock:
+            await self._remove_document_internal(doc_id, persist=True)
+
+    async def _remove_document_internal(self, doc_id: str, persist: bool = False) -> None:
+        """Remove a document without re-calling remote embedding API."""
+        if doc_id not in self.id_to_idx:
+            return
+
         safe_print(f"[DEL] Removing from FAISS: {doc_id}")
-        self.metadata = [m for m in self.metadata if m['id'] != doc_id]
-        # Rebuild index
-        if not self.metadata:
-            self._create_empty_index()
-        else:
+        try:
+            self._remove_documents_internal([doc_id])
+        except Exception as e:
+            # Last-resort fallback: re-vectorize remaining docs if reconstruction is unavailable.
+            safe_print(f"[WARN] Vector reconstruction failed, fallback to re-embed: {e}")
+            self.metadata = [m for m in self.metadata if m['id'] != doc_id]
             texts = [m['content'] for m in self.metadata]
             new_embs = await self._vectorize(texts)
-            
             dimension = new_embs.shape[1] if new_embs.shape[0] > 0 else 1024
             self.index = faiss.IndexFlatIP(dimension)
-            self.index.add(new_embs)
+            if new_embs.size > 0:
+                self.index.add(new_embs)
             self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
-        await self._save_to_disk()
+
+        if persist:
+            await self._save_to_disk()
+
+    def _remove_documents_internal(self, doc_ids: List[str]) -> None:
+        """Batch-remove documents from index using vector reconstruction (no embedding API calls)."""
+        if not doc_ids:
+            return
+
+        remove_set = {doc_id for doc_id in doc_ids if doc_id in self.id_to_idx}
+        if not remove_set:
+            return
+
+        total = self.index.ntotal
+        if total == 0:
+            self.metadata = [m for m in self.metadata if m['id'] not in remove_set]
+            self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
+            return
+
+        remove_indices = {self.id_to_idx[doc_id] for doc_id in remove_set}
+        vectors = self.index.reconstruct_n(0, total)
+        keep_mask = np.ones(total, dtype=bool)
+        for idx in remove_indices:
+            if 0 <= idx < total:
+                keep_mask[idx] = False
+        kept_vectors = vectors[keep_mask]
+
+        self.metadata = [m for m in self.metadata if m['id'] not in remove_set]
+        self.index = faiss.IndexFlatIP(self.index.d)
+        if kept_vectors.size > 0:
+            self.index.add(kept_vectors.astype('float32'))
+        self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
 
     async def update_document(self, doc_id: str, title: str, content: str) -> None:
-        await self.add_document(doc_id, title, content)
+        await self._ensure_loaded(allow_integrity_check=False)
+        text = content if (content and content.strip()) else f"Title: {title}"
+        async with self._sync_lock:
+            await self._upsert_document_internal(doc_id, title, text, persist=True)
+
+    async def upsert_documents_batch(self, docs: List[Dict[str, str]]) -> int:
+        """
+        Batch upsert for frontend edit bursts.
+        Expected item format: {"id": str, "title": str, "content": str}
+        """
+        if not docs:
+            return 0
+
+        await self._ensure_loaded(allow_integrity_check=False)
+        async with self._sync_lock:
+            # Keep last write per note in this batch.
+            latest_by_id: Dict[str, Dict[str, str]] = {}
+            for item in docs:
+                doc_id = str(item.get("id", "")).strip()
+                if not doc_id:
+                    continue
+                latest_by_id[doc_id] = item
+
+            if not latest_by_id:
+                return 0
+
+            ordered_items = list(latest_by_id.values())
+            remove_ids = [str(item["id"]) for item in ordered_items if str(item["id"]) in self.id_to_idx]
+            if remove_ids:
+                self._remove_documents_internal(remove_ids)
+
+            texts = []
+            titles = []
+            ids = []
+            for item in ordered_items:
+                doc_id = str(item["id"])
+                title = str(item.get("title") or "Untitled")
+                content = str(item.get("content") or "")
+                text = content.strip() if content.strip() else f"Title: {title}"
+                ids.append(doc_id)
+                titles.append(title)
+                texts.append(text)
+
+            embs = await self._vectorize(texts)
+            if embs.size == 0:
+                return 0
+
+            if self.index.d != embs.shape[1]:
+                if self.index.ntotal == 0:
+                    self.index = faiss.IndexFlatIP(embs.shape[1])
+                else:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: {self.index.d} vs {embs.shape[1]}. "
+                        "Please run reindex_all."
+                    )
+
+            self.index.add(embs)
+            for doc_id, title, text in zip(ids, titles, texts):
+                self.metadata.append({"id": doc_id, "title": title, "content": text})
+            self.id_to_idx = {m['id']: i for i, m in enumerate(self.metadata)}
+            await self._save_to_disk()
+            return len(ids)
 
     async def _save_to_disk(self):
         """Persist FAISS index and metadata with sync timestamp."""
@@ -414,11 +523,11 @@ class RAGService:
     async def reindex_from_db(self, notes: List[Dict[str, Any]]) -> int:
         """Full re-sync with FAISS."""
         if self._is_syncing: return 0
-        
+        await self._init_resources()
+
         async with self._sync_lock:
             self._is_syncing = True
             try:
-                await self._ensure_loaded()
                 valid_notes = [n for n in notes if n.get('title') or n.get('plainText') or n.get('content')]
                 if not valid_notes: return 0
                 

@@ -11,22 +11,53 @@ function extractPlainText(html: string): string {
 }
 
 const VECTOR_SYNC_ENDPOINT = 'http://127.0.0.1:8765/api/notes/vector/sync'
+const VECTOR_SYNC_BATCH_ENDPOINT = 'http://127.0.0.1:8765/api/notes/vector/sync/batch'
 const VECTOR_DELETE_ENDPOINT = 'http://127.0.0.1:8765/api/notes'
 const vectorSyncScheduler = createVectorSyncScheduler(async (payload: {
   noteId: string
   title: string
   content: string
-}) => {
-  await fetch(VECTOR_SYNC_ENDPOINT, {
+}[]) => {
+  if (!payload.length) return
+
+  // Primary path: batch endpoint.
+  const res = await fetch(VECTOR_SYNC_BATCH_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      note_id: payload.noteId,
-      title: payload.title,
-      content: payload.content
+      items: payload.map((item) => ({
+        note_id: item.noteId,
+        title: item.title,
+        content: item.content
+      }))
     })
   })
-}, 1800)
+
+  if (!res.ok && payload.length === 1) {
+    // Compatibility fallback for old backend that only supports single sync.
+    await fetch(VECTOR_SYNC_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        note_id: payload[0].noteId,
+        title: payload[0].title,
+        content: payload[0].content
+      })
+    })
+  }
+}, {
+  debounceMs: 1800,
+  flushIntervalMs: 2600,
+  retryDelayMs: 2400,
+  maxBatchSize: 20
+})
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    // Best-effort final flush to reduce stale vector windows.
+    void vectorSyncScheduler.flushAll()
+  })
+}
 
 const vectorDeleteScheduler = createVectorDeleteScheduler(async (noteId: string) => {
   await fetch(`${VECTOR_DELETE_ENDPOINT}/${noteId}/vector`, {
@@ -123,13 +154,27 @@ export const noteRepository = {
     // 同步更新向量索引（标题或内容变化时）
     if (input.title !== undefined || input.content !== undefined) {
       try {
-        const note = await db.getNoteById(id)
-        if (note) {
+        const title = input.title
+        const content =
+          input.content !== undefined
+            ? extractPlainText(input.content)
+            : undefined
+
+        if (title !== undefined && content !== undefined) {
           vectorSyncScheduler.schedule({
             noteId: id,
-            title: note.title,
-            content: note.plainText || ''
+            title,
+            content
           })
+        } else {
+          const note = await db.getNoteById(id)
+          if (note) {
+            vectorSyncScheduler.schedule({
+              noteId: id,
+              title: note.title,
+              content: note.plainText || ''
+            })
+          }
         }
       } catch (e) {
         console.warn('Failed to sync vector index:', e)

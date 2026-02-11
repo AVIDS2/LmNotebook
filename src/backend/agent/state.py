@@ -52,6 +52,7 @@ class NoteAgentState(TypedDict, total=False):
     tool_call_count: int
     last_tool_name: Optional[str]
     last_tool_input_hash: Optional[str]
+    last_tool_success: Optional[bool]
     
     # Session management
     session_id: str
@@ -93,6 +94,7 @@ def create_initial_state(
         tool_call_count=0,
         last_tool_name=None,
         last_tool_input_hash=None,
+        last_tool_success=None,
         session_id=session_id,
         use_knowledge=use_knowledge,
         auto_accept_writes=auto_accept_writes,

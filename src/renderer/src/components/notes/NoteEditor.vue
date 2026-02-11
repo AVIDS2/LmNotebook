@@ -1425,6 +1425,14 @@ async function flushPendingEditsBeforeSwitch(oldId?: string, newId?: string): Pr
 
   const title = localTitle.value
   const content = editor.value.getHTML()
+  const plain = extractPlainTextForStore(content).trim()
+
+  // Fast-path for empty drafts: avoid synchronous update on note switch.
+  if (!title.trim() && !plain) {
+    cancelPendingSaves()
+    isDirty.value = false
+    return
+  }
 
   cancelPendingSaves()
 
@@ -1872,7 +1880,7 @@ const editor = useEditor({
           
           const content = editor.getHTML()
           // 直接调用 repository 避免触发 store 的重新加载
-          await noteRepository.update(scheduledNoteId, { content })
+          await noteRepository.update(scheduledNoteId, { content, title: localTitle.value })
           syncLocalNoteCache(scheduledNoteId, { content })
           if (saveRevision === scheduledRevision) {
             isDirty.value = false

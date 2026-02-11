@@ -350,11 +350,22 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             messages.append(HumanMessage(
                 content="[SYSTEM]: Tool call limit reached. Stop calling tools and provide final answer."
             ))
-        
+
         # Pre-authorize write capability for this turn based on interaction mode + user semantics.
         interaction_mode = str(state.get("agent_mode", "agent") or "agent").strip().lower()
         if interaction_mode == "ask":
             write_authorized = False
+            messages.append(
+                SystemMessage(
+                    content=(
+                        "ASK MODE (read-only) is active.\n"
+                        "- You MAY use read-only tools (search/read/list) if needed.\n"
+                        "- You MUST NOT call write tools: create_note, update_note, rename_note, "
+                        "delete_note, set_note_category.\n"
+                        "- If user requests edits, explain read-only constraint and provide a draft/plan only."
+                    )
+                )
+            )
         else:
             write_authorized = self._classify_write_authorization(filtered_history)
         model_for_turn = self.model_with_tools if write_authorized else self.model_with_read_tools
@@ -383,11 +394,73 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             forced_response = model_for_turn.invoke(forced_messages)
             if hasattr(forced_response, "tool_calls") and forced_response.tool_calls:
                 response = forced_response
+
+        # Hard policy alignment: in ask mode, never allow write tool calls to proceed.
+        # Some providers may still hallucinate write tool names even when bound to read-only tools.
+        if interaction_mode == "ask":
+            response = self._enforce_ask_mode_response(
+                response=response,
+                base_messages=messages,
+                model_for_turn=model_for_turn,
+                lang=lang,
+            )
         
         return {
             "messages": [response],
             "write_authorized": write_authorized,
         }
+
+    def _enforce_ask_mode_response(
+        self,
+        response: AIMessage,
+        base_messages: list,
+        model_for_turn: Any,
+        lang: str,
+    ) -> AIMessage:
+        """
+        Ensure ask mode stays read-only at the *decision* layer.
+        If write tools are proposed, regenerate once with explicit enforcement,
+        then strip any remaining write calls as a final safeguard.
+        """
+        tool_calls = list(getattr(response, "tool_calls", []) or [])
+        has_write_tool = any((tc or {}).get("name", "") in WRITE_TOOLS for tc in tool_calls)
+        if not has_write_tool:
+            return response
+
+        safe_print("[POLICY] ask mode generated write tool calls; regenerating read-only response.")
+
+        retry_messages = base_messages + [
+            SystemMessage(
+                content=(
+                    "STRICT MODE ENFORCEMENT:\n"
+                    "Do NOT call write tools in this turn.\n"
+                    "Allowed: read-only tools and normal text response.\n"
+                    "If user wants modifications, provide a draft and ask to switch to agent mode."
+                )
+            )
+        ]
+        retry_response = model_for_turn.invoke(retry_messages)
+
+        retry_calls = list(getattr(retry_response, "tool_calls", []) or [])
+        retry_has_write = any((tc or {}).get("name", "") in WRITE_TOOLS for tc in retry_calls)
+        if not retry_has_write:
+            return retry_response
+
+        # Last-line protection: remove illegal write calls and keep content/read-only calls.
+        cleaned_calls = [tc for tc in retry_calls if (tc or {}).get("name", "") not in WRITE_TOOLS]
+        fallback_text = (
+            "当前处于 Ask 只读模式。我不会直接创建、修改、重命名或删除笔记；"
+            "我可以先提供可执行草稿与步骤。"
+            if lang == "zh"
+            else "Ask mode is read-only. I won't create, edit, rename, or delete notes directly; "
+                 "I can provide an actionable draft and steps first."
+        )
+        content = (
+            str(getattr(retry_response, "content", "") or "").strip()
+            or str(getattr(response, "content", "") or "").strip()
+            or fallback_text
+        )
+        return AIMessage(content=content, tool_calls=cleaned_calls)
     
     # ========================================================================
     # CHAT-TOOL-CHAT PATTERN: 3-NODE TOOL EXECUTION
@@ -520,6 +593,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             "tool_call_count": tool_call_count + 1,
             "last_tool_name": current_tool_name,
             "last_tool_input_hash": current_input_hash,
+            "last_tool_success": tool_success,
             "next_tool_call": None,  # Clear after execution
         }
 
@@ -661,6 +735,15 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         if cached_auth:
             return {"action": "allow", "code": "semantic_allow_write", "reason": "Semantic policy indicates explicit write authorization."}
 
+        # In manual-review mode, write authorization is explicitly decided by
+        # the human approval gate (interrupt/resume). Avoid preemptive deny here.
+        if not state.get("auto_accept_writes", True):
+            return {
+                "action": "allow",
+                "code": "manual_review_required",
+                "reason": "Write operation requires explicit user approval.",
+            }
+
         return {
             "action": "deny",
             "code": "semantic_deny_write",
@@ -731,6 +814,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         This creates the 'chat' in chat-tool-chat-tool pattern.
         """
         last_tool_name = state.get("last_tool_name", "")
+        last_tool_success = state.get("last_tool_success")
         
         # Status message templates (no emoji for Windows GBK encoding safety)
         STATUS_TEMPLATES = {
@@ -745,7 +829,10 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             "list_categories": "[Done] Categories loaded",
         }
         
-        status_text = STATUS_TEMPLATES.get(last_tool_name, f"{last_tool_name} 执行完成")
+        if last_tool_success is False:
+            status_text = f"[Blocked] {last_tool_name}"
+        else:
+            status_text = STATUS_TEMPLATES.get(last_tool_name, f"{last_tool_name} 执行完成")
         
         # CRITICAL: Mark as status_message to filter it out from LLM reasoning in next turn
         status_message = AIMessage(

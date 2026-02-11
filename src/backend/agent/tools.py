@@ -376,7 +376,9 @@ async def patch_note(note_id: str, old_text: str, new_text: str) -> str:
     # Replace in HTML content (preserves formatting)
     if old_text in html_content:
         updated_html = html_content.replace(old_text, new_text, 1)
-        updated_md = markdown_source if markdown_source else None
+        # We patched HTML directly and cannot guarantee markdown_source consistency.
+        # Clear markdown_source to avoid stale source being read by the agent later.
+        updated_md = None
     else:
         # If not found in HTML directly, we need to be more careful
         # This can happen when HTML has tags breaking up the text
@@ -458,5 +460,4 @@ def get_all_agent_tools():
         list_categories,
         set_note_category
     ]
-
 
