@@ -73,6 +73,7 @@ class ChatRequest(BaseModel):
     context_note_title: Optional[str] = Field(None, description="Explicitly referenced note Title (@)")
     use_knowledge: bool = Field(False, description="Whether to search knowledge base first (@)")
     auto_accept_writes: bool = Field(True, description="Whether write tools are auto-approved without interrupt")
+    agent_mode: Optional[str] = Field("agent", description="Interaction mode: 'ask' (read-only) or 'agent' (tool-enabled)")
     model_provider_id: Optional[str] = Field(None, description="Model provider ID override for this request")
     model_name: Optional[str] = Field(None, description="Specific model name within the selected provider")
     resume: Optional[dict] = Field(None, description="Resume payload for LangGraph interrupt")
@@ -161,7 +162,8 @@ async def invoke_agent(request: ChatRequest):
             history=request.history_dicts,
             note_context=request.note_context,
             selected_text=request.selected_text,
-            active_note_id=request.active_note_id
+            active_note_id=request.active_note_id,
+            agent_mode=request.agent_mode or "agent",
         )
         return ChatResponse(
             response=result["response"],
@@ -202,6 +204,7 @@ async def stream_agent(request: ChatRequest):
                 context_note_title=request.context_note_title,
                 use_knowledge=request.use_knowledge,
                 auto_accept_writes=request.auto_accept_writes,
+                agent_mode=request.agent_mode or "agent",
                 resume=request.resume
             ):
                 chunk_count += 1

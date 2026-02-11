@@ -166,49 +166,8 @@
               <h3>{{ t('agent.welcomeTitle') }}</h3>
               <p>{{ t('agent.welcomeSubtitle') }}</p>
             </div>
-            <div class="agent-chat__hero-cards">
-              <button
-                v-for="card in welcomeCards"
-                :key="card.title"
-                class="hero-card"
-                @click="handleHeroCardClick(card.mode)"
-              >
-                <div class="hero-card__title">{{ card.title }}</div>
-                <div class="hero-card__desc">{{ card.desc }}</div>
-              </button>
-            </div>
-            <Transition name="menu-fade">
-              <div v-if="activeHeroMode" class="hero-action-strip">
-                <div class="hero-action-strip__label">
-                  {{ activeHeroMode === 'explore' ? t('agent.heroExploreActions') : t('agent.heroExecuteActions') }}
-                </div>
-                <div class="hero-action-strip__actions">
-                  <button
-                    v-for="action in activeHeroActions"
-                    :key="action.label"
-                    class="hero-action-btn"
-                    @click="handleHeroAction(action.prompt)"
-                  >
-                    {{ action.label }}
-                  </button>
-                </div>
-              </div>
-            </Transition>
-            <div class="agent-chat__hero-list">
-              <div class="hero-list__label">{{ t('agent.heroListLabel') }}</div>
-              <ul class="hero-list__items">
-                <li v-for="item in welcomeHighlights" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-            <div class="agent-chat__suggestions">
-              <button
-                v-for="suggestion in suggestions"
-                :key="suggestion"
-                class="suggestion-chip"
-                @click="handleSuggestionClick(suggestion)"
-              >
-                {{ suggestion }}
-              </button>
+            <div class="agent-chat__empty-hint">
+              {{ t('agent.emptyHintNoShortcuts') }}
             </div>
           </div>
 
@@ -459,8 +418,8 @@
                   </Transition>
                 </div>
 
-                <button class="composer-mode-btn" @click="toggleAutoAcceptEdits">
-                  {{ autoAcceptEdits ? t('agent.autoAccept') : t('agent.manualReview') }}
+                <button class="composer-mode-btn composer-mode-btn--mode" @click="toggleAgentMode">
+                  {{ agentMode === 'agent' ? t('agent.modeAgent') : t('agent.modeAsk') }}
                 </button>
                 <div class="composer-model-wrapper" ref="modelSelectorRef">
                   <button
@@ -497,25 +456,29 @@
                   </Transition>
                 </div>
               </div>
-
-              <button
-                v-if="!isTyping"
-                class="send-btn-compact"
-                :disabled="!inputText.trim()"
-                @click="sendMessage()"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8">
-                  <line x1="12" y1="19" x2="12" y2="5"></line>
-                  <polyline points="7 10 12 5 17 10"></polyline>
-                </svg>
-              </button>
-              <button
-                v-else
-                class="stop-btn-compact"
-                @click="stopGeneration"
-              >
-                <div class="stop-icon-small"></div>
-              </button>
+              <div class="chat-input-bottom__right">
+                <button class="composer-review-btn" @click="toggleAutoAcceptEdits">
+                  {{ autoAcceptEdits ? t('agent.autoAccept') : t('agent.manualReview') }}
+                </button>
+                <button
+                  v-if="!isTyping"
+                  class="send-btn-compact"
+                  :disabled="!inputText.trim()"
+                  @click="sendMessage()"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="7 10 12 5 17 10"></polyline>
+                  </svg>
+                </button>
+                <button
+                  v-else
+                  class="stop-btn-compact"
+                  @click="stopGeneration"
+                >
+                  <div class="stop-icon-small"></div>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -602,6 +565,9 @@ const abortController = ref<AbortController | null>(null)
 const includeActiveNote = ref(true)
 const AUTO_ACCEPT_EDITS_KEY = 'origin_agent_auto_accept_edits'
 const autoAcceptEdits = ref(localStorage.getItem(AUTO_ACCEPT_EDITS_KEY) !== '0')
+type AgentMode = 'ask' | 'agent'
+const AGENT_MODE_KEY = 'origin_agent_mode'
+const agentMode = ref<AgentMode>(localStorage.getItem(AGENT_MODE_KEY) === 'ask' ? 'ask' : 'agent')
 const THINKING_STATUS_TEXT = 'Thinking...'
 
 // --- Auto-scroll control ---
@@ -1456,6 +1422,10 @@ function toggleAutoAcceptEdits(): void {
   autoAcceptEdits.value = !autoAcceptEdits.value
 }
 
+function toggleAgentMode(): void {
+  agentMode.value = agentMode.value === 'agent' ? 'ask' : 'agent'
+}
+
 async function enableAutoAcceptAndApply(): Promise<void> {
   autoAcceptEdits.value = true
   if (pendingExecutionApproval.value) {
@@ -1920,85 +1890,6 @@ onUnmounted(() => {
 })
 // ----------------------
 
-const suggestions = computed(() => [
-  locale.value === 'zh-CN'
-    ? `提炼《${noteStore.currentNote?.title || '当前笔记'}》的 3 条关键结论`
-    : `Extract 3 key takeaways from "${noteStore.currentNote?.title || 'current note'}"`,
-  locale.value === 'zh-CN'
-    ? `为《${noteStore.currentNote?.title || '当前笔记'}》生成结构化摘要草稿（不改原文）`
-    : `Create a structured summary draft for "${noteStore.currentNote?.title || 'current note'}" (no direct edit)`,
-  locale.value === 'zh-CN'
-    ? '检查当前笔记逻辑断点并给出补全建议（不改原文）'
-    : 'Find logic gaps in the current note and propose completion points (no direct edit)',
-  locale.value === 'zh-CN'
-    ? '整理当前笔记格式（会改动原文）'
-    : 'Format current note structure (will edit original)'
-])
-
-const welcomeCards = computed(() => [
-  {
-    title: t('agent.heroCardExploreTitle'),
-    desc: t('agent.heroCardExploreDesc'),
-    mode: 'explore'
-  },
-  {
-    title: t('agent.heroCardSpecTitle'),
-    desc: t('agent.heroCardSpecDesc'),
-    mode: 'execute'
-  }
-])
-
-type HeroMode = 'explore' | 'execute'
-const activeHeroMode = ref<HeroMode | null>(null)
-
-const activeHeroActions = computed(() => {
-  if (activeHeroMode.value === 'explore') {
-    return [
-      {
-        label: t('agent.heroExploreAction1'),
-        prompt: locale.value === 'zh-CN' ? '@笔记知识库 在全库里找与当前主题最相关的 5 条内容' : '@Knowledge Base find top 5 most related notes for current topic'
-      },
-      {
-        label: t('agent.heroExploreAction2'),
-        prompt: locale.value === 'zh-CN' ? '定位当前笔记里最值得保留的关键段落并说明原因' : 'Locate the most valuable paragraphs in current note and explain why'
-      },
-      {
-        label: t('agent.heroExploreAction3'),
-        prompt: locale.value === 'zh-CN' ? '提取当前笔记的术语表（术语+定义+上下文）' : 'Extract glossary from current note (term + definition + context)'
-      }
-    ]
-  }
-  if (activeHeroMode.value === 'execute') {
-    return [
-      {
-        label: t('agent.heroExecuteAction1'),
-        prompt: locale.value === 'zh-CN'
-          ? '基于当前笔记生成结构化改写草稿：背景 / 问题 / 方案 / 结论。仅输出草稿，不直接改动原文。'
-          : 'Generate a structured rewrite draft from the current note: Background / Problem / Solution / Conclusion. Output draft only, do not directly edit the original note.'
-      },
-      {
-        label: t('agent.heroExecuteAction2'),
-        prompt: locale.value === 'zh-CN'
-          ? '把当前内容改写为更专业简洁的企业沟通草稿。仅输出建议版本，不直接改动原文。'
-          : 'Rewrite current content into a concise enterprise communication draft. Output suggestion only, do not directly edit the original note.'
-      },
-      {
-        label: t('agent.heroExecuteAction3'),
-        prompt: locale.value === 'zh-CN'
-          ? '整理当前笔记格式，修复标题层级、列表与段落一致性（会直接改动原文）。'
-          : 'Format the current note and normalize heading levels, lists, and paragraph consistency (this will directly edit the original note).'
-      }
-    ]
-  }
-  return []
-})
-
-const welcomeHighlights = computed(() => [
-  t('agent.heroList1'),
-  t('agent.heroList2'),
-  t('agent.heroList3')
-])
-
 function formatToolOutput(output: string): string {
   const compact = String(output || '')
     .replace(/\s+/g, ' ')
@@ -2155,39 +2046,6 @@ watch(() => noteStore.currentNote?.id, (newId, oldId) => {
     }
 })
 
-// Handle suggestion chip click - fill input if contains "...", otherwise send directly
-function handleSuggestionClick(suggestion: string) {
-  activeHeroMode.value = null
-  if (suggestion.includes('...')) {
-    // Fill input box and let user complete it
-    inputText.value = suggestion
-    // Focus the input
-    nextTick(() => {
-      const input = document.querySelector('.agent-chat__input') as HTMLTextAreaElement
-      if (input) {
-        input.focus()
-        // Place cursor at the "..." position
-        const dotIndex = suggestion.indexOf('...')
-        if (dotIndex !== -1) {
-          input.setSelectionRange(dotIndex, dotIndex + 3)
-        }
-      }
-    })
-  } else {
-    // Send directly
-    sendMessage(suggestion)
-  }
-}
-
-function handleHeroCardClick(mode: HeroMode): void {
-  activeHeroMode.value = activeHeroMode.value === mode ? null : mode
-}
-
-function handleHeroAction(prompt: string): void {
-  activeHeroMode.value = null
-  sendMessage(prompt)
-}
-
 async function sendMessage(
   text?: string,
   options?: {
@@ -2305,6 +2163,7 @@ async function sendMessage(
       active_note_id: activeNoteId,
       use_knowledge: explicitKnowledge,  // @ knowledge search flag
       auto_accept_writes: autoAcceptEdits.value,
+      agent_mode: agentMode.value,
       model_provider_id: selectedModelProviderId.value,
       model_name: selectedModelName.value,
       resume: options?.resume || null
@@ -2928,6 +2787,10 @@ watch(autoAcceptEdits, (enabled) => {
       console.warn('[Agent] Auto-approve on toggle failed:', err)
     })
   }
+})
+
+watch(agentMode, (mode) => {
+  localStorage.setItem(AGENT_MODE_KEY, mode)
 })
 
 watch(isSidebarMode, (enabled) => {
@@ -6371,6 +6234,60 @@ watch(
   font-size: 12.5px;
   height: 28px;
   padding: 0 9px;
+}
+
+/* Ask/Agent + compact composer controls */
+.agent-chat__empty-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--theme-text-secondary) 86%, transparent);
+}
+
+.chat-input-bottom__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-mode-btn--mode {
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 60%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface) 84%, transparent) !important;
+  font-weight: 600 !important;
+  min-width: 62px;
+  justify-content: center;
+}
+
+.composer-mode-btn--mode:hover {
+  background: color-mix(in srgb, var(--theme-bg-secondary) 78%, transparent) !important;
+}
+
+.composer-review-btn {
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-soft);
+  font-size: 11px;
+  font-weight: 520;
+  padding: 0 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.composer-review-btn:hover {
+  color: var(--theme-text);
+}
+
+@media (max-width: 780px) {
+  .composer-mode-btn--mode {
+    min-width: 56px;
+    padding: 0 8px !important;
+  }
+  .composer-review-btn {
+    font-size: 10.5px;
+  }
 }
 
 </style>

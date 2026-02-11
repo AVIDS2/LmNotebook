@@ -184,6 +184,7 @@ class AgentSupervisor:
         context_note_title: Optional[str] = None,
         use_knowledge: bool = False,
         auto_accept_writes: bool = True,
+        agent_mode: str = "agent",
         resume: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[str]:
         """
@@ -248,6 +249,7 @@ class AgentSupervisor:
             selected_text=selected_text,
             use_knowledge=use_knowledge,
             auto_accept_writes=auto_accept_writes,
+            agent_mode=agent_mode,
         )
         
         # In LangGraph 1.x with checkpointer, we don't manually append the full history.
@@ -287,6 +289,7 @@ class AgentSupervisor:
                 "note_content": context_notes_info if context_notes_info else note_context,
                 "selected_text": selected_text,
                 "use_knowledge": use_knowledge,
+                "agent_mode": agent_mode if agent_mode in {"ask", "agent"} else "agent",
             }
             graph_input = Command(resume=resume, update=resume_update)
         else:

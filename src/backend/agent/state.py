@@ -59,6 +59,7 @@ class NoteAgentState(TypedDict, total=False):
     # Feature flags
     use_knowledge: bool
     auto_accept_writes: bool
+    agent_mode: str  # "ask" | "agent"
     write_authorized: Optional[bool]
     
     # Workflow state machine
@@ -77,6 +78,7 @@ def create_initial_state(
     selected_text: Optional[str] = None,
     use_knowledge: bool = False,
     auto_accept_writes: bool = True,
+    agent_mode: str = "agent",
 ) -> NoteAgentState:
     """Create an initial state with default values."""
     return NoteAgentState(
@@ -94,6 +96,7 @@ def create_initial_state(
         session_id=session_id,
         use_knowledge=use_knowledge,
         auto_accept_writes=auto_accept_writes,
+        agent_mode=agent_mode if agent_mode in {"ask", "agent"} else "agent",
         write_authorized=None,
         workflow_done=False,
         next_tool_call=None,

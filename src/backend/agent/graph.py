@@ -351,8 +351,12 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 content="[SYSTEM]: Tool call limit reached. Stop calling tools and provide final answer."
             ))
         
-        # Pre-authorize write capability for this turn based on user semantics.
-        write_authorized = self._classify_write_authorization(filtered_history)
+        # Pre-authorize write capability for this turn based on interaction mode + user semantics.
+        interaction_mode = str(state.get("agent_mode", "agent") or "agent").strip().lower()
+        if interaction_mode == "ask":
+            write_authorized = False
+        else:
+            write_authorized = self._classify_write_authorization(filtered_history)
         model_for_turn = self.model_with_tools if write_authorized else self.model_with_read_tools
 
         # Invoke LLM with tools
@@ -634,6 +638,14 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         """
         if tool_name not in WRITE_TOOLS:
             return {"action": "allow", "code": "non_write_tool", "reason": "Read-only tool is always allowed."}
+
+        interaction_mode = str(state.get("agent_mode", "agent") or "agent").strip().lower()
+        if interaction_mode == "ask":
+            return {
+                "action": "deny",
+                "code": "ask_mode_read_only",
+                "reason": "Current interaction mode is ask (read-only); write tools are disabled.",
+            }
 
         user_text = self._get_last_user_text(history)
         if not user_text:
