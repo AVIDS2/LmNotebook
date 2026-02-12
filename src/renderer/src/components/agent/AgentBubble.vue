@@ -89,65 +89,23 @@
           </div>
         </div>
 
-        <!-- Session History Panel -->
-        <Transition name="slide-panel">
-          <div v-if="showSessionHistory" class="session-history-panel">
-            <div class="session-history__header">
-              <span>{{ t('agent.history') }}</span>
-              <button class="close-btn" @click="showSessionHistory = false">×</button>
-            </div>
-            <div class="session-history__list">
-              <div v-if="sessionList.length === 0" class="session-history__empty">
-                {{ t('agent.emptyHistory') }}
-              </div>
-              <div 
-                v-for="session in sessionList" 
-                :key="session.id"
-                class="session-item"
-                :class="{ 'session-item--active': session.id === currentSessionId, 'session-item--pinned': session.pinned }"
-                @click="editingSessionId !== session.id && loadSession(session.id)"
-              >
-                <!-- Normal display mode -->
-              <div v-if="editingSessionId !== session.id" class="session-item__preview">
-                <span v-if="session.pinned" class="pin-indicator">
-                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="12" height="12">
-                    <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
-                  </svg>
-                </span>
-                  {{ session.title || session.preview }}
-                </div>
-                <!-- Editing mode -->
-                <input 
-                  v-else
-                  v-model="editingTitle"
-                  class="session-rename-input"
-                  @click.stop
-                  @keyup.enter="confirmRename(session.id)"
-                  @keyup.escape="cancelRename"
-                  @blur="confirmRename(session.id)"
-                />
-                <div v-if="editingSessionId !== session.id" class="session-item__actions">
-                  <button class="session-item__btn" @click.stop="togglePinSession(session.id)" :title="session.pinned ? '取消置顶' : '置顶'">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
-                    </svg>
-                  </button>
-                  <button class="session-item__btn" @click.stop="renameSession(session.id)" title="重命名">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                  </button>
-                  <button class="session-item__btn session-item__btn--danger" @click.stop="deleteSession(session.id)" title="删除">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Transition>
+        <SessionHistoryPanel
+          :visible="showSessionHistory"
+          :title="t('agent.history')"
+          :empty-text="t('agent.emptyHistory')"
+          :sessions="sessionList"
+          :current-session-id="currentSessionId"
+          :editing-session-id="editingSessionId"
+          :editing-title="editingTitle"
+          @close="showSessionHistory = false"
+          @load-session="loadSession"
+          @toggle-pin="togglePinSession"
+          @rename-session="renameSession"
+          @delete-session="deleteSession"
+          @confirm-rename="confirmRename"
+          @cancel-rename="cancelRename"
+          @update:editing-title="editingTitle = $event"
+        />
 
         <!-- Messages -->
         <div class="agent-chat__messages" ref="messagesContainer" @scroll="handleMessagesScroll">
@@ -567,6 +525,23 @@ import { useNoteStore } from '@/stores/noteStore'
 import { noteRepository, type Note } from '@/database/noteRepository'
 import { useI18n } from '@/i18n'
 import ModelSettings from './ModelSettings.vue'
+import SessionHistoryPanel from './SessionHistoryPanel.vue'
+import type { SessionInfo } from './sessionTypes'
+import {
+  type ComposerAttachment,
+  buildComposerAttachment,
+  formatAttachmentSize
+} from './attachmentUtils'
+import {
+  type NoteSnapshot,
+  type DiffBlockView,
+  snapshotFromNote,
+  snapshotsDiffer,
+  snapshotToText,
+  previewText,
+  buildStructuredDiff,
+  summarizeChange
+} from './approvalDiff'
 
 // Inject dependencies
 
@@ -577,16 +552,6 @@ interface ChatMessage {
   attachments?: ComposerAttachment[]
   timestamp: Date
   isError?: boolean
-}
-
-interface ComposerAttachment {
-  id: string
-  kind: 'image' | 'file'
-  name: string
-  mimeType?: string
-  sizeBytes?: number
-  dataUrl?: string
-  textContent?: string
 }
 
 // Part-Based Message Types (OpenCode-style)
@@ -654,13 +619,6 @@ const showNoteSelector = ref(false)
 const selectedContextNote = ref<any>(null)
 const selectorRef = ref<HTMLElement | null>(null)
 
-interface NoteSnapshot {
-  id: string
-  title: string
-  content: string
-  markdownSource: string | null
-}
-
 interface PendingApproval {
   id: string
   noteId: string
@@ -682,28 +640,6 @@ interface PendingExecutionApproval {
   args: Record<string, any>
   message: string
   createdAt: number
-}
-
-type DiffOp = 'same' | 'add' | 'del'
-type DiffBlockKind = 'unchanged' | 'modified' | 'added' | 'removed'
-
-interface DiffLine {
-  op: DiffOp
-  text: string
-}
-
-interface DiffBlockView {
-  id: string
-  label: string
-  kind: DiffBlockKind
-  lines: DiffLine[]
-}
-
-interface TextBlock {
-  id: string
-  label: string
-  text: string
-  key: string
 }
 
 interface PersistedUiState {
@@ -748,14 +684,6 @@ const approvalBusy = ref(false)
 const SESSION_UI_PREFIX = 'origin_agent_session_ui_v1:'
 let persistUiTimer: ReturnType<typeof setTimeout> | null = null
 
-// --- Session History ---
-interface SessionInfo {
-  id: string
-  preview: string
-  title?: string
-  pinned?: boolean
-  updated_at?: string
-}
 const showSessionHistory = ref(false)
 const sessionList = ref<SessionInfo[]>([])
 const MODEL_PROVIDER_KEY = 'origin_agent_selected_model_provider'
@@ -1025,108 +953,6 @@ function clearContextNote() {
   selectedContextNote.value = null
 }
 
-function formatAttachmentSize(sizeBytes?: number): string {
-  if (!sizeBytes || sizeBytes <= 0) return ''
-  if (sizeBytes < 1024) return `${sizeBytes} B`
-  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/')
-}
-
-function isTextReadableFile(file: File): boolean {
-  const mime = file.type.toLowerCase()
-  if (!mime) {
-    return /\.(txt|md|markdown|json|yaml|yml|csv|tsv|log|xml|html?|css|js|ts|tsx|jsx|py|java|go|rs|c|cpp|h)$/i.test(file.name)
-  }
-  if (mime.startsWith('text/')) return true
-  return [
-    'application/json',
-    'application/xml',
-    'application/javascript'
-  ].includes(mime)
-}
-
-function isDocxFile(file: File): boolean {
-  const mime = (file.type || '').toLowerCase()
-  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    return true
-  }
-  return /\.docx$/i.test(file.name || '')
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file as data URL'))
-    reader.readAsDataURL(file)
-  })
-}
-
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file text'))
-    reader.readAsText(file, 'utf-8')
-  })
-}
-
-async function readDocxAsText(file: File): Promise<string> {
-  try {
-    const mammoth = await import('mammoth/mammoth.browser')
-    const arrayBuffer = await file.arrayBuffer()
-    const result = await mammoth.extractRawText({ arrayBuffer })
-    return String(result?.value || '').trim()
-  } catch (error) {
-    console.warn('[Agent] Failed to extract .docx text:', file.name, error)
-    return ''
-  }
-}
-
-async function buildComposerAttachment(file: File): Promise<ComposerAttachment | null> {
-  const id = crypto.randomUUID()
-  const base: ComposerAttachment = {
-    id,
-    kind: isImageFile(file) ? 'image' : 'file',
-    name: file.name || `attachment-${id.slice(0, 6)}`,
-    mimeType: file.type || '',
-    sizeBytes: file.size
-  }
-
-  if (base.kind === 'image') {
-    const dataUrl = await readFileAsDataUrl(file)
-    return {
-      ...base,
-      dataUrl
-    }
-  }
-
-  if (isDocxFile(file)) {
-    const docxText = await readDocxAsText(file)
-    if (docxText) {
-      return {
-        ...base,
-        textContent: docxText.length > 24000 ? `${docxText.slice(0, 24000)}\n...[truncated]` : docxText
-      }
-    }
-    return base
-  }
-
-  if (isTextReadableFile(file)) {
-    const text = await readFileAsText(file)
-    return {
-      ...base,
-      textContent: text.length > 24000 ? `${text.slice(0, 24000)}\n...[truncated]` : text
-    }
-  }
-
-  return base
-}
-
 function mergeComposerAttachments(next: ComposerAttachment[]): void {
   if (!next.length) return
   const existing = composerAttachments.value
@@ -1226,220 +1052,6 @@ async function handleComposerPaste(event: ClipboardEvent): Promise<void> {
   if (!files.length) return
   event.preventDefault()
   await appendComposerFiles(files)
-}
-
-function snapshotFromNote(note: Note): NoteSnapshot {
-  return {
-    id: note.id,
-    title: note.title || '',
-    content: note.content || '',
-    markdownSource: note.markdownSource ?? null
-  }
-}
-
-function snapshotsDiffer(a: NoteSnapshot, b: NoteSnapshot): boolean {
-  return a.title !== b.title || a.content !== b.content || (a.markdownSource ?? '') !== (b.markdownSource ?? '')
-}
-
-function stripHtml(html: string): string {
-  const div = document.createElement('div')
-  div.innerHTML = html || ''
-  return (div.textContent || div.innerText || '').trim()
-}
-
-function snapshotToText(snapshot: NoteSnapshot): string {
-  const raw = (snapshot.markdownSource && snapshot.markdownSource.trim())
-    ? snapshot.markdownSource
-    : stripHtml(snapshot.content)
-  return raw.trim()
-}
-
-function previewText(input: string, maxLen = 220): string {
-  if (!input) return '(empty)'
-  return input.length > maxLen ? `${input.slice(0, maxLen)}...` : input
-}
-
-function countByRegex(text: string, regex: RegExp): number {
-  const matches = text.match(regex)
-  return matches ? matches.length : 0
-}
-
-function normalizeKey(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s#-]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function makeLabelFromText(text: string, fallback: string): string {
-  const firstLine = text.split('\n').find(line => line.trim())?.trim() || ''
-  if (!firstLine) return fallback
-  return firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine
-}
-
-function splitIntoBlocks(text: string): TextBlock[] {
-  const normalized = text.replace(/\r\n/g, '\n').trim()
-  if (!normalized) return []
-  const rawBlocks = normalized
-    .split(/\n{2,}/)
-    .map(block => block.trim())
-    .filter(Boolean)
-  return rawBlocks.map((block, idx) => {
-    const label = makeLabelFromText(block, `Block ${idx + 1}`)
-    const key = normalizeKey(label)
-    return {
-      id: `b-${idx}`,
-      label,
-      text: block,
-      key
-    }
-  })
-}
-
-function buildLcsIndices(left: string[], right: string[]): Array<[number, number]> {
-  const m = left.length
-  const n = right.length
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-  for (let i = m - 1; i >= 0; i -= 1) {
-    for (let j = n - 1; j >= 0; j -= 1) {
-      if (left[i] === right[j]) dp[i][j] = dp[i + 1][j + 1] + 1
-      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
-    }
-  }
-  const pairs: Array<[number, number]> = []
-  let i = 0
-  let j = 0
-  while (i < m && j < n) {
-    if (left[i] === right[j]) {
-      pairs.push([i, j])
-      i += 1
-      j += 1
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      i += 1
-    } else {
-      j += 1
-    }
-  }
-  return pairs
-}
-
-function buildLineDiff(beforeText: string, afterText: string): DiffLine[] {
-  const before = beforeText.split('\n')
-  const after = afterText.split('\n')
-  const pairs = buildLcsIndices(before, after)
-  const lines: DiffLine[] = []
-  let i = 0
-  let j = 0
-  for (const [pi, pj] of pairs) {
-    while (i < pi) {
-      lines.push({ op: 'del', text: before[i] })
-      i += 1
-    }
-    while (j < pj) {
-      lines.push({ op: 'add', text: after[j] })
-      j += 1
-    }
-    lines.push({ op: 'same', text: before[pi] })
-    i = pi + 1
-    j = pj + 1
-  }
-  while (i < before.length) {
-    lines.push({ op: 'del', text: before[i] })
-    i += 1
-  }
-  while (j < after.length) {
-    lines.push({ op: 'add', text: after[j] })
-    j += 1
-  }
-  return lines
-}
-
-function pairSegments(beforeSeg: TextBlock[], afterSeg: TextBlock[]): DiffBlockView[] {
-  const out: DiffBlockView[] = []
-  let i = 0
-  let j = 0
-  while (i < beforeSeg.length && j < afterSeg.length) {
-    const b = beforeSeg[i]
-    const a = afterSeg[j]
-    out.push({
-      id: `${b.id}:${a.id}`,
-      label: a.label || b.label,
-      kind: 'modified',
-      lines: buildLineDiff(b.text, a.text)
-    })
-    i += 1
-    j += 1
-  }
-  while (i < beforeSeg.length) {
-    const b = beforeSeg[i]
-    out.push({
-      id: `${b.id}:removed`,
-      label: b.label,
-      kind: 'removed',
-      lines: b.text.split('\n').map(line => ({ op: 'del' as const, text: line }))
-    })
-    i += 1
-  }
-  while (j < afterSeg.length) {
-    const a = afterSeg[j]
-    out.push({
-      id: `added:${a.id}`,
-      label: a.label,
-      kind: 'added',
-      lines: a.text.split('\n').map(line => ({ op: 'add' as const, text: line }))
-    })
-    j += 1
-  }
-  return out
-}
-
-function buildStructuredDiff(beforeText: string, afterText: string): DiffBlockView[] {
-  const beforeBlocks = splitIntoBlocks(beforeText)
-  const afterBlocks = splitIntoBlocks(afterText)
-  const pairs = buildLcsIndices(beforeBlocks.map(b => b.key), afterBlocks.map(b => b.key))
-  const out: DiffBlockView[] = []
-  let bi = 0
-  let ai = 0
-  for (const [pb, pa] of pairs) {
-    if (bi < pb || ai < pa) {
-      out.push(...pairSegments(beforeBlocks.slice(bi, pb), afterBlocks.slice(ai, pa)))
-    }
-    const b = beforeBlocks[pb]
-    const a = afterBlocks[pa]
-    if (b.text === a.text) {
-      out.push({
-        id: `${b.id}:${a.id}`,
-        label: a.label || b.label,
-        kind: 'unchanged',
-        lines: [{ op: 'same', text: previewText(a.text, 280) }]
-      })
-    } else {
-      out.push({
-        id: `${b.id}:${a.id}`,
-        label: a.label || b.label,
-        kind: 'modified',
-        lines: buildLineDiff(b.text, a.text)
-      })
-    }
-    bi = pb + 1
-    ai = pa + 1
-  }
-  if (bi < beforeBlocks.length || ai < afterBlocks.length) {
-    out.push(...pairSegments(beforeBlocks.slice(bi), afterBlocks.slice(ai)))
-  }
-  return out
-}
-
-function summarizeChange(before: NoteSnapshot, after: NoteSnapshot): string {
-  const beforeText = snapshotToText(before)
-  const afterText = snapshotToText(after)
-  const beforeHeadings = countByRegex(beforeText, /^#{1,6}\s/mg)
-  const afterHeadings = countByRegex(afterText, /^#{1,6}\s/mg)
-  const beforeLists = countByRegex(beforeText, /^\s*([-*+]|\d+\.)\s/mg)
-  const afterLists = countByRegex(afterText, /^\s*([-*+]|\d+\.)\s/mg)
-  const deltaChars = afterText.length - beforeText.length
-  return `chars ${beforeText.length} -> ${afterText.length} (${deltaChars >= 0 ? '+' : ''}${deltaChars}), headings ${beforeHeadings} -> ${afterHeadings}, lists ${beforeLists} -> ${afterLists}`
 }
 
 async function capturePreUpdateSnapshot(noteId: string | null | undefined): Promise<void> {
