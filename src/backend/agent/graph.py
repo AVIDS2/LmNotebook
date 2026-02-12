@@ -208,7 +208,25 @@ class NoteAgentGraph:
         if not hasattr(last_message, 'content'):
             return {"intent": "TASK"}
         
-        query = last_message.content
+        query = self._extract_text_content(last_message.content)
+        has_image_input = self._message_has_image_content(last_message.content)
+        has_attachment_context = bool(str(state.get("attachment_context") or "").strip())
+
+        # Vision-first routing:
+        # If the user attached an image and did not explicitly authorize a write operation,
+        # route to CHAT path to avoid unnecessary tool-binding on multimodal turns.
+        # Some OpenAI-compatible providers can degrade image handling when tools are bound.
+        if has_image_input and not state.get("use_knowledge"):
+            if not self._classify_write_authorization(messages):
+                safe_print("[ROUTER] Image input detected without write intent -> CHAT")
+                return {"intent": "CHAT"}
+
+        # File/image attachment question turns should default to CHAT unless
+        # the user explicitly authorizes a write operation.
+        if has_attachment_context and not state.get("use_knowledge"):
+            if not self._classify_write_authorization(messages):
+                safe_print("[ROUTER] Attachment context detected without write intent -> CHAT")
+                return {"intent": "CHAT"}
         
         # ========== MODERN SEMANTIC ROUTING ==========
         # No more fragile keywords. We use the LLM to analyze the FULL context.
@@ -216,7 +234,8 @@ class NoteAgentGraph:
         if len(messages) > 1:
             prev_msg = messages[-2]
             if hasattr(prev_msg, 'content'):
-                context_summary = f"Context: Last AI said '{prev_msg.content}'. Now user says: '{query}'"
+                prev_text = self._extract_text_content(prev_msg.content)
+                context_summary = f"Context: Last AI said '{prev_text}'. Now user says: '{query}'"
 
         classification_prompt = """
         You are the Intent Router for Origin Notes. 
@@ -260,8 +279,40 @@ class NoteAgentGraph:
 
         lang = self._detect_user_language(filtered_messages)
         lang_instruction = SystemMessage(content=f"Always respond in the user's language ({lang}).")
-        messages = [SystemMessage(content=FAST_CHAT_PROMPT), lang_instruction] + filtered_messages
-        
+
+        interaction_mode = str(state.get("agent_mode", "agent") or "agent").strip().lower()
+        if interaction_mode == "ask":
+            mode_instruction = SystemMessage(
+                content=(
+                    "ASK MODE (read-only) is active for this conversation turn.\n"
+                    "- If user asks current mode/capability, explicitly state you are in Ask mode.\n"
+                    "- In Ask mode, do not claim direct write execution capability.\n"
+                    "- You may answer questions and provide drafts/suggestions only."
+                )
+            )
+        else:
+            mode_instruction = SystemMessage(
+                content=(
+                    "AGENT MODE is active for this conversation turn.\n"
+                    "- If user asks current mode/capability, explicitly state you are in Agent mode.\n"
+                    "- You can execute notebook operations through the tool workflow."
+                )
+            )
+
+        messages = [SystemMessage(content=FAST_CHAT_PROMPT), mode_instruction, lang_instruction]
+        attachment_context = (state.get("attachment_context") or "").strip()
+        if attachment_context:
+            messages.append(
+                SystemMessage(
+                    content=(
+                        "The user included file attachments for this turn. "
+                        "Use the following extracted attachment context when answering:\n\n"
+                        f"{attachment_context}"
+                    )
+                )
+            )
+        messages += filtered_messages
+
         response = self.llm.invoke(messages)
         return {"messages": [response]}
     
@@ -306,6 +357,13 @@ class NoteAgentGraph:
         # ========== Selected Text ==========
         if state.get("selected_text"):
             context_parts.append(f"\nSELECTED TEXT:\n{state['selected_text']}")
+
+        # ========== File Attachments Context ==========
+        if state.get("attachment_context"):
+            attachment_context = state["attachment_context"]
+            if len(attachment_context) > 12000:
+                attachment_context = attachment_context[:12000] + "\n...[Attachment context truncated]"
+            context_parts.append(f"\nATTACHMENT CONTEXT:\n{attachment_context}")
 
         # ========== Knowledge Search Flag (@) ==========
         if state.get("use_knowledge"):
@@ -693,8 +751,44 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         """Extract last human message as lowercase text."""
         for msg in reversed(history):
             if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
-                return str(msg.content).lower()
+                return self._extract_text_content(msg.content).lower()
         return ""
+
+    def _extract_text_content(self, content: Any) -> str:
+        """Normalize LangChain message content into plain text for routing/policy."""
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            chunks: list[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = str(block.get("type", "")).strip().lower()
+                if block_type == "text":
+                    text = block.get("text") or block.get("content") or ""
+                    if text:
+                        chunks.append(str(text))
+            return "\n".join(chunks).strip()
+
+        if content is None:
+            return ""
+        return str(content)
+
+    def _message_has_image_content(self, content: Any) -> bool:
+        """
+        Detect whether a message contains multimodal image blocks.
+        Supports OpenAI-compatible block types used in this app.
+        """
+        if not isinstance(content, list):
+            return False
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = str(block.get("type", "")).strip().lower()
+            if block_type in {"image_url", "input_image", "image"}:
+                return True
+        return False
 
     def _evaluate_tool_policy(
         self,
@@ -801,7 +895,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         last_user_text = ""
         for msg in reversed(messages):
             if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
-                last_user_text = msg.content
+                last_user_text = self._extract_text_content(msg.content)
                 break
 
         if re.search(r"[\u4e00-\u9fff]", last_user_text):

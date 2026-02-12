@@ -44,6 +44,7 @@ class NoteAgentState(TypedDict, total=False):
     context_note_title: Optional[str]
     note_content: Optional[str]
     selected_text: Optional[str]
+    attachment_context: Optional[str]
     
     # Routing control
     intent: str  # "CHAT" or "TASK"
@@ -77,6 +78,7 @@ def create_initial_state(
     context_note_title: Optional[str] = None,
     note_content: Optional[str] = None,
     selected_text: Optional[str] = None,
+    attachment_context: Optional[str] = None,
     use_knowledge: bool = False,
     auto_accept_writes: bool = True,
     agent_mode: str = "agent",
@@ -90,6 +92,7 @@ def create_initial_state(
         context_note_title=context_note_title,
         note_content=note_content,
         selected_text=selected_text,
+        attachment_context=attachment_context,
         intent="TASK",  # Default to TASK, router will override
         tool_call_count=0,
         last_tool_name=None,

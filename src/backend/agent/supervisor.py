@@ -170,6 +170,64 @@ class AgentSupervisor:
         if self.graph is None:
             self.graph = await get_agent_graph()
         return self.graph
+
+    def _build_user_message_and_attachment_context(
+        self,
+        message: str,
+        attachments: Optional[List[Dict[str, Any]]],
+    ) -> tuple[HumanMessage, Optional[str]]:
+        """
+        Build a HumanMessage that supports multimodal image inputs and
+        extract readable file context for the graph.
+        """
+        attachment_list = attachments or []
+        if not attachment_list:
+            return HumanMessage(content=message), None
+
+        content_blocks: List[Dict[str, Any]] = []
+        message_text = (message or "").strip()
+        if message_text:
+            content_blocks.append({"type": "text", "text": message_text})
+
+        attachment_context_chunks: List[str] = []
+        for idx, att in enumerate(attachment_list, start=1):
+            if not isinstance(att, dict):
+                continue
+            kind = str(att.get("kind", "file") or "file").strip().lower()
+            name = str(att.get("name", "") or f"attachment-{idx}")
+            mime_type = str(att.get("mime_type", "") or "").strip()
+            size_bytes = att.get("size_bytes")
+            size_label = f"{size_bytes} bytes" if isinstance(size_bytes, int) and size_bytes >= 0 else "unknown-size"
+
+            if kind == "image":
+                data_url = str(att.get("data_url", "") or "").strip()
+                if data_url:
+                    content_blocks.append({"type": "text", "text": f"[Attached image: {name}]"})
+                    content_blocks.append({"type": "image_url", "image_url": {"url": data_url}})
+                else:
+                    attachment_context_chunks.append(
+                        f"[Image attachment missing data]\nname: {name}\nmime: {mime_type or 'unknown'}\nsize: {size_label}"
+                    )
+                continue
+
+            file_text = str(att.get("text_content", "") or "").strip()
+            if file_text:
+                if len(file_text) > 12000:
+                    file_text = file_text[:12000] + "\n...[truncated]"
+                attachment_context_chunks.append(
+                    f"[Attached file {idx}]\nname: {name}\nmime: {mime_type or 'unknown'}\nsize: {size_label}\ncontent:\n{file_text}"
+                )
+            else:
+                attachment_context_chunks.append(
+                    f"[Attached file {idx}]\nname: {name}\nmime: {mime_type or 'unknown'}\nsize: {size_label}\ncontent: (not readable text)"
+                )
+
+        if not content_blocks:
+            fallback_text = message_text or "Please consider the provided attachments."
+            content_blocks.append({"type": "text", "text": fallback_text})
+
+        attachment_context = "\n\n".join(attachment_context_chunks).strip() or None
+        return HumanMessage(content=content_blocks), attachment_context
     
     async def invoke_stream(
         self,
@@ -186,6 +244,7 @@ class AgentSupervisor:
         auto_accept_writes: bool = True,
         agent_mode: str = "agent",
         resume: Optional[Dict[str, Any]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncIterator[str]:
         """
         Stream agent responses using LangGraph.
@@ -236,6 +295,12 @@ class AgentSupervisor:
             except Exception as e:
                 safe_print(f"[Agent] Failed to load referenced note context: {e}")
         
+        # Build multimodal user message + text attachment context
+        user_message, attachment_context = self._build_user_message_and_attachment_context(
+            message=message,
+            attachments=attachments,
+        )
+
         # ================================================================
         # STEP 2: Build initial state for LangGraph
         # ================================================================
@@ -247,6 +312,7 @@ class AgentSupervisor:
             context_note_title=context_note_title,
             note_content=context_notes_info if context_notes_info else note_context,
             selected_text=selected_text,
+            attachment_context=attachment_context,
             use_knowledge=use_knowledge,
             auto_accept_writes=auto_accept_writes,
             agent_mode=agent_mode,
@@ -288,12 +354,13 @@ class AgentSupervisor:
                 "context_note_title": context_note_title,
                 "note_content": context_notes_info if context_notes_info else note_context,
                 "selected_text": selected_text,
+                "attachment_context": attachment_context,
                 "use_knowledge": use_knowledge,
                 "agent_mode": agent_mode if agent_mode in {"ask", "agent"} else "agent",
             }
             graph_input = Command(resume=resume, update=resume_update)
         else:
-            initial_state["messages"] = [HumanMessage(content=message)]
+            initial_state["messages"] = [user_message]
             graph_input = initial_state
         
         # ================================================================

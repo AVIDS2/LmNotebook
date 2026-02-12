@@ -1,9 +1,12 @@
 """
 Chat API endpoints.
 """
-from typing import Optional, List
+from typing import Any, Optional, List
 import os
 import sys
+import re
+import time
+import asyncio
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -50,11 +53,23 @@ def safe_print(msg: str):
 
 configure_utf8_stdio()
 
+_MAX_SESSION_TITLE_LEN = 48
+
 
 class ChatMessage(BaseModel):
     """A single chat message."""
     role: str = Field(..., description="Role: 'user' or 'assistant'")
     content: str = Field(..., description="Message content")
+
+
+class ChatAttachment(BaseModel):
+    """Attachment payload from composer."""
+    kind: str = Field(..., description="Attachment kind: image | file")
+    name: str = Field(..., description="Original filename")
+    mime_type: Optional[str] = Field(None, description="MIME type")
+    size_bytes: Optional[int] = Field(None, description="File size in bytes")
+    data_url: Optional[str] = Field(None, description="Data URL for image attachments")
+    text_content: Optional[str] = Field(None, description="Extracted text content for file attachments")
 
 
 
@@ -77,6 +92,7 @@ class ChatRequest(BaseModel):
     model_provider_id: Optional[str] = Field(None, description="Model provider ID override for this request")
     model_name: Optional[str] = Field(None, description="Specific model name within the selected provider")
     resume: Optional[dict] = Field(None, description="Resume payload for LangGraph interrupt")
+    attachments: Optional[List[ChatAttachment]] = Field(default_factory=list, description="Composer attachments")
 
     @property
     def history_dicts(self) -> List[dict]:
@@ -164,6 +180,7 @@ async def invoke_agent(request: ChatRequest):
             selected_text=request.selected_text,
             active_note_id=request.active_note_id,
             agent_mode=request.agent_mode or "agent",
+            attachments=[a.model_dump() for a in (request.attachments or [])],
         )
         return ChatResponse(
             response=result["response"],
@@ -192,6 +209,13 @@ async def stream_agent(request: ChatRequest):
             await apply_model_provider_override(request.model_provider_id, request.model_name)
             supervisor = AgentSupervisor()
             safe_print(f">> Starting stream for: {request.message[:50]}... (Session: {request.session_id})")
+            if request.attachments:
+                image_count = sum(1 for a in request.attachments if (a.kind or "").lower() == "image")
+                file_count = len(request.attachments) - image_count
+                safe_print(
+                    f"[ATTACH] Received attachments: total={len(request.attachments)}, "
+                    f"images={image_count}, files={file_count}"
+                )
             async for chunk in supervisor.invoke_stream(
                 message=request.message,
                 session_id=request.session_id,
@@ -205,7 +229,8 @@ async def stream_agent(request: ChatRequest):
                 use_knowledge=request.use_knowledge,
                 auto_accept_writes=request.auto_accept_writes,
                 agent_mode=request.agent_mode or "agent",
-                resume=request.resume
+                resume=request.resume,
+                attachments=[a.model_dump() for a in (request.attachments or [])]
             ):
                 chunk_count += 1
                 elapsed = time.time() - start_time
@@ -220,6 +245,14 @@ async def stream_agent(request: ChatRequest):
                     encoded = json.dumps({"text": chunk})
                     yield f"data: {encoded}\n\n"
             safe_print(f">> Stream complete: {chunk_count} chunks in {time.time() - start_time:.2f}s")
+
+            # Generate/update session title asynchronously after meaningful output.
+            try:
+                from core.config import settings
+                checkpoint_db = os.path.join(settings.data_directory, "checkpoints.db")
+                asyncio.create_task(_maybe_generate_session_title(checkpoint_db, request.session_id))
+            except Exception as title_err:
+                safe_print(f"[API] Failed to schedule session title generation: {title_err}")
             yield "data: [DONE]\n\n"
         except Exception as e:
             safe_print(f"[ERR] Stream error: {e}")
@@ -275,6 +308,228 @@ async def format_text(request: ChatRequest):
 # SESSION HISTORY APIs
 # ============================================================================
 
+def _content_to_text(content: Any) -> str:
+    """Normalize LangChain/LangGraph message content into plain preview text."""
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                text = block.strip()
+                if text:
+                    parts.append(text)
+                continue
+
+            if not isinstance(block, dict):
+                continue
+
+            block_type = str(block.get("type") or "").lower()
+            if block_type in {"text", "input_text"}:
+                text = block.get("text") or block.get("input_text") or ""
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+            elif block_type in {"image", "image_url", "input_image"}:
+                parts.append("[Image]")
+            else:
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+
+        return " ".join(parts).strip()
+
+    if isinstance(content, dict):
+        block_type = str(content.get("type") or "").lower()
+        if block_type in {"image", "image_url", "input_image"}:
+            return "[Image]"
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        return str(content)
+
+    return str(content)
+
+
+async def _ensure_session_meta_table(db):
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_meta (
+            thread_id TEXT PRIMARY KEY,
+            title TEXT,
+            generated_at INTEGER,
+            updated_at INTEGER
+        )
+        """
+    )
+
+
+def _sanitize_session_title(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"^['\"`]+|['\"`]+$", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > _MAX_SESSION_TITLE_LEN:
+        text = text[:_MAX_SESSION_TITLE_LEN].rstrip()
+    return text
+
+
+def _fallback_session_title(messages: List[dict]) -> str:
+    for msg in messages:
+        if msg.get("role") == "user":
+            content = _content_to_text(msg.get("content", ""))
+            if content:
+                return _sanitize_session_title(content[:24]) or "New conversation"
+    return "New conversation"
+
+
+async def _load_session_titles(checkpoint_db: str, thread_ids: List[str]) -> dict[str, str]:
+    import aiosqlite
+
+    if not thread_ids:
+        return {}
+
+    cleaned = [tid for tid in thread_ids if tid]
+    if not cleaned:
+        return {}
+
+    try:
+        async with aiosqlite.connect(checkpoint_db) as db:
+            await _ensure_session_meta_table(db)
+            placeholders = ",".join("?" for _ in cleaned)
+            cursor = await db.execute(
+                f"SELECT thread_id, title FROM session_meta WHERE thread_id IN ({placeholders})",
+                cleaned,
+            )
+            rows = await cursor.fetchall()
+        return {str(r[0]): str(r[1]) for r in rows if r and r[0] and r[1]}
+    except Exception as e:
+        safe_print(f"[API] Failed to load session titles: {e}")
+        return {}
+
+
+async def _save_session_title(checkpoint_db: str, session_id: str, title: str) -> None:
+    import aiosqlite
+
+    if not session_id or not title:
+        return
+
+    now = int(time.time())
+    async with aiosqlite.connect(checkpoint_db) as db:
+        await _ensure_session_meta_table(db)
+        await db.execute(
+            """
+            INSERT INTO session_meta (thread_id, title, generated_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(thread_id) DO UPDATE SET
+              title = excluded.title,
+              updated_at = excluded.updated_at
+            """,
+            (session_id, title, now, now),
+        )
+        await db.commit()
+
+
+async def _has_session_title(checkpoint_db: str, session_id: str) -> bool:
+    import aiosqlite
+
+    if not session_id:
+        return False
+
+    try:
+        async with aiosqlite.connect(checkpoint_db) as db:
+            await _ensure_session_meta_table(db)
+            cursor = await db.execute(
+                "SELECT 1 FROM session_meta WHERE thread_id = ? AND title IS NOT NULL AND title != '' LIMIT 1",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+
+async def _generate_session_title_from_messages(messages: List[dict]) -> str:
+    """Generate a concise session title based on the first user+assistant exchange."""
+    from core.llm import get_llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    first_user = ""
+    first_assistant = ""
+    for msg in messages:
+        role = msg.get("role")
+        text = _content_to_text(msg.get("content", ""))
+        if role == "user" and text and not first_user:
+            first_user = text
+        elif role == "assistant" and text and not first_assistant:
+            first_assistant = text
+        if first_user and first_assistant:
+            break
+
+    if not first_user:
+        return ""
+
+    llm = get_llm()
+    prompt = (
+        "Generate a concise conversation title in the same language as the user. "
+        "Rules: 4-12 words, no quotes, no trailing punctuation, no markdown.\n\n"
+        f"User message:\n{first_user[:320]}\n\n"
+        f"Assistant response:\n{first_assistant[:320]}"
+    )
+    response = await llm.ainvoke(
+        [
+            SystemMessage(
+                content=(
+                    "You generate short, clear chat session titles. "
+                    "Return title text only."
+                )
+            ),
+            HumanMessage(content=prompt),
+        ]
+    )
+    generated = _sanitize_session_title(_content_to_text(getattr(response, "content", "")))
+    return generated
+
+
+async def _maybe_generate_session_title(checkpoint_db: str, session_id: str) -> None:
+    """
+    Generate a session title once conversation has meaningful content.
+    Runs in background and never interrupts user response.
+    """
+    if not session_id:
+        return
+
+    if await _has_session_title(checkpoint_db, session_id):
+        return
+
+    messages = await _get_checkpoint_messages(checkpoint_db, session_id)
+    if len(messages) < 2:
+        return
+
+    # Only title sessions after first user+assistant round.
+    has_user = any(m.get("role") == "user" for m in messages)
+    has_assistant = any(m.get("role") == "assistant" for m in messages)
+    if not (has_user and has_assistant):
+        return
+
+    title = ""
+    try:
+        title = await _generate_session_title_from_messages(messages)
+    except Exception as e:
+        safe_print(f"[API] Session title generation failed, fallback used: {e}")
+
+    if not title:
+        title = _fallback_session_title(messages)
+
+    try:
+        await _save_session_title(checkpoint_db, session_id, title)
+    except Exception as e:
+        safe_print(f"[API] Session title save failed: {e}")
+
 async def _get_checkpoint_messages(checkpoint_db: str, thread_id: str):
     """
     Get messages from a checkpoint using LangGraph's serialization.
@@ -314,10 +569,10 @@ async def _get_checkpoint_messages(checkpoint_db: str, thread_id: str):
                 if hasattr(msg, 'type') and hasattr(msg, 'content'):
                     if msg.type == 'human':
                         role = 'user'
-                        content = msg.content
+                        content = _content_to_text(msg.content)
                     elif msg.type == 'ai':
                         role = 'assistant'
-                        content = msg.content
+                        content = _content_to_text(msg.content)
                         # Skip empty AI messages (tool calls only)
                         if not content and hasattr(msg, 'tool_calls') and msg.tool_calls:
                             continue
@@ -336,7 +591,7 @@ async def _get_checkpoint_messages(checkpoint_db: str, thread_id: str):
 @router.get("/sessions")
 async def list_sessions():
     """
-    List all chat sessions with their first message as preview.
+    List all chat sessions with generated title or fallback preview.
     Returns sessions sorted by last update time.
     """
     import aiosqlite
@@ -362,27 +617,35 @@ async def list_sessions():
             """)
             rows = await cursor.fetchall()
         
+        thread_ids = [row["thread_id"] for row in rows if row["thread_id"]]
+        title_map = await _load_session_titles(checkpoint_db, thread_ids)
+
         for row in rows:
-            thread_id = row['thread_id']
-            messages = await _get_checkpoint_messages(checkpoint_db, thread_id)
-            
-            if not messages:
+            try:
+                thread_id = row['thread_id']
+                messages = await _get_checkpoint_messages(checkpoint_db, thread_id)
+
+                if not messages:
+                    continue
+
+                backend_title = title_map.get(thread_id)
+                if backend_title:
+                    preview = backend_title
+                else:
+                    preview = _fallback_session_title(messages)
+                    if len(preview) > 60:
+                        preview = f"{preview[:60]}..."
+
+                sessions.append({
+                    "id": thread_id,
+                    "preview": preview,
+                    "title": backend_title or preview,
+                    "message_count": len(messages),
+                    "updated_at": row['latest_checkpoint']
+                })
+            except Exception as row_err:
+                safe_print(f"[API] Skip broken session row: {row_err}")
                 continue
-            
-            # Use first user message as preview/title
-            preview = "New conversation"
-            for msg in messages:
-                if msg['role'] == 'user':
-                    content = msg['content']
-                    preview = content[:60] + ('...' if len(content) > 60 else '')
-                    break
-            
-            sessions.append({
-                "id": thread_id,
-                "preview": preview,
-                "message_count": len(messages),
-                "updated_at": row['latest_checkpoint']
-            })
         
         return {"sessions": sessions}
     except Exception as e:
@@ -429,8 +692,10 @@ async def delete_session(session_id: str):
     
     try:
         async with aiosqlite.connect(checkpoint_db) as db:
+            await _ensure_session_meta_table(db)
             await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
             await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+            await db.execute("DELETE FROM session_meta WHERE thread_id = ?", (session_id,))
             await db.commit()
         
         return {"status": "success", "deleted": session_id}

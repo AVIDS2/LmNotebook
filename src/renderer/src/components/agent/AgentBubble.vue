@@ -42,12 +42,7 @@
         <!-- Header -->
         <div class="agent-chat__header">
           <div class="agent-chat__title" @mousedown="startDrag" style="cursor: grab;">
-            <span class="agent-chat__avatar" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2L13.09 8.26L18 4L14.74 9.91L21 10.91L14.74 12.09L18 18L13.09 13.74L12 20L10.91 13.74L6 18L9.26 12.09L3 10.91L9.26 9.91L6 4L10.91 8.26L12 2Z"/>
-              </svg>
-            </span>
-            <span>{{ t('agent.title') }}</span>
+            <span>ORIGIN</span>
           </div>
           <div class="agent-chat__actions">
             <button 
@@ -113,13 +108,13 @@
                 @click="editingSessionId !== session.id && loadSession(session.id)"
               >
                 <!-- Normal display mode -->
-                <div v-if="editingSessionId !== session.id" class="session-item__preview">
-                  <span v-if="session.pinned" class="pin-indicator">
-                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="12" height="12">
-                      <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
-                    </svg>
-                  </span>
-                  {{ session.preview }}
+              <div v-if="editingSessionId !== session.id" class="session-item__preview">
+                <span v-if="session.pinned" class="pin-indicator">
+                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="12" height="12">
+                    <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
+                  </svg>
+                </span>
+                  {{ session.title || session.preview }}
                 </div>
                 <!-- Editing mode -->
                 <input 
@@ -172,12 +167,41 @@
           </div>
 
           <div
-            v-for="(msg, index) in messages.filter(m => m.content.trim() || (m.parts && m.parts.length))"
+            v-for="(msg, index) in visibleMessages"
             :key="index"
             class="message-wrapper"
             :class="[`message--${msg.role}`]">
             <div class="message">
               <div class="message__content">
+                <div v-if="msg.role === 'user' && msg.attachments?.length" class="message__attachments">
+                  <div
+                    v-for="att in msg.attachments"
+                    :key="att.id"
+                    class="message-attachment"
+                    :class="`message-attachment--${att.kind}`"
+                  >
+                    <template v-if="att.kind === 'image' && att.dataUrl">
+                      <img :src="att.dataUrl" :alt="att.name" class="message-attachment__thumb" />
+                      <div class="message-attachment__meta">
+                        <span class="message-attachment__name">{{ att.name }}</span>
+                        <span class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span class="message-attachment__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                          <path d="M6 3h9l4 4v14H6z"></path>
+                          <path d="M15 3v4h4"></path>
+                        </svg>
+                      </span>
+                      <div class="message-attachment__meta">
+                        <span class="message-attachment__name">{{ att.name }}</span>
+                        <span class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
                 <!-- Part-Based Rendering -->
                 <template v-if="msg.parts && msg.parts.length">
                   <template v-for="(part, partIndex) in msg.parts" :key="partIndex">
@@ -210,6 +234,91 @@
                        v-html="renderMarkdown(msg.content)"
                        @contextmenu="handleContextMenu($event, msg.content)"></div>
                 </template>
+
+                <Transition name="panel-elevate">
+                  <div
+                    v-if="msg.role === 'assistant' && index === approvalAnchorMessageIndex && (isExecutionAwaitingApproval || pendingApprovals.length > 0)"
+                    class="agent-approval-card agent-approval-card--inline"
+                  >
+                    <div class="agent-approval-card__head">
+                      <span class="agent-approval-card__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <circle cx="12" cy="12" r="9"></circle>
+                          <path d="M12 7v6"></path>
+                          <path d="M12 16h.01"></path>
+                        </svg>
+                      </span>
+                      <div class="agent-approval-card__meta">
+                        <div class="agent-approval-card__title">{{ approvalCardTitle }}</div>
+                        <div class="agent-approval-card__target">{{ approvalCardTarget }}</div>
+                        <div class="agent-approval-card__scope">{{ approvalCardScope }}</div>
+                      </div>
+                      <button class="agent-approval-card__dismiss" :disabled="approvalBusy" @click="dismissCurrentApproval">×</button>
+                    </div>
+                    <div class="agent-approval-card__foot">
+                      <span class="agent-approval-card__hint">{{ approvalCardHint }}</span>
+                      <div class="agent-approval-card__actions">
+                        <button
+                          v-if="!isExecutionAwaitingApproval && currentPendingApproval"
+                          class="agent-approval-btn"
+                          @click="showApprovalPreview = !showApprovalPreview"
+                        >
+                          {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
+                        </button>
+                        <button
+                          class="agent-approval-btn agent-approval-btn--accept"
+                          :disabled="approvalBusy"
+                          @click="approveCurrentApproval"
+                        >
+                          {{ locale === 'en' ? 'Allow once' : '接受一次' }}
+                        </button>
+                        <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="dismissCurrentApproval">
+                          {{ locale === 'en' ? 'Reject' : '拒绝' }}
+                        </button>
+                        <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">
+                          {{ locale === 'en' ? 'Auto allow' : '自动接受' }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+
+                <div
+                  v-if="msg.role === 'assistant' && index === approvalAnchorMessageIndex && showApprovalPreview && currentPendingApproval"
+                  class="agent-approval-preview agent-approval-preview--inline"
+                >
+                  <div class="agent-approval-preview__summary">{{ currentApprovalSummary }}</div>
+                  <div class="agent-approval-preview__title-row">
+                    <div class="agent-approval-preview__title">结构化差异</div>
+                    <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
+                      {{ showUnchangedDiff ? t('agent.hideUnchanged') : t('agent.showUnchanged') }}
+                    </button>
+                  </div>
+                  <div class="agent-approval-diff">
+                    <div
+                      v-for="block in visibleApprovalDiffBlocks"
+                      :key="block.id"
+                      class="agent-diff-block"
+                      :class="`agent-diff-block--${block.kind}`"
+                    >
+                      <div class="agent-diff-block__head">
+                        <span class="agent-diff-block__label">{{ block.label }}</span>
+                        <span class="agent-diff-block__kind">{{ block.kind }}</span>
+                      </div>
+                      <div class="agent-diff-lines">
+                        <div
+                          v-for="(line, idx) in block.lines"
+                          :key="`${block.id}-${idx}`"
+                          class="agent-diff-line"
+                          :class="`agent-diff-line--${line.op}`"
+                        >
+                          <span class="agent-diff-sign">{{ line.op === 'add' ? '+' : line.op === 'del' ? '-' : ' ' }}</span>
+                          <span class="agent-diff-text">{{ line.text || ' ' }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -242,109 +351,34 @@
           </button>
         </Transition>
 
-        <!-- Context bar moved into composer footer (shadcn-like layout) -->
-        <Transition name="panel-elevate">
-          <div v-if="isExecutionAwaitingApproval || pendingApprovals.length > 0" class="agent-approval-bar">
-            <template v-if="isExecutionAwaitingApproval && pendingExecutionApproval">
-              <span class="agent-approval-bar__label">{{ t('agent.pendingExecution', { operation: pendingExecutionApproval.operation, target: pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId }) }}</span>
-              <div class="agent-approval-bar__actions">
-                <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="respondExecutionApproval('approve')">接受</button>
-                <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="respondExecutionApproval('reject')">拒绝</button>
-                <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
-              </div>
-            </template>
-            <template v-else>
-              <span class="agent-approval-bar__label">{{ t('agent.pendingReview', { target: pendingApprovals[0].noteTitle || pendingApprovals[0].noteId }) }}</span>
-              <div class="agent-approval-bar__actions">
-                <button class="agent-approval-btn" @click="showApprovalPreview = !showApprovalPreview">
-                  {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
-                </button>
-                <button class="agent-approval-btn agent-approval-btn--accept" :disabled="approvalBusy" @click="acceptPendingApproval(pendingApprovals[0].id)">接受</button>
-                <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="rejectPendingApproval(pendingApprovals[0].id)">拒绝</button>
-                <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">自动接受</button>
-              </div>
-            </template>
-          </div>
-        </Transition>
-
-        <div
-          v-if="showOpsPanel && ((((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview) || executionRecords.length > 0)"
-          class="agent-ops-grid"
-        >
-          <Transition name="panel-elevate">
-            <div v-if="((isExecutionAwaitingApproval && pendingExecutionApproval) || currentPendingApproval) && showApprovalPreview" class="agent-task-card">
-              <div class="agent-task-card__title">任务卡</div>
-              <div class="agent-task-card__row"><span>目标</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.noteTitle || pendingExecutionApproval.noteId) : (currentPendingApproval?.noteTitle || currentPendingApproval?.noteId) }}</span></div>
-              <div class="agent-task-card__row"><span>操作</span><span>{{ pendingExecutionApproval ? pendingExecutionApproval.operation : 'update_note' }}</span></div>
-              <div class="agent-task-card__row"><span>影响</span><span>{{ pendingExecutionApproval ? (pendingExecutionApproval.scope || pendingExecutionApproval.message || '写操作') : currentApprovalSummary }}</span></div>
-            </div>
-          </Transition>
-
-          <Transition name="panel-elevate">
-            <div v-if="executionRecords.length > 0" class="agent-execution-panel">
-            <div class="agent-execution-panel__head">
-              <span class="agent-execution-panel__title">{{ t('agent.executionLog') }}</span>
-              <button class="agent-approval-btn" @click="executionExpanded = !executionExpanded">
-                {{ executionExpanded ? t('common.collapse') : t('common.expand') }}
-              </button>
-            </div>
-            <TransitionGroup v-if="executionExpanded" name="record-item" tag="div" class="agent-execution-list">
-              <div
-                v-for="record in executionRecords"
-                :key="record.id"
-                class="agent-execution-item"
-                :class="`agent-execution-item--${record.status}`"
-              >
-                <span class="agent-execution-item__status">{{ record.statusText }}</span>
-                <span class="agent-execution-item__title">{{ record.title }}</span>
-                <span class="agent-execution-item__time">{{ record.timeLabel }}</span>
-              </div>
-            </TransitionGroup>
-            </div>
-          </Transition>
-        </div>
-
-        <div v-if="showApprovalPreview && currentPendingApproval" class="agent-approval-preview">
-          <div class="agent-approval-preview__summary">{{ currentApprovalSummary }}</div>
-          <div class="agent-approval-preview__title-row">
-            <div class="agent-approval-preview__title">结构化差异</div>
-            <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
-              {{ showUnchangedDiff ? t('agent.hideUnchanged') : t('agent.showUnchanged') }}
-            </button>
-          </div>
-          <div class="agent-approval-diff">
-            <div
-              v-for="block in visibleApprovalDiffBlocks"
-              :key="block.id"
-              class="agent-diff-block"
-              :class="`agent-diff-block--${block.kind}`"
-            >
-              <div class="agent-diff-block__head">
-                <span class="agent-diff-block__label">{{ block.label }}</span>
-                <span class="agent-diff-block__kind">{{ block.kind }}</span>
-              </div>
-              <div class="agent-diff-lines">
-                <div
-                  v-for="(line, idx) in block.lines"
-                  :key="`${block.id}-${idx}`"
-                  class="agent-diff-line"
-                  :class="`agent-diff-line--${line.op}`"
-                >
-                  <span class="agent-diff-sign">{{ line.op === 'add' ? '+' : line.op === 'del' ? '-' : ' ' }}</span>
-                  <span class="agent-diff-text">{{ line.text || ' ' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <!-- Compact Input Area -->
         <div class="agent-chat__footer">
-          <div class="chat-input-unified-box">
+          <div
+            class="chat-input-unified-box"
+            :class="{ 'is-drop-active': isComposerDragActive }"
+            @dragenter.prevent="handleComposerDragEnter"
+            @dragover.prevent="handleComposerDragOver"
+            @dragleave.prevent="handleComposerDragLeave"
+            @drop.prevent="handleComposerDrop"
+          >
+            <div v-if="composerAttachments.length" class="composer-attachments">
+              <div
+                v-for="att in composerAttachments"
+                :key="att.id"
+                class="composer-attachment-chip"
+                :class="`composer-attachment-chip--${att.kind}`"
+              >
+                <span class="composer-attachment-chip__label">{{ att.name }}</span>
+                <button class="composer-attachment-chip__remove" @click="removeComposerAttachment(att.id)">×</button>
+              </div>
+            </div>
+
             <textarea
               v-model="inputText"
               @keydown.enter.exact.prevent="sendMessage()"
               @input="autoResizeInput"
+              @paste="handleComposerPaste"
               :placeholder="locale === 'en' ? 'Ask, search, or make anything...' : '提问、搜索或执行任务...'"
               :style="{ height: `${composerInputHeight}px` }"
               rows="1"
@@ -367,6 +401,25 @@
                   
                   <Transition name="menu-fade">
                     <div v-if="showInputMenu" class="input-menu-popup shallow-glass">
+                      <div class="menu-item" @click="openImageUpload">
+                        <span class="menu-icon smaller">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <path d="M21 15l-5-5L5 21"></path>
+                          </svg>
+                        </span>
+                        <span class="menu-label">{{ locale === 'en' ? 'Upload image' : '上传图片' }}</span>
+                      </div>
+                      <div class="menu-item" @click="openFileUpload">
+                        <span class="menu-icon smaller">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                          </svg>
+                        </span>
+                        <span class="menu-label">{{ locale === 'en' ? 'Upload file' : '上传文件' }}</span>
+                      </div>
                       <div class="menu-item" @click="triggerKnowledgeSearch">
                         <span class="menu-icon">@</span>
                         <span class="menu-label">{{ locale === 'en' ? 'Knowledge base' : '笔记知识库' }}</span>
@@ -380,18 +433,23 @@
                         </span>
                         <span class="menu-label">{{ locale === 'en' ? 'Add note context' : '添加笔记上下文' }}</span>
                       </div>
-                      <div class="menu-item" @click="toggleOpsPanel">
-                        <span class="menu-icon smaller">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="4" width="18" height="16" rx="2"/>
-                            <line x1="8" y1="9" x2="16" y2="9"/>
-                            <line x1="8" y1="13" x2="16" y2="13"/>
-                          </svg>
-                        </span>
-                        <span class="menu-label">{{ showOpsPanel ? (locale === 'en' ? 'Hide task records' : '隐藏任务记录') : (locale === 'en' ? 'Show task records' : '显示任务记录') }}</span>
-                      </div>
                     </div>
                   </Transition>
+                  <input
+                    ref="imageUploadInputRef"
+                    class="composer-hidden-input"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    @change="handleImageInputChange"
+                  />
+                  <input
+                    ref="fileUploadInputRef"
+                    class="composer-hidden-input"
+                    type="file"
+                    multiple
+                    @change="handleFileInputChange"
+                  />
                   
                   <Transition name="menu-fade">
                     <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
@@ -516,8 +574,19 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   parts?: MessagePart[]  // Part-Based: for structured rendering
+  attachments?: ComposerAttachment[]
   timestamp: Date
   isError?: boolean
+}
+
+interface ComposerAttachment {
+  id: string
+  kind: 'image' | 'file'
+  name: string
+  mimeType?: string
+  sizeBytes?: number
+  dataUrl?: string
+  textContent?: string
 }
 
 // Part-Based Message Types (OpenCode-style)
@@ -564,6 +633,11 @@ const streamingMessage = ref<ChatMessage | null>(null)
 const currentStatus = ref('')
 const abortController = ref<AbortController | null>(null)
 const includeActiveNote = ref(true)
+const composerAttachments = ref<ComposerAttachment[]>([])
+const imageUploadInputRef = ref<HTMLInputElement | null>(null)
+const fileUploadInputRef = ref<HTMLInputElement | null>(null)
+const isComposerDragActive = ref(false)
+const composerDragDepth = ref(0)
 const AUTO_ACCEPT_EDITS_KEY = 'origin_agent_auto_accept_edits'
 const autoAcceptEdits = ref(localStorage.getItem(AUTO_ACCEPT_EDITS_KEY) !== '0')
 type AgentMode = 'ask' | 'agent'
@@ -638,21 +712,13 @@ interface PersistedUiState {
     role: ChatMessage['role']
     content: string
     parts?: MessagePart[]
+    attachments?: ComposerAttachment[]
     timestamp: string
     isError?: boolean
   }>
   pendingApprovals: PendingApproval[]
   pendingExecutionApproval?: PendingExecutionApproval | null
   showApprovalPreview: boolean
-  executionExpanded?: boolean
-}
-
-interface ExecutionRecord {
-  id: string
-  title: string
-  status: 'running' | 'pending' | 'completed' | 'error'
-  statusText: string
-  timeLabel: string
 }
 
 interface ModelProviderOption {
@@ -679,7 +745,6 @@ const pendingExecutionApproval = ref<PendingExecutionApproval | null>(null)
 const showApprovalPreview = ref(false)
 const showUnchangedDiff = ref(false)
 const approvalBusy = ref(false)
-const executionExpanded = ref(true)
 const SESSION_UI_PREFIX = 'origin_agent_session_ui_v1:'
 let persistUiTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -717,13 +782,13 @@ function persistSessionUiState(sessionId: string = currentSessionId.value): void
         role: msg.role,
         content: msg.content,
         parts: msg.parts,
+        attachments: msg.attachments,
         timestamp: msg.timestamp instanceof Date ? msg.timestamp.toISOString() : new Date(msg.timestamp).toISOString(),
         isError: msg.isError
       })),
       pendingApprovals: pendingApprovals.value,
       pendingExecutionApproval: pendingExecutionApproval.value,
-      showApprovalPreview: showApprovalPreview.value,
-      executionExpanded: executionExpanded.value
+      showApprovalPreview: showApprovalPreview.value
     }
     localStorage.setItem(getSessionUiKey(sessionId), JSON.stringify(payload))
   } catch (e) {
@@ -748,13 +813,13 @@ function loadPersistedUiState(sessionId: string): boolean {
       role: m.role,
       content: m.content || '',
       parts: m.parts || [],
+      attachments: m.attachments || [],
       timestamp: new Date(m.timestamp || Date.now()),
       isError: m.isError
     }))
     pendingApprovals.value = Array.isArray(parsed.pendingApprovals) ? parsed.pendingApprovals : []
     pendingExecutionApproval.value = parsed.pendingExecutionApproval || null
     showApprovalPreview.value = Boolean(parsed.showApprovalPreview)
-    executionExpanded.value = parsed.executionExpanded !== false
     return true
   } catch (e) {
     console.warn('[Agent] Failed to load persisted UI session state:', e)
@@ -797,7 +862,8 @@ async function loadSessionList() {
         const meta = sessionMeta.value[s.id] || {}
         return {
           ...s,
-          preview: meta.title || s.preview,
+          title: meta.title || s.title || s.preview,
+          preview: s.preview,
           pinned: meta.pinned || false
         }
       })
@@ -843,7 +909,7 @@ function renameSession(sessionId: string) {
   if (!session) return
   
   editingSessionId.value = sessionId
-  editingTitle.value = session.preview
+  editingTitle.value = session.title || session.preview
   
   // Focus input after render
   nextTick(() => {
@@ -865,7 +931,7 @@ function confirmRename(sessionId: string) {
     
     const session = sessionList.value.find(s => s.id === sessionId)
     if (session) {
-      session.preview = editingTitle.value.trim()
+      session.title = editingTitle.value.trim()
     }
   }
   editingSessionId.value = null
@@ -909,6 +975,10 @@ async function deleteSession(sessionId: string) {
     })
     if (response.ok) {
       clearPersistedUiState(sessionId)
+      if (sessionMeta.value[sessionId]) {
+        delete sessionMeta.value[sessionId]
+        saveSessionMeta()
+      }
       sessionList.value = sessionList.value.filter(s => s.id !== sessionId)
       // If deleted current session, start new one
       if (sessionId === currentSessionId.value) {
@@ -922,7 +992,6 @@ async function deleteSession(sessionId: string) {
 
 // --- New: Input Menu & Knowledge Search ---
 const showInputMenu = ref(false)
-const showOpsPanel = ref(false)
 
 function toggleNoteSelector() {
   showInputMenu.value = false  // Close menu first
@@ -947,11 +1016,6 @@ function triggerKnowledgeSearch() {
   })
 }
 
-function toggleOpsPanel() {
-  showOpsPanel.value = !showOpsPanel.value
-  showInputMenu.value = false
-}
-
 function selectNoteAsContext(note: any) {
   selectedContextNote.value = note
   showNoteSelector.value = false
@@ -959,6 +1023,209 @@ function selectNoteAsContext(note: any) {
 
 function clearContextNote() {
   selectedContextNote.value = null
+}
+
+function formatAttachmentSize(sizeBytes?: number): string {
+  if (!sizeBytes || sizeBytes <= 0) return ''
+  if (sizeBytes < 1024) return `${sizeBytes} B`
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/')
+}
+
+function isTextReadableFile(file: File): boolean {
+  const mime = file.type.toLowerCase()
+  if (!mime) {
+    return /\.(txt|md|markdown|json|yaml|yml|csv|tsv|log|xml|html?|css|js|ts|tsx|jsx|py|java|go|rs|c|cpp|h)$/i.test(file.name)
+  }
+  if (mime.startsWith('text/')) return true
+  return [
+    'application/json',
+    'application/xml',
+    'application/javascript'
+  ].includes(mime)
+}
+
+function isDocxFile(file: File): boolean {
+  const mime = (file.type || '').toLowerCase()
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    return true
+  }
+  return /\.docx$/i.test(file.name || '')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file as data URL'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file text'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+async function readDocxAsText(file: File): Promise<string> {
+  try {
+    const mammoth = await import('mammoth/mammoth.browser')
+    const arrayBuffer = await file.arrayBuffer()
+    const result = await mammoth.extractRawText({ arrayBuffer })
+    return String(result?.value || '').trim()
+  } catch (error) {
+    console.warn('[Agent] Failed to extract .docx text:', file.name, error)
+    return ''
+  }
+}
+
+async function buildComposerAttachment(file: File): Promise<ComposerAttachment | null> {
+  const id = crypto.randomUUID()
+  const base: ComposerAttachment = {
+    id,
+    kind: isImageFile(file) ? 'image' : 'file',
+    name: file.name || `attachment-${id.slice(0, 6)}`,
+    mimeType: file.type || '',
+    sizeBytes: file.size
+  }
+
+  if (base.kind === 'image') {
+    const dataUrl = await readFileAsDataUrl(file)
+    return {
+      ...base,
+      dataUrl
+    }
+  }
+
+  if (isDocxFile(file)) {
+    const docxText = await readDocxAsText(file)
+    if (docxText) {
+      return {
+        ...base,
+        textContent: docxText.length > 24000 ? `${docxText.slice(0, 24000)}\n...[truncated]` : docxText
+      }
+    }
+    return base
+  }
+
+  if (isTextReadableFile(file)) {
+    const text = await readFileAsText(file)
+    return {
+      ...base,
+      textContent: text.length > 24000 ? `${text.slice(0, 24000)}\n...[truncated]` : text
+    }
+  }
+
+  return base
+}
+
+function mergeComposerAttachments(next: ComposerAttachment[]): void {
+  if (!next.length) return
+  const existing = composerAttachments.value
+  const seen = new Set(existing.map(a => `${a.name}:${a.sizeBytes || 0}:${a.mimeType || ''}`))
+  const merged = [...existing]
+  for (const att of next) {
+    const key = `${att.name}:${att.sizeBytes || 0}:${att.mimeType || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(att)
+    if (merged.length >= 8) break
+  }
+  composerAttachments.value = merged
+}
+
+async function appendComposerFiles(files: File[]): Promise<void> {
+  if (!files.length) return
+  const parsed = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return await buildComposerAttachment(file)
+      } catch (err) {
+        console.warn('[Agent] Failed to parse attachment:', file.name, err)
+        return null
+      }
+    })
+  )
+  mergeComposerAttachments(parsed.filter((item): item is ComposerAttachment => Boolean(item)))
+}
+
+function removeComposerAttachment(id: string): void {
+  composerAttachments.value = composerAttachments.value.filter(att => att.id !== id)
+}
+
+function openImageUpload(): void {
+  showInputMenu.value = false
+  imageUploadInputRef.value?.click()
+}
+
+function openFileUpload(): void {
+  showInputMenu.value = false
+  fileUploadInputRef.value?.click()
+}
+
+async function handleImageInputChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  await appendComposerFiles(files)
+  input.value = ''
+}
+
+async function handleFileInputChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  await appendComposerFiles(files)
+  input.value = ''
+}
+
+function hasTransferFiles(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false
+  if (dataTransfer.files && dataTransfer.files.length > 0) return true
+  return Array.from(dataTransfer.items || []).some(item => item.kind === 'file')
+}
+
+function handleComposerDragEnter(event: DragEvent): void {
+  if (!hasTransferFiles(event.dataTransfer)) return
+  composerDragDepth.value += 1
+  isComposerDragActive.value = true
+}
+
+function handleComposerDragOver(event: DragEvent): void {
+  if (!hasTransferFiles(event.dataTransfer)) return
+  isComposerDragActive.value = true
+}
+
+function handleComposerDragLeave(event: DragEvent): void {
+  if (!hasTransferFiles(event.dataTransfer)) return
+  composerDragDepth.value = Math.max(0, composerDragDepth.value - 1)
+  if (composerDragDepth.value === 0) {
+    isComposerDragActive.value = false
+  }
+}
+
+async function handleComposerDrop(event: DragEvent): Promise<void> {
+  const files = Array.from(event.dataTransfer?.files || [])
+  composerDragDepth.value = 0
+  isComposerDragActive.value = false
+  await appendComposerFiles(files)
+}
+
+async function handleComposerPaste(event: ClipboardEvent): Promise<void> {
+  const items = Array.from(event.clipboardData?.items || [])
+  const files = items
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+  if (!files.length) return
+  event.preventDefault()
+  await appendComposerFiles(files)
 }
 
 function snapshotFromNote(note: Note): NoteSnapshot {
@@ -1436,10 +1703,21 @@ async function enableAutoAcceptAndApply(): Promise<void> {
 }
 
 const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
+const visibleMessages = computed(() =>
+  messages.value.filter(
+    m => m.content.trim() || (m.parts && m.parts.length) || (m.attachments && m.attachments.length)
+  )
+)
+const approvalAnchorMessageIndex = computed(() => {
+  const list = visibleMessages.value
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i].role === 'assistant') return i
+  }
+  return -1
+})
 const isExecutionAwaitingApproval = computed(
   () => Boolean(pendingExecutionApproval.value) && !approvalBusy.value
 )
-const hasReviewData = computed(() => Boolean(pendingExecutionApproval.value || currentPendingApproval.value))
 const currentApprovalSummary = computed(() => {
   if (!currentPendingApproval.value) return ''
   return summarizeChange(currentPendingApproval.value.before, currentPendingApproval.value.after)
@@ -1455,45 +1733,57 @@ const visibleApprovalDiffBlocks = computed(() => {
   return approvalDiffBlocks.value.filter(block => block.kind !== 'unchanged')
 })
 
-function handleReviewPillClick(): void {
-  if (!hasReviewData.value) return
-  showApprovalPreview.value = !showApprovalPreview.value
-}
-
-function formatExecutionTime(input: Date | string): string {
-  const d = input instanceof Date ? input : new Date(input)
-  if (Number.isNaN(d.getTime())) return '--:--:--'
-  return d.toLocaleTimeString([], { hour12: false })
-}
-
-const executionRecords = computed<ExecutionRecord[]>(() => {
-  const records: ExecutionRecord[] = []
-  messages.value.forEach((msg, msgIndex) => {
-    if (!msg.parts || msg.parts.length === 0) return
-    const timeLabel = formatExecutionTime(msg.timestamp)
-    msg.parts.forEach((part, partIndex) => {
-      if (part.type !== 'tool') return
-      const toolPart = part as ToolPart
-      const statusText =
-        toolPart.status === 'running'
-          ? t('agent.running')
-          : toolPart.status === 'pending'
-            ? t('agent.pendingConfirm')
-            : toolPart.status === 'completed'
-            ? t('agent.completed')
-            : t('agent.failed')
-      if (toolPart.status === 'pending') return
-      records.push({
-        id: `${msgIndex}-${partIndex}-${toolPart.toolId || toolPart.tool}`,
-        title: toolPart.title || toolPart.tool,
-        status: toolPart.status,
-        statusText,
-        timeLabel
-      })
-    })
-  })
-  return records.reverse().slice(0, 20)
+const approvalCardTitle = computed(() => {
+  if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
+    return locale.value === 'en' ? 'Allow write action?' : '允许执行写入操作？'
+  }
+  if (currentPendingApproval.value) {
+    return locale.value === 'en' ? 'Review proposed changes' : '请确认待应用变更'
+  }
+  return ''
 })
+
+const approvalCardTarget = computed(() => {
+  if (pendingExecutionApproval.value) {
+    return `${pendingExecutionApproval.value.operation} · ${pendingExecutionApproval.value.noteTitle || pendingExecutionApproval.value.noteId || '--'}`
+  }
+  if (currentPendingApproval.value) {
+    return currentPendingApproval.value.noteTitle || currentPendingApproval.value.noteId || '--'
+  }
+  return '--'
+})
+
+const approvalCardScope = computed(() => {
+  if (pendingExecutionApproval.value) {
+    return pendingExecutionApproval.value.scope || pendingExecutionApproval.value.message || (locale.value === 'en' ? 'This action may modify note content.' : '该操作可能修改笔记内容。')
+  }
+  return currentApprovalSummary.value || (locale.value === 'en' ? 'This action includes note changes.' : '该操作包含笔记内容变更。')
+})
+
+const approvalCardHint = computed(() => {
+  if (isExecutionAwaitingApproval.value) {
+    return locale.value === 'en' ? 'Agent requests permission before writing.' : 'Agent 需要授权后才会执行写入。'
+  }
+  return locale.value === 'en' ? 'Review and apply this change set.' : '请检查后再应用这组变更。'
+})
+
+async function approveCurrentApproval(): Promise<void> {
+  if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
+    await respondExecutionApproval('approve')
+    return
+  }
+  if (!currentPendingApproval.value) return
+  await acceptPendingApproval(currentPendingApproval.value.id)
+}
+
+async function dismissCurrentApproval(): Promise<void> {
+  if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
+    await respondExecutionApproval('reject')
+    return
+  }
+  if (!currentPendingApproval.value) return
+  await rejectPendingApproval(currentPendingApproval.value.id)
+}
 
 const displayStatusText = computed(() => {
   if (approvalBusy.value && !pendingExecutionApproval.value) {
@@ -2005,7 +2295,6 @@ function clearChat() {
   preUpdateSnapshots.value = {}
   showApprovalPreview.value = false
   showUnchangedDiff.value = false
-  executionExpanded.value = true
   isTyping.value = false
   currentStatus.value = ''
   if (abortController.value) {
@@ -2081,8 +2370,18 @@ async function sendMessage(
   let touchedNoteId: string | null = null
   const isResume = Boolean(options?.resume)
   const messageText = (text ?? inputText.value.trim()).trim()
+  const outgoingAttachments = !isResume
+    ? composerAttachments.value.map((att) => ({
+        kind: att.kind,
+        name: att.name,
+        mime_type: att.mimeType || '',
+        size_bytes: att.sizeBytes || 0,
+        data_url: att.dataUrl || null,
+        text_content: att.textContent || null
+      }))
+    : []
   if (isTyping.value && !isResume) return
-  if (!isResume && !messageText) return
+  if (!isResume && !messageText && outgoingAttachments.length === 0) return
   if (!isResume && pendingExecutionApproval.value) {
     messages.value.push({
       role: 'assistant',
@@ -2104,11 +2403,25 @@ async function sendMessage(
   
   // Optimistic UI update
   if (!options?.suppressUserEcho) {
-    messages.value.push({ role: 'user', content: messageText, timestamp: new Date() })
+    messages.value.push({
+      role: 'user',
+      content: messageText,
+      attachments: outgoingAttachments.map(att => ({
+        id: crypto.randomUUID(),
+        kind: att.kind === 'image' ? 'image' : 'file',
+        name: att.name,
+        mimeType: att.mime_type || '',
+        sizeBytes: att.size_bytes || 0,
+        dataUrl: att.data_url || undefined,
+        textContent: att.text_content || undefined
+      })),
+      timestamp: new Date()
+    })
   }
   // Clear state
   if (!options?.suppressUserEcho) {
     inputText.value = ''
+    composerAttachments.value = []
   }
   isTyping.value = true
   showInputMenu.value = false
@@ -2190,7 +2503,8 @@ async function sendMessage(
       agent_mode: agentMode.value,
       model_provider_id: selectedModelProviderId.value,
       model_name: selectedModelName.value,
-      resume: options?.resume || null
+      resume: options?.resume || null,
+      attachments: outgoingAttachments
     }
 
     // Add context info if selected
@@ -2855,10 +3169,6 @@ watch(showApprovalPreview, () => {
   schedulePersistUiState()
 })
 
-watch(executionExpanded, () => {
-  schedulePersistUiState()
-})
-
 watch(
   [pendingExecutionApproval, pendingApprovals],
   ([executionApproval, diffApprovals]) => {
@@ -2998,6 +3308,115 @@ watch(
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   border: 1px solid var(--theme-border);
   box-shadow: var(--theme-shadow-soft);
+}
+
+.composer-hidden-input {
+  display: none;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: rgba(255, 255, 255, 0.64);
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+}
+
+.composer-attachment-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-chip__remove {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+}
+
+.chat-input-unified-box.is-drop-active {
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+}
+
+.message__attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.message-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+  padding: 6px 8px;
+}
+
+.message-attachment--image {
+  align-items: stretch;
+}
+
+.message-attachment__thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  border: 1px solid var(--theme-border);
+}
+
+.message-attachment__icon {
+  width: 16px;
+  height: 16px;
+  color: var(--theme-text-secondary);
+  flex-shrink: 0;
+}
+
+.message-attachment__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.message-attachment__meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-attachment__name {
+  font-size: 12px;
+  color: var(--theme-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment__size {
+  font-size: 11px;
+  color: var(--theme-text-secondary);
 }
 
 /* ===== 馃煝 Bubble: Draggable & Dockable ===== */
@@ -5642,17 +6061,18 @@ watch(
 }
 
 .agent-chat__header {
-  min-height: 52px;
-  padding: 10px 14px;
+  min-height: 46px;
+  padding: 8px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 65%, transparent);
   background: transparent;
 }
 
 .agent-chat__title {
-  gap: 8px;
-  font-size: 14px;
+  gap: 0;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .agent-chat__avatar {
@@ -5669,8 +6089,8 @@ watch(
 }
 
 .header-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -5684,8 +6104,8 @@ watch(
 }
 
 .header-btn svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .agent-chat__status {
@@ -5716,15 +6136,36 @@ watch(
 
 .message--user .message {
   display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: fit-content;
+  max-width: min(92%, 560px);
   background: color-mix(in srgb, var(--theme-surface-soft, var(--theme-bg-secondary)) 92%, transparent) !important;
   border: 1px solid color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
-  border-radius: 999px;
-  padding: 8px 14px !important;
+  border-radius: 16px;
+  padding: 10px 12px !important;
+  overflow: hidden;
+}
+
+.message--user .message__content {
+  width: 100%;
+  min-width: 0;
 }
 
 .message--user .message__text {
   font-size: 14px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message--user .message__attachments {
+  width: 100%;
+}
+
+.message--user .message-attachment__meta {
+  min-width: 0;
+  width: 100%;
 }
 
 .tool-part {
@@ -5759,29 +6200,126 @@ watch(
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 45%, transparent);
 }
 
-.agent-approval-bar__label {
-  display: block !important;
-  font-size: 12.5px;
+.agent-approval-card {
+  margin: 8px 0 6px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 66%, transparent);
+  background: color-mix(in srgb, var(--theme-bg-secondary) 92%, transparent);
+  box-shadow: 0 4px 18px color-mix(in srgb, #000 7%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 36%, transparent);
+  overflow: hidden;
 }
 
-.agent-approval-bar__actions {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
-  overflow-x: auto;
+.agent-approval-card--inline {
+  max-width: 100%;
+}
+
+.agent-approval-card__head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.agent-approval-card__icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--theme-accent) 88%, transparent);
+}
+
+.agent-approval-card__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.agent-approval-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-approval-card__title {
+  font-size: 13px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--theme-text) 98%, transparent);
+}
+
+.agent-approval-card__target,
+.agent-approval-card__scope {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--theme-text-secondary) 90%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-approval-card__dismiss {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--theme-text-secondary) 80%, transparent);
+  line-height: 1;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.agent-approval-card__dismiss:hover {
+  background: color-mix(in srgb, var(--theme-bg-hover) 78%, transparent);
+  color: var(--theme-text);
+}
+
+.agent-approval-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border) 55%, transparent);
+}
+
+.agent-approval-card__hint {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--theme-text-secondary) 88%, transparent);
+}
+
+.agent-approval-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.agent-approval-preview--inline {
+  margin: 8px 0 6px;
+}
+
+@media (max-width: 640px) {
+  .agent-approval-card__foot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .agent-approval-card__actions {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
 }
 
 .agent-approval-btn {
   flex: 0 0 auto !important;
   border: none !important;
-  border-radius: 999px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--theme-bg-secondary) 78%, transparent);
   box-shadow: none !important;
   font-size: 12px;
-  height: 28px;
-  padding: 0 11px;
+  height: 30px;
+  padding: 0 12px;
+  font-weight: 560;
 }
 
 .agent-approval-btn--accept {
@@ -5794,24 +6332,11 @@ watch(
   color: color-mix(in srgb, #7f1d1d 84%, var(--theme-text));
 }
 
-.agent-task-card,
-.agent-execution-panel,
 .agent-approval-preview {
   border: none;
   border-radius: 10px;
   background: color-mix(in srgb, var(--theme-bg-secondary) 88%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 42%, transparent);
-}
-
-.agent-task-card__title,
-.agent-execution-panel__title {
-  font-size: 12.5px;
-  font-weight: 650;
-}
-
-.agent-task-card__row,
-.agent-execution-item {
-  font-size: 12px;
 }
 
 /* Composer */
@@ -6142,19 +6667,27 @@ watch(
 
 /* ===== Session history: shadcn-style refresh ===== */
 .session-history-panel {
-  top: 52px;
-  background: color-mix(in srgb, var(--theme-surface) 96%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--theme-border) 56%, transparent);
-  border-radius: 0;
+  top: 54px;
+  right: 10px;
+  left: auto;
+  bottom: auto;
+  width: min(340px, calc(100% - 20px));
+  max-height: min(56vh, 420px);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 70%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 98%, transparent);
+  box-shadow: 0 16px 34px color-mix(in srgb, #000 12%, transparent);
+  overflow: hidden;
+  z-index: 120;
 }
 
 .session-history__header {
-  min-height: 40px;
-  padding: 8px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 52%, transparent);
-  font-size: 12px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 58%, transparent);
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   color: color-mix(in srgb, var(--theme-text-secondary) 88%, transparent);
 }
 
@@ -6175,10 +6708,11 @@ watch(
 }
 
 .session-history__list {
-  padding: 8px;
+  padding: 7px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
 }
 
 .session-history__empty {
@@ -6190,12 +6724,12 @@ watch(
 }
 
 .session-item {
-  min-height: 34px;
+  min-height: 32px;
   margin: 0;
-  border-radius: 10px;
+  border-radius: 9px;
   border: 1px solid transparent;
   background: transparent;
-  padding: 7px 8px;
+  padding: 6px 8px;
 }
 
 .session-item:hover {
@@ -6213,7 +6747,7 @@ watch(
 }
 
 .session-item__preview {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.3;
   color: color-mix(in srgb, var(--theme-text) 92%, transparent);
   gap: 6px;
@@ -6240,10 +6774,10 @@ watch(
 }
 
 .session-item__btn {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--theme-text-secondary) 82%, transparent);
 }
@@ -6259,17 +6793,26 @@ watch(
 }
 
 .session-item__btn svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .session-rename-input {
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
   background: color-mix(in srgb, var(--theme-bg-secondary) 76%, var(--theme-surface) 24%);
-  font-size: 12.5px;
-  height: 28px;
-  padding: 0 9px;
+  font-size: 12px;
+  height: 26px;
+  padding: 0 8px;
+}
+
+@media (max-width: 780px) {
+  .session-history-panel {
+    top: 50px;
+    right: 8px;
+    width: calc(100% - 16px);
+    max-height: 52vh;
+  }
 }
 
 /* Ask/Agent + compact composer controls */
@@ -6324,6 +6867,84 @@ watch(
   .composer-review-btn {
     font-size: 10.5px;
   }
+}
+
+/* Inline approval + execution row (shadcn-like, lightweight) */
+.agent-chat__messages .tool-part {
+  margin: 8px 0 2px !important;
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 62%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.agent-chat__messages .tool-part--running {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border)) !important;
+  background: color-mix(in srgb, var(--theme-accent-light) 24%, var(--theme-bg-secondary)) !important;
+}
+
+.agent-chat__messages .tool-part__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-chat__messages .tool-part__name {
+  font-size: 12.5px !important;
+  font-weight: 610 !important;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--theme-text) 90%, transparent) !important;
+}
+
+.agent-chat__messages .tool-part__output {
+  display: block;
+  margin-top: 5px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 60%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 84%, transparent);
+  font-size: 11.5px !important;
+  line-height: 1.35;
+}
+
+.agent-chat__messages .tool-part__pending,
+.agent-chat__messages .tool-part__check {
+  flex-shrink: 0;
+}
+
+.agent-chat__messages .agent-approval-card {
+  border-radius: 12px;
+}
+
+[data-theme="dark"] .agent-chat__messages .tool-part {
+  background: color-mix(in srgb, #111622 78%, var(--theme-bg-secondary) 22%) !important;
+  border-color: color-mix(in srgb, #334155 68%, var(--theme-border)) !important;
+}
+
+/* Final override: keep user attachment bubbles compact rounded-rect (not oval) */
+.message--user .message {
+  max-width: min(88%, 520px) !important;
+  border-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+  padding: 10px 12px !important;
+}
+
+.message--user .message__attachments {
+  margin-bottom: 6px !important;
+}
+
+.message--user .message-attachment {
+  border-radius: 12px !important;
+  padding: 8px 10px !important;
+}
+
+.message--user .message-attachment__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 </style>
