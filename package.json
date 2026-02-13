@@ -1,6 +1,6 @@
 {
   "name": "origin-notes",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "简约风格的原子笔记应用",
   "main": "./out/main/index.js",
   "author": {
