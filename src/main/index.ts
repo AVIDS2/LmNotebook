@@ -137,16 +137,26 @@ function startBackend(): void {
     cwd = backendDir
     const execCandidates =
       process.platform === 'win32'
-        ? [join(backendDir, 'origin_backend.exe')]
-        : [join(backendDir, 'origin_backend'), join(backendDir, 'origin_backend.bin'), join(backendDir, 'origin_backend.exe')]
+        ? [
+            join(backendDir, 'origin_backend.exe'),
+            join(backendDir, 'origin_backend', 'origin_backend.exe'),
+            join(backendDir, 'origin_backend.bin'),
+            join(backendDir, 'origin_backend', 'origin_backend.bin')
+          ]
+        : [
+            join(backendDir, 'origin_backend'),
+            join(backendDir, 'origin_backend', 'origin_backend'),
+            join(backendDir, 'origin_backend.bin'),
+            join(backendDir, 'origin_backend', 'origin_backend.bin'),
+            join(backendDir, 'origin_backend.exe')
+          ]
     const resolvedExec = execCandidates.find((candidate) => existsSync(candidate))
 
     if (!resolvedExec) {
       logStream.write(`[FATAL] Backend executable not found. Tried:\n${execCandidates.map((p) => `  - ${p}`).join('\n')}\n`)
-      dialog.showErrorBox(
-        'Backend Missing',
-        `Backend executable was not found.\n\nChecked:\n${execCandidates.join('\n')}\n\nSee log: ${logPath}`
-      )
+      // Keep app usable even if AI backend binary is missing.
+      // Notes and local DB still work without backend service.
+      console.error('Backend executable not found. See log:', logPath)
       return
     }
     backendExec = resolvedExec

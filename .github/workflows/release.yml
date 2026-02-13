@@ -35,14 +35,39 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Install backend build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r src/backend/requirements.txt
 
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential python3 make g++ fakeroot rpm
+
+      - name: Build backend executable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-Location src/backend
+          pyinstaller origin-backend.spec -y --clean
+
+      - name: Build backend executable (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd src/backend
+          pyinstaller origin-backend.spec -y --clean
 
       - name: Build renderer/main/preload
         run: npm run build
