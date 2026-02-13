@@ -54,6 +54,14 @@ def safe_print(msg: str):
 configure_utf8_stdio()
 
 _MAX_SESSION_TITLE_LEN = 48
+_CONTROL_TOKEN_PATTERN = r"(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)"
+_CONTROL_CHAIN_PATTERN = rf"{_CONTROL_TOKEN_PATTERN}(?:[_\-\s]+{_CONTROL_TOKEN_PATTERN})*"
+_CONTROL_LINE_PREFIX_RE = re.compile(
+    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
+)
+_CONTROL_LINE_RE = re.compile(
+    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
+)
 
 
 class ChatMessage(BaseModel):
@@ -310,11 +318,18 @@ async def format_text(request: ChatRequest):
 
 def _content_to_text(content: Any) -> str:
     """Normalize LangChain/LangGraph message content into plain preview text."""
+    def _sanitize(text: str) -> str:
+        cleaned = _CONTROL_LINE_PREFIX_RE.sub("", text or "")
+        cleaned = _CONTROL_LINE_RE.sub("", cleaned)
+        cleaned = re.sub(r"[\uE000-\uF8FF]", "", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+
     if content is None:
         return ""
 
     if isinstance(content, str):
-        return content
+        return _sanitize(content)
 
     if isinstance(content, list):
         parts: list[str] = []
@@ -340,7 +355,7 @@ def _content_to_text(content: Any) -> str:
                 if isinstance(text, str) and text.strip():
                     parts.append(text.strip())
 
-        return " ".join(parts).strip()
+        return _sanitize(" ".join(parts).strip())
 
     if isinstance(content, dict):
         block_type = str(content.get("type") or "").lower()
@@ -348,10 +363,10 @@ def _content_to_text(content: Any) -> str:
             return "[Image]"
         text = content.get("text")
         if isinstance(text, str):
-            return text
-        return str(content)
+            return _sanitize(text)
+        return _sanitize(str(content))
 
-    return str(content)
+    return _sanitize(str(content))
 
 
 async def _ensure_session_meta_table(db):

@@ -26,7 +26,10 @@ class ChatSessionContentFormatTests(unittest.TestCase):
     def test_content_to_text_with_unknown_data(self):
         self.assertEqual(chat._content_to_text({"foo": "bar"}), "{'foo': 'bar'}")
 
+    def test_content_to_text_strips_control_chain_and_private_use(self):
+        content = "_WRITE_WRITE\uE123 已完成分类"
+        self.assertEqual(chat._content_to_text(content), "已完成分类")
+
 
 if __name__ == "__main__":
     unittest.main()
-

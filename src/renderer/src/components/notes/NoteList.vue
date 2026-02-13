@@ -1,37 +1,12 @@
 <template>
   <div class="note-list" :class="{ 'note-list--collapsed': collapsed }">
-    <SearchBar v-if="!collapsed" />
-
     <div class="note-list__header">
       <div v-if="!collapsed" class="note-list__header-left">
-        <label v-if="noteStore.isSelectionMode" class="note-list__checkbox-wrapper">
-          <input
-            ref="selectAllCheckbox"
-            type="checkbox"
-            :checked="noteStore.isAllSelected"
-            @change="noteStore.toggleSelectAll"
-            class="note-list__checkbox"
-          />
-        </label>
         <span class="note-list__title">{{ shortHeaderTitle }}</span>
         <span class="note-list__count">{{ noteCount }}</span>
       </div>
 
       <div class="note-list__header-actions">
-        <button
-          v-if="!collapsed && noteCount > 0"
-          class="note-list__action-btn"
-          :class="{ 'note-list__action-btn--active': uiStore.noteListLayerMode === 'category' }"
-          :title="uiStore.noteListLayerMode === 'category' ? t('noteList.switchLayerOff') : t('noteList.switchLayerOn')"
-          @click="uiStore.toggleNoteListLayerMode"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2.5" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.2"/>
-            <rect x="2" y="7.5" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.2"/>
-            <rect x="2" y="12.5" width="12" height="1" rx="0.5" fill="currentColor"/>
-          </svg>
-        </button>
-
         <button
           class="note-list__action-btn"
           :title="collapsed ? t('noteList.expandList') : t('noteList.collapseList')"
@@ -44,58 +19,10 @@
             <path d="M10 3L6 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-
-        <button
-          v-if="!collapsed && noteCount > 0"
-          class="note-list__action-btn"
-          :class="{ 'note-list__action-btn--active': noteStore.isSelectionMode }"
-          @click="noteStore.toggleSelectionMode"
-          :title="noteStore.isSelectionMode ? t('noteList.exitBatchManage') : t('noteList.batchManage')"
-        >
-          <svg v-if="!noteStore.isSelectionMode" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
-            <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
-            <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
-            <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
-          </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M4 8L7 11L12 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
       </div>
     </div>
 
-    <Transition name="toolbar-slide">
-      <div v-if="!collapsed && noteStore.isSelectionMode && noteStore.selectedCount > 0" class="note-list__toolbar">
-        <span class="note-list__toolbar-count">{{ t('noteList.selectedCount', { count: noteStore.selectedCount }) }}</span>
-        <div class="note-list__toolbar-actions">
-          <template v-if="noteStore.currentView === 'trash'">
-            <button class="note-list__toolbar-btn note-list__toolbar-btn--restore" @click="handleBatchRestore">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 7C2 4.23858 4.23858 2 7 2C8.85652 2 10.4869 3.00442 11.3912 4.5M12 7C12 9.76142 9.76142 12 7 12C5.14348 12 3.51314 10.9956 2.60876 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                <path d="M11 2V5H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              {{ t('common.restore') }}
-            </button>
-            <button class="note-list__toolbar-btn note-list__toolbar-btn--danger" @click="handleBatchPermanentDelete">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 4H12M5 4V3C5 2.44772 5.44772 2 6 2H8C8.55228 2 9 2.44772 9 3V4M11 4V11C11 11.5523 10.5523 12 10 12H4C3.44772 12 3 11.5523 3 11V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              </svg>
-              {{ t('noteList.permanentDelete') }}
-            </button>
-          </template>
-
-          <template v-else>
-            <button class="note-list__toolbar-btn note-list__toolbar-btn--danger" @click="handleBatchDelete">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 4H12M5 4V3C5 2.44772 5.44772 2 6 2H8C8.55228 2 9 2.44772 9 3V4M11 4V11C11 11.5523 10.5523 12 10 12H4C3.44772 12 3 11.5523 3 11V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              </svg>
-              {{ t('common.delete') }}
-            </button>
-          </template>
-        </div>
-      </div>
-    </Transition>
+    <SearchBar v-if="!collapsed" />
 
     <div v-if="!collapsed" class="note-list__content" ref="listContainerRef" @scroll="handleScroll">
       <div v-if="isLayeredByCategory" class="note-list__layers">
@@ -124,11 +51,10 @@
                 :is-active="noteStore.currentNote?.id === note.id"
                 :is-dragging="draggedNoteId === note.id"
                 :is-dragover="dragOverNoteId === note.id"
-                :is-selection-mode="noteStore.isSelectionMode"
-                :is-selected="noteStore.selectedNoteIds.has(note.id)"
+                :is-selection-mode="false"
+                :is-selected="false"
                 @click="handleNoteClick(note)"
                 @contextmenu="handleNoteContextMenu(note, $event)"
-                @toggle-select="noteStore.toggleNoteSelection(note.id)"
                 @dragstart="handleDragStart"
                 @dragover="handleDragOver"
                 @dragleave="handleDragLeave"
@@ -151,11 +77,10 @@
             :is-active="noteStore.currentNote?.id === note.id"
             :is-dragging="draggedNoteId === note.id"
             :is-dragover="dragOverNoteId === note.id"
-            :is-selection-mode="noteStore.isSelectionMode"
-            :is-selected="noteStore.selectedNoteIds.has(note.id)"
+            :is-selection-mode="false"
+            :is-selected="false"
             @click="handleNoteClick(note)"
             @contextmenu="handleNoteContextMenu(note, $event)"
-            @toggle-select="noteStore.toggleNoteSelection(note.id)"
             @dragstart="handleDragStart"
             @dragover="handleDragOver"
             @dragleave="handleDragLeave"
@@ -248,18 +173,15 @@ import type { Note } from '@/database/noteRepository'
 import NoteCard from './NoteCard.vue'
 import SearchBar from '@/components/search/SearchBar.vue'
 import { useI18n } from '@/i18n'
-import { useUIStore } from '@/stores/uiStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 
 const noteStore = useNoteStore()
-const uiStore = useUIStore()
 const categoryStore = useCategoryStore()
 const { t, locale } = useI18n()
 
 defineProps<{ collapsed?: boolean }>()
 defineEmits<{ (e: 'toggle-collapse'): void }>()
 
-const selectAllCheckbox = ref<HTMLInputElement | null>(null)
 const collapsedLayers = ref<Record<string, boolean>>({})
 const allNotes = computed<Note[]>(() => noteStore.notes ?? [])
 const noteCount = computed(() => allNotes.value.length)
@@ -271,7 +193,7 @@ const VIRTUAL_THRESHOLD = 60
 const scrollTop = ref(0)
 const containerHeight = ref(400)
 
-const isLayeredByCategory = computed(() => uiStore.noteListLayerMode === 'category' && !noteStore.isSelectionMode)
+const isLayeredByCategory = computed(() => true)
 const isVirtualScrolling = computed(() => !isLayeredByCategory.value && noteCount.value > VIRTUAL_THRESHOLD)
 
 type NoteLayer = {
@@ -411,26 +333,11 @@ watch(
   }
 )
 
-watch(
-  () => [noteStore.selectedCount, noteStore.isAllSelected],
-  () => {
-    if (selectAllCheckbox.value) {
-      selectAllCheckbox.value.indeterminate = noteStore.selectedCount > 0 && !noteStore.isAllSelected
-    }
-  },
-  { flush: 'post' }
-)
-
 function handleNoteClick(note: Note) {
-  if (noteStore.isSelectionMode) {
-    noteStore.toggleNoteSelection(note.id)
-  } else {
-    noteStore.selectNote(note)
-  }
+  noteStore.selectNote(note)
 }
 
 function handleNoteContextMenu(note: Note, event: MouseEvent) {
-  if (noteStore.isSelectionMode) return
   noteContextMenu.note = note
   noteContextMenu.visible = true
   noteContextMenu.x = event.clientX
@@ -513,12 +420,10 @@ async function handleMoveToNoCategoryFromContextMenu() {
 }
 
 function handleDragStart(id: string) {
-  if (noteStore.isSelectionMode) return
   draggedNoteId.value = id
 }
 
 function handleDragOver(id: string) {
-  if (noteStore.isSelectionMode) return
   if (draggedNoteId.value === id) return
   dragOverNoteId.value = id
 }
@@ -528,7 +433,6 @@ function handleDragLeave() {
 }
 
 async function handleDrop(targetId: string) {
-  if (noteStore.isSelectionMode) return
   if (draggedNoteId.value && draggedNoteId.value !== targetId) {
     await noteStore.reorderNotes(draggedNoteId.value, targetId)
   }
@@ -537,22 +441,6 @@ async function handleDrop(targetId: string) {
 function handleDragEnd() {
   draggedNoteId.value = null
   dragOverNoteId.value = null
-}
-
-async function handleBatchDelete() {
-  if (confirm(t('noteList.confirmBatchDelete', { count: noteStore.selectedCount }))) {
-    await noteStore.batchDelete()
-  }
-}
-
-async function handleBatchPermanentDelete() {
-  if (confirm(t('noteList.confirmBatchPermanentDelete', { count: noteStore.selectedCount }))) {
-    await noteStore.batchPermanentDelete()
-  }
-}
-
-async function handleBatchRestore() {
-  await noteStore.batchRestore()
 }
 
 const headerTitle = computed(() => {
@@ -623,7 +511,7 @@ const emptyText = computed(() => {
   align-items: center;
   justify-content: space-between;
   min-height: 34px;
-  padding: 6px 8px 4px;
+  padding: 8px 8px 4px;
 }
 
 .note-list__header-left {
@@ -635,21 +523,7 @@ const emptyText = computed(() => {
 .note-list__header-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
-}
-
-.note-list__checkbox-wrapper {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.note-list__checkbox {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: var(--color-accent);
+  gap: 4px;
 }
 
 .note-list__title {
@@ -687,62 +561,6 @@ const emptyText = computed(() => {
     border-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
     color: color-mix(in srgb, var(--color-accent) 72%, var(--color-text-primary));
   }
-}
-
-.note-list__toolbar {
-  margin: 4px 8px 6px;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-bg-primary) 94%, transparent);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.note-list__toolbar-count {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.note-list__toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.note-list__toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-
-  &--danger {
-    color: #dc2626;
-    border-color: color-mix(in srgb, #ef4444 34%, var(--color-border));
-  }
-
-  &--restore {
-    color: #16a34a;
-    border-color: color-mix(in srgb, #10b981 34%, var(--color-border));
-  }
-}
-
-.toolbar-slide-enter-active,
-.toolbar-slide-leave-active {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.toolbar-slide-enter-from,
-.toolbar-slide-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
 }
 
 .note-list__content {

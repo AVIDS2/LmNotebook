@@ -22,7 +22,7 @@
                 <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
               </svg>
             </span>
-            {{ session.title || session.preview }}
+            {{ toSingleLine(session.title || session.preview) }}
           </div>
           <input
             v-else
@@ -81,4 +81,175 @@ defineEmits<{
   (e: 'cancel-rename'): void
   (e: 'update:editing-title', value: string): void
 }>()
+
+function toSingleLine(value: string): string {
+  return String(value || '')
+    .replace(/[\uE000-\uF8FF]/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
 </script>
+
+<style scoped lang="scss">
+.session-history-panel {
+  position: absolute;
+  top: 52px;
+  left: 12px;
+  right: 12px;
+  z-index: 30;
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-bg-card) 97%, transparent);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+
+.session-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+}
+
+.session-history__header .close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.session-history__header .close-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.session-history__list {
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-history__empty {
+  padding: 14px 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.session-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.session-item--active {
+  background: color-mix(in srgb, var(--color-accent) 11%, transparent);
+}
+
+.session-item--pinned {
+  border-left: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
+}
+
+.session-item__preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pin-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+.session-item__actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.session-item:hover .session-item__actions {
+  display: inline-flex;
+}
+
+.session-item__btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-item__btn:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 80%, transparent);
+  color: var(--color-text-primary);
+}
+
+.session-item__btn--danger:hover {
+  background: color-mix(in srgb, #ef4444 14%, transparent);
+  color: #ef4444;
+}
+
+.session-item__btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.session-rename-input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+</style>

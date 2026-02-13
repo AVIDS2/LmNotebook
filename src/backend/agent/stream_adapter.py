@@ -89,12 +89,28 @@ def _is_internal_control_text(text: str) -> bool:
         return True
     # Handle variants like "DENY_WRITE." or "ALLOW_WRITE:" etc.
     compact = re.sub(r"[^A-Z_]", "", normalized)
-    return compact in INTERNAL_CONTROL_LABELS
+    if compact in INTERNAL_CONTROL_LABELS:
+        return True
+    # Handle repeated/stitched control sequences like "_WRITE_WRITE" or
+    # "DENY_WRITE_WRITE" that some models occasionally emit.
+    parts = [p for p in compact.split("_") if p]
+    if not parts:
+        return False
+    simple_labels = {"CHAT", "TASK", "ALLOW", "DENY", "WRITE", "READ", "UNCLEAR", "YES", "NO"}
+    return all(p in simple_labels for p in parts)
 
 
+_CONTROL_TOKEN_PATTERN = r"(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)"
+_CONTROL_CHAIN_PATTERN = rf"{_CONTROL_TOKEN_PATTERN}(?:[_\-\s]+{_CONTROL_TOKEN_PATTERN})*"
 _CONTROL_PREFIX_RE = re.compile(
-    r"^\s*(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)\s*[:：\-]?\s*",
+    rf"^\s*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*",
     re.IGNORECASE,
+)
+_CONTROL_LINE_RE = re.compile(
+    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
+)
+_CONTROL_LINE_PREFIX_RE = re.compile(
+    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
 )
 
 
@@ -107,11 +123,16 @@ def _sanitize_user_visible_text(text: str) -> str:
         return ""
     cleaned = text
     # Strip repeated control prefixes defensively.
-    for _ in range(3):
+    for _ in range(8):
         next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
         if next_cleaned == cleaned:
             break
         cleaned = next_cleaned
+    # Also sanitize control prefixes leaked at line starts inside a paragraph.
+    cleaned = _CONTROL_LINE_PREFIX_RE.sub("", cleaned)
+    # Drop lines that are pure control labels.
+    cleaned = _CONTROL_LINE_RE.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 
 

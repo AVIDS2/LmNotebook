@@ -193,90 +193,34 @@
                        @contextmenu="handleContextMenu($event, msg.content)"></div>
                 </template>
 
-                <Transition name="panel-elevate">
-                  <div
-                    v-if="msg.role === 'assistant' && index === approvalAnchorMessageIndex && (isExecutionAwaitingApproval || pendingApprovals.length > 0)"
-                    class="agent-approval-card agent-approval-card--inline"
-                  >
-                    <div class="agent-approval-card__head">
-                      <span class="agent-approval-card__icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <circle cx="12" cy="12" r="9"></circle>
-                          <path d="M12 7v6"></path>
-                          <path d="M12 16h.01"></path>
-                        </svg>
-                      </span>
-                      <div class="agent-approval-card__meta">
-                        <div class="agent-approval-card__title">{{ approvalCardTitle }}</div>
-                        <div class="agent-approval-card__target">{{ approvalCardTarget }}</div>
-                        <div class="agent-approval-card__scope">{{ approvalCardScope }}</div>
-                      </div>
-                      <button class="agent-approval-card__dismiss" :disabled="approvalBusy" @click="dismissCurrentApproval">×</button>
-                    </div>
-                    <div class="agent-approval-card__foot">
-                      <span class="agent-approval-card__hint">{{ approvalCardHint }}</span>
-                      <div class="agent-approval-card__actions">
-                        <button
-                          v-if="!isExecutionAwaitingApproval && currentPendingApproval"
-                          class="agent-approval-btn"
-                          @click="showApprovalPreview = !showApprovalPreview"
-                        >
-                          {{ showApprovalPreview ? t('agent.hideChanges') : t('agent.viewChanges') }}
-                        </button>
-                        <button
-                          class="agent-approval-btn agent-approval-btn--accept"
-                          :disabled="approvalBusy"
-                          @click="approveCurrentApproval"
-                        >
-                          {{ locale === 'en' ? 'Allow once' : '接受一次' }}
-                        </button>
-                        <button class="agent-approval-btn agent-approval-btn--reject" :disabled="approvalBusy" @click="dismissCurrentApproval">
-                          {{ locale === 'en' ? 'Reject' : '拒绝' }}
-                        </button>
-                        <button class="agent-approval-btn" :disabled="approvalBusy" @click="enableAutoAcceptAndApply()">
-                          {{ locale === 'en' ? 'Auto allow' : '自动接受' }}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </Transition>
-
-                <div
-                  v-if="msg.role === 'assistant' && index === approvalAnchorMessageIndex && showApprovalPreview && currentPendingApproval"
-                  class="agent-approval-preview agent-approval-preview--inline"
-                >
-                  <div class="agent-approval-preview__summary">{{ currentApprovalSummary }}</div>
-                  <div class="agent-approval-preview__title-row">
-                    <div class="agent-approval-preview__title">结构化差异</div>
-                    <button class="agent-approval-btn" @click="showUnchangedDiff = !showUnchangedDiff">
-                      {{ showUnchangedDiff ? t('agent.hideUnchanged') : t('agent.showUnchanged') }}
-                    </button>
-                  </div>
-                  <div class="agent-approval-diff">
-                    <div
-                      v-for="block in visibleApprovalDiffBlocks"
-                      :key="block.id"
-                      class="agent-diff-block"
-                      :class="`agent-diff-block--${block.kind}`"
-                    >
-                      <div class="agent-diff-block__head">
-                        <span class="agent-diff-block__label">{{ block.label }}</span>
-                        <span class="agent-diff-block__kind">{{ block.kind }}</span>
-                      </div>
-                      <div class="agent-diff-lines">
-                        <div
-                          v-for="(line, idx) in block.lines"
-                          :key="`${block.id}-${idx}`"
-                          class="agent-diff-line"
-                          :class="`agent-diff-line--${line.op}`"
-                        >
-                          <span class="agent-diff-sign">{{ line.op === 'add' ? '+' : line.op === 'del' ? '-' : ' ' }}</span>
-                          <span class="agent-diff-text">{{ line.text || ' ' }}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <AgentApprovalInline
+                  :show-card="msg.role === 'assistant' && index === approvalAnchorMessageIndex && (isExecutionAwaitingApproval || pendingApprovals.length > 0)"
+                  :show-preview="msg.role === 'assistant' && index === approvalAnchorMessageIndex && showApprovalPreview && Boolean(currentPendingApproval)"
+                  :approval-busy="approvalBusy"
+                  :is-execution-awaiting-approval="isExecutionAwaitingApproval"
+                  :has-current-pending-approval="Boolean(currentPendingApproval)"
+                  :show-approval-preview="showApprovalPreview"
+                  :show-unchanged-diff="showUnchangedDiff"
+                  :approval-card-title="approvalCardTitle"
+                  :approval-card-target="approvalCardTarget"
+                  :approval-card-scope="approvalCardScope"
+                  :approval-card-hint="approvalCardHint"
+                  :current-approval-summary="currentApprovalSummary"
+                  :visible-approval-diff-blocks="visibleApprovalDiffBlocks"
+                  :structured-diff-title="structuredDiffTitle"
+                  :view-changes-label="viewChangesLabel"
+                  :hide-changes-label="hideChangesLabel"
+                  :show-unchanged-label="showUnchangedLabel"
+                  :hide-unchanged-label="hideUnchangedLabel"
+                  :allow-once-label="allowOnceLabel"
+                  :reject-label="rejectLabel"
+                  :auto-allow-label="autoAllowLabel"
+                  @approve="approveCurrentApproval"
+                  @dismiss="dismissCurrentApproval"
+                  @enable-auto-accept="enableAutoAcceptAndApply"
+                  @toggle-preview="showApprovalPreview = !showApprovalPreview"
+                  @toggle-unchanged="showUnchangedDiff = !showUnchangedDiff"
+                />
               </div>
             </div>
           </div>
@@ -337,7 +281,7 @@
               @keydown.enter.exact.prevent="sendMessage()"
               @input="autoResizeInput"
               @paste="handleComposerPaste"
-              :placeholder="locale === 'en' ? 'Ask, search, or make anything...' : '提问、搜索或执行任务...'"
+              :placeholder="isEnglishLocale ? 'Ask, search, or make anything...' : '提问、搜索或执行任务...'"
               :style="{ height: `${composerInputHeight}px` }"
               rows="1"
               ref="inputRef"
@@ -367,7 +311,7 @@
                             <path d="M21 15l-5-5L5 21"></path>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ locale === 'en' ? 'Upload image' : '上传图片' }}</span>
+                        <span class="menu-label">{{ isEnglishLocale ? 'Upload image' : '上传图片' }}</span>
                       </div>
                       <div class="menu-item" @click="openFileUpload">
                         <span class="menu-icon smaller">
@@ -376,11 +320,11 @@
                             <polyline points="14 2 14 8 20 8"></polyline>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ locale === 'en' ? 'Upload file' : '上传文件' }}</span>
+                        <span class="menu-label">{{ isEnglishLocale ? 'Upload file' : '上传文件' }}</span>
                       </div>
                       <div class="menu-item" @click="triggerKnowledgeSearch">
                         <span class="menu-icon">@</span>
-                        <span class="menu-label">{{ locale === 'en' ? 'Knowledge base' : '笔记知识库' }}</span>
+                        <span class="menu-label">{{ isEnglishLocale ? 'Knowledge base' : '笔记知识库' }}</span>
                       </div>
                       <div class="menu-item" @click="toggleNoteSelector">
                         <span class="menu-icon smaller">
@@ -389,7 +333,7 @@
                             <circle cx="12" cy="12" r="2.6"></circle>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ locale === 'en' ? 'Add note context' : '添加笔记上下文' }}</span>
+                        <span class="menu-label">{{ isEnglishLocale ? 'Add note context' : '添加笔记上下文' }}</span>
                       </div>
                     </div>
                   </Transition>
@@ -411,7 +355,7 @@
                   
                   <Transition name="menu-fade">
                     <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
-                      <div class="selector-header">{{ locale === 'en' ? 'Select note' : '选择笔记' }}</div>
+                      <div class="selector-header">{{ isEnglishLocale ? 'Select note' : '选择笔记' }}</div>
                       <div class="selector-list">
                         <div 
                           v-for="note in noteStore.notes" 
@@ -427,9 +371,9 @@
                               <line x1="9" y1="17" x2="13" y2="17"></line>
                             </svg>
                           </span>
-                          <span class="item-title">{{ note.title || (locale === 'en' ? 'Untitled' : '无标题') }}</span>
+                          <span class="item-title">{{ note.title || (isEnglishLocale ? 'Untitled' : '无标题') }}</span>
                         </div>
-                        <div v-if="noteStore.notes.length === 0" class="selector-empty">{{ locale === 'en' ? 'No notes' : '暂无笔记' }}</div>
+                        <div v-if="noteStore.notes.length === 0" class="selector-empty">{{ isEnglishLocale ? 'No notes' : '暂无笔记' }}</div>
                       </div>
                     </div>
                   </Transition>
@@ -451,7 +395,7 @@
                   <Transition name="menu-fade">
                     <div v-if="showModelSelector" class="composer-model-menu input-menu-popup shallow-glass">
                       <div class="menu-item menu-item--disabled">
-                        <span class="menu-label">{{ locale === 'en' ? 'Choose model' : '选择模型' }}</span>
+                        <span class="menu-label">{{ isEnglishLocale ? 'Choose model' : '选择模型' }}</span>
                       </div>
                       <div
                         v-for="option in modelMenuOptions"
@@ -526,6 +470,7 @@ import { noteRepository, type Note } from '@/database/noteRepository'
 import { useI18n } from '@/i18n'
 import ModelSettings from './ModelSettings.vue'
 import SessionHistoryPanel from './SessionHistoryPanel.vue'
+import AgentApprovalInline from './AgentApprovalInline.vue'
 import type { SessionInfo } from './sessionTypes'
 import {
   type ComposerAttachment,
@@ -534,7 +479,6 @@ import {
 import { useComposerAttachments } from './useComposerAttachments'
 import {
   type NoteSnapshot,
-  type DiffBlockView,
   snapshotFromNote,
   snapshotsDiffer,
   snapshotToText,
@@ -1228,6 +1172,7 @@ async function enableAutoAcceptAndApply(): Promise<void> {
 }
 
 const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
+const isEnglishLocale = computed(() => locale.value.startsWith('en'))
 const visibleMessages = computed(() =>
   messages.value.filter(
     m => m.content.trim() || (m.parts && m.parts.length) || (m.attachments && m.attachments.length)
@@ -1260,10 +1205,10 @@ const visibleApprovalDiffBlocks = computed(() => {
 
 const approvalCardTitle = computed(() => {
   if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
-    return locale.value === 'en' ? 'Allow write action?' : '允许执行写入操作？'
+    return isEnglishLocale.value ? 'Allow write action?' : '允许执行写入操作？'
   }
   if (currentPendingApproval.value) {
-    return locale.value === 'en' ? 'Review proposed changes' : '请确认待应用变更'
+    return isEnglishLocale.value ? 'Review proposed changes' : '请确认待应用变更'
   }
   return ''
 })
@@ -1280,17 +1225,26 @@ const approvalCardTarget = computed(() => {
 
 const approvalCardScope = computed(() => {
   if (pendingExecutionApproval.value) {
-    return pendingExecutionApproval.value.scope || pendingExecutionApproval.value.message || (locale.value === 'en' ? 'This action may modify note content.' : '该操作可能修改笔记内容。')
+    return pendingExecutionApproval.value.scope || pendingExecutionApproval.value.message || (isEnglishLocale.value ? 'This action may modify note content.' : '该操作可能修改笔记内容。')
   }
-  return currentApprovalSummary.value || (locale.value === 'en' ? 'This action includes note changes.' : '该操作包含笔记内容变更。')
+  return currentApprovalSummary.value || (isEnglishLocale.value ? 'This action includes note changes.' : '该操作包含笔记内容变更。')
 })
 
 const approvalCardHint = computed(() => {
   if (isExecutionAwaitingApproval.value) {
-    return locale.value === 'en' ? 'Agent requests permission before writing.' : 'Agent 需要授权后才会执行写入。'
+    return isEnglishLocale.value ? 'Agent requests permission before writing.' : 'Agent 需要授权后才会执行写入。'
   }
-  return locale.value === 'en' ? 'Review and apply this change set.' : '请检查后再应用这组变更。'
+  return isEnglishLocale.value ? 'Review and apply this change set.' : '请检查后再应用这组变更。'
 })
+
+const allowOnceLabel = computed(() => (isEnglishLocale.value ? 'Allow once' : '接受一次'))
+const rejectLabel = computed(() => (isEnglishLocale.value ? 'Reject' : '拒绝'))
+const autoAllowLabel = computed(() => (isEnglishLocale.value ? 'Auto allow' : '自动接受'))
+const structuredDiffTitle = computed(() => (isEnglishLocale.value ? 'Structured diff' : '结构化差异'))
+const viewChangesLabel = computed(() => t('agent.viewChanges'))
+const hideChangesLabel = computed(() => t('agent.hideChanges'))
+const showUnchangedLabel = computed(() => t('agent.showUnchanged'))
+const hideUnchangedLabel = computed(() => t('agent.hideUnchanged'))
 
 async function approveCurrentApproval(): Promise<void> {
   if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
@@ -3050,8 +3004,13 @@ watch(
 }
 
 .agent-chat > * {
-  position: relative;
   z-index: 1;
+}
+
+/* Keep floating overlays (like session history) out of normal document flow */
+.agent-chat > .session-history-panel {
+  position: absolute;
+  z-index: 30;
 }
 
 .agent-container--sidebar {
@@ -3383,6 +3342,7 @@ watch(
   color: color-mix(in srgb, var(--theme-text-secondary) 78%, transparent);
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -4259,336 +4219,6 @@ watch(
 
 .pill-clear:hover { opacity: 1; }
 
-.agent-approval-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  margin: 0 12px 8px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 46%, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 56%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 58%, transparent));
-  flex-wrap: wrap;
-  box-shadow: 0 10px 22px color-mix(in srgb, #000 10%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.agent-approval-bar,
-.agent-task-card,
-.agent-execution-panel {
-  transition: border-color 180ms ease, box-shadow 220ms ease, background 180ms ease, transform 180ms ease;
-}
-
-.agent-approval-bar:hover,
-.agent-task-card:hover,
-.agent-execution-panel:hover {
-  border-color: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-border));
-  box-shadow: 0 12px 24px color-mix(in srgb, #000 14%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-
-.agent-approval-bar__label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-approval-btn {
-  border: 1px solid color-mix(in srgb, var(--theme-border) 70%, rgba(255, 255, 255, 0.12));
-  background: color-mix(in srgb, var(--theme-surface) 78%, transparent);
-  color: var(--theme-text);
-  border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-
-.agent-approval-btn:hover:not(:disabled) {
-  background: var(--theme-hover);
-  box-shadow: 0 8px 14px color-mix(in srgb, #000 10%, transparent);
-}
-
-.agent-approval-btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.agent-approval-btn--accept {
-  border-color: rgba(16, 185, 129, 0.42);
-  background: rgba(16, 185, 129, 0.08);
-}
-
-.agent-approval-btn--reject {
-  border-color: rgba(239, 68, 68, 0.42);
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.agent-approval-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.agent-approval-preview {
-  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, rgba(255, 255, 255, 0.16));
-  margin: 0 12px 8px;
-  padding: 10px;
-  border-radius: 14px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 72%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 68%, transparent));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.agent-task-card {
-  margin: 0 12px 8px;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 44%, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 52%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 56%, transparent));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.agent-task-card__title {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--theme-text);
-  margin-bottom: 8px;
-}
-
-.agent-task-card__row {
-  display: grid;
-  grid-template-columns: 78px 1fr;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  line-height: 1.45;
-}
-
-.agent-task-card__row + .agent-task-card__row {
-  margin-top: 3px;
-}
-
-.agent-execution-panel {
-  margin: 0 12px 8px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 44%, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--theme-surface) 52%, transparent), color-mix(in srgb, var(--theme-bg-secondary) 56%, transparent));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  overflow: hidden;
-}
-
-.agent-execution-panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 56%, transparent);
-}
-
-.agent-execution-panel__title {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--theme-text);
-}
-
-.agent-execution-list {
-  max-height: 132px;
-  overflow: auto;
-}
-
-.agent-execution-item {
-  display: grid;
-  grid-template-columns: 56px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  padding: 7px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border) 70%, transparent);
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.agent-execution-item:first-child {
-  border-top: none;
-}
-
-.agent-execution-item__status {
-  font-weight: 600;
-}
-
-.agent-execution-item__title {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.agent-execution-item__time {
-  opacity: 0.8;
-}
-
-.agent-execution-item--running .agent-execution-item__status {
-  color: #f59e0b;
-}
-
-.agent-execution-item--completed .agent-execution-item__status {
-  color: #10b981;
-}
-
-.agent-execution-item--error .agent-execution-item__status {
-  color: #ef4444;
-}
-
-.agent-execution-item:hover {
-  background: color-mix(in srgb, var(--theme-bg-hover) 72%, transparent);
-}
-
-/* Panel transitions: subtle material lift/fade */
-.panel-elevate-enter-active,
-.panel-elevate-leave-active {
-  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.22, 0.68, 0.2, 1);
-}
-
-.panel-elevate-enter-from,
-.panel-elevate-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-.panel-elevate-enter-to,
-.panel-elevate-leave-from {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* Execution record list motion */
-.record-item-enter-active,
-.record-item-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-
-.record-item-enter-from,
-.record-item-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-.record-item-move {
-  transition: transform 180ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .panel-elevate-enter-active,
-  .panel-elevate-leave-active,
-  .record-item-enter-active,
-  .record-item-leave-active,
-  .record-item-move {
-    transition: none;
-  }
-}
-
-.agent-approval-preview__summary {
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  margin-bottom: 8px;
-}
-
-.agent-approval-preview__title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.agent-approval-diff {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.agent-diff-block {
-  border: 1px solid var(--theme-border);
-  border-radius: 6px;
-  background: var(--theme-bg-solid);
-  padding: 6px;
-}
-
-.agent-diff-block--added {
-  border-color: rgba(16, 185, 129, 0.45);
-}
-
-.agent-diff-block--removed {
-  border-color: rgba(239, 68, 68, 0.45);
-}
-
-.agent-diff-block--modified {
-  border-color: rgba(245, 158, 11, 0.45);
-}
-
-.agent-diff-block__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.agent-diff-block__label {
-  font-size: 11px;
-  color: var(--theme-text);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-diff-block__kind {
-  font-size: 10px;
-  color: var(--theme-text-secondary);
-  text-transform: capitalize;
-}
-
-.agent-diff-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.agent-diff-line {
-  display: grid;
-  grid-template-columns: 12px 1fr;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.35;
-  border-radius: 4px;
-  padding: 1px 4px;
-}
-
-.agent-diff-line--add {
-  background: rgba(16, 185, 129, 0.12);
-}
-
-.agent-diff-line--del {
-  background: rgba(239, 68, 68, 0.12);
-}
-
-.agent-diff-sign {
-  color: var(--theme-text-secondary);
-  text-align: center;
-}
-
-.agent-diff-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.agent-approval-preview__title {
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-}
 
 @media (max-width: 880px) {
   .agent-chat__header {
@@ -4717,165 +4347,6 @@ watch(
 .message__text::-webkit-scrollbar { height: 4px; }
 .message__text::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, rgba(0,0,0,0.1)); border-radius: 4px; }
 :deep(.message__text hr) { border: none; border-top: 1px solid var(--theme-border); margin: 16px 0; }
-
-/* Session History Panel */
-.session-history-panel {
-  position: absolute;
-  top: 48px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--theme-bg-solid);
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  border-radius: 0 0 16px 16px;
-}
-
-.session-history__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--theme-border);
-  font-weight: 500;
-  color: var(--theme-text);
-}
-
-.session-history__header .close-btn {
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: var(--theme-text-secondary);
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.session-history__header .close-btn:hover {
-  background: var(--theme-hover);
-}
-
-.session-history__list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.session-history__empty {
-  text-align: center;
-  color: var(--theme-text-secondary);
-  padding: 40px 20px;
-  font-size: 13px;
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  padding: 10px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  margin-bottom: 4px;
-}
-
-.session-item:hover {
-  background: var(--theme-hover);
-}
-
-.session-item--active {
-  background: var(--theme-accent-light, rgba(var(--accent-rgb), 0.1));
-}
-
-.session-item--pinned {
-  border-left: 2px solid var(--theme-accent);
-}
-
-.session-item__preview {
-  flex: 1;
-  font-size: 13px;
-  color: var(--theme-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.pin-indicator {
-  color: var(--theme-accent);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.pin-indicator svg {
-  width: 12px;
-  height: 12px;
-}
-
-.session-item__actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.session-item:hover .session-item__actions {
-  opacity: 1;
-}
-
-.session-item__btn {
-  background: none;
-  border: none;
-  padding: 4px;
-  cursor: pointer;
-  color: var(--theme-text-secondary);
-  border-radius: 4px;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.session-item__btn:hover {
-  background: var(--theme-bg-secondary);
-  color: var(--theme-text);
-}
-
-.session-item__btn--danger:hover {
-  color: var(--color-danger, #ef4444);
-}
-
-.session-item__btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.session-rename-input {
-  flex: 1;
-  background: var(--theme-bg);
-  border: 1px solid var(--theme-accent);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 13px;
-  color: var(--theme-text);
-  outline: none;
-}
-
-/* Slide Panel Transition */
-.slide-panel-enter-active,
-.slide-panel-leave-active {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.slide-panel-enter-from,
-.slide-panel-leave-to {
-  transform: translateY(-10px);
-  opacity: 0;
-}
 
 /* ===== Shadcn-like Chat Refinement (UI only, no logic changes) ===== */
 .agent-chat {
@@ -5018,25 +4489,6 @@ watch(
   box-shadow: none;
 }
 
-.agent-task-card,
-.agent-execution-panel,
-.agent-approval-preview {
-  border-radius: 12px;
-  border: 1px solid var(--chat-border);
-  background: color-mix(in srgb, var(--chat-surface-soft) 64%, var(--chat-surface) 36%);
-  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 7%, transparent);
-}
-
-.agent-task-card:hover,
-.agent-execution-panel:hover {
-  box-shadow: 0 3px 10px color-mix(in srgb, #0f172a 8%, transparent);
-  transform: none;
-}
-
-.agent-execution-item {
-  border-bottom: 1px solid color-mix(in srgb, var(--chat-border) 80%, transparent);
-}
-
 /* ===== C mode: full shadcn-style revamp (light + dark) ===== */
 .agent-chat {
   border-radius: 14px;
@@ -5059,7 +4511,6 @@ watch(
 .hero-card__desc,
 .hero-list__items,
 .suggestion-chip,
-.agent-execution-item__time,
 .tool-part__output,
 .status-update {
   color: var(--chat-text-soft);
@@ -5185,112 +4636,6 @@ watch(
   box-shadow: none;
 }
 
-.agent-approval-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  margin: 0 14px 10px;
-  padding: 8px;
-  border-radius: 12px;
-  border: 1px solid var(--chat-border);
-  background: color-mix(in srgb, var(--chat-surface-soft) 74%, var(--chat-surface) 26%);
-}
-
-.agent-approval-bar > *:not(.agent-approval-bar__label) {
-  justify-self: end;
-  margin-left: 6px;
-}
-
-.agent-approval-bar__label {
-  font-size: 11px;
-  color: var(--theme-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-approval-btn {
-  border-radius: 8px;
-  border: 1px solid var(--chat-border);
-  background: color-mix(in srgb, var(--chat-surface) 96%, transparent);
-  font-size: 11px;
-  height: 30px;
-  padding: 0 10px;
-}
-
-.agent-approval-btn:hover:not(:disabled) {
-  box-shadow: 0 0 0 2px var(--chat-ring);
-}
-
-.agent-approval-btn--accept {
-  border-color: color-mix(in srgb, #10b981 32%, var(--chat-border));
-  color: color-mix(in srgb, #047857 84%, var(--theme-text));
-}
-
-.agent-approval-btn--reject {
-  border-color: color-mix(in srgb, #ef4444 30%, var(--chat-border));
-  color: color-mix(in srgb, #b91c1c 84%, var(--theme-text));
-}
-
-.agent-ops-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  padding: 0 14px 10px;
-}
-
-.agent-task-card,
-.agent-execution-panel {
-  margin: 0;
-}
-
-.agent-task-card__title,
-.agent-execution-panel__title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--chat-text-soft);
-}
-
-.agent-task-card__row {
-  grid-template-columns: 64px minmax(0, 1fr);
-  font-size: 11px;
-}
-
-.agent-execution-list {
-  max-height: 180px;
-  overflow: auto;
-}
-
-.agent-execution-item {
-  grid-template-columns: auto 1fr auto;
-  gap: 8px;
-  font-size: 11px;
-  min-height: 34px;
-}
-
-.agent-execution-item__status {
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--chat-surface) 88%, var(--chat-surface-soft) 12%);
-  border: 1px solid var(--chat-border);
-  min-width: 58px;
-  text-align: center;
-}
-
-.agent-execution-item--completed .agent-execution-item__status {
-  color: color-mix(in srgb, #047857 84%, var(--theme-text));
-  border-color: color-mix(in srgb, #10b981 30%, var(--chat-border));
-  background: color-mix(in srgb, #10b981 12%, transparent);
-}
-
-.agent-execution-item--running .agent-execution-item__status {
-  color: color-mix(in srgb, #1d4ed8 84%, var(--theme-text));
-  border-color: color-mix(in srgb, #3b82f6 30%, var(--chat-border));
-  background: color-mix(in srgb, #3b82f6 12%, transparent);
-}
-
 .agent-chat__footer {
   padding: 10px 12px 12px;
 }
@@ -5324,12 +4669,6 @@ watch(
   font-size: 12px;
 }
 
-@media (min-width: 1180px) {
-  .agent-ops-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
 @media (max-width: 780px) {
   .agent-chat {
     border-radius: 10px;
@@ -5337,19 +4676,6 @@ watch(
   .agent-chat__header,
   .agent-chat__messages,
   .agent-chat__footer {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-  .agent-approval-bar {
-    margin-left: 10px;
-    margin-right: 10px;
-    grid-template-columns: 1fr;
-  }
-  .agent-approval-bar > *:not(.agent-approval-bar__label) {
-    justify-self: start;
-    margin-left: 0;
-  }
-  .agent-ops-grid {
     padding-left: 10px;
     padding-right: 10px;
   }
@@ -5368,16 +4694,12 @@ watch(
 [data-theme="dark"] .header-btn,
 [data-theme="dark"] .menu-trigger-btn,
 [data-theme="dark"] .send-btn-compact,
-[data-theme="dark"] .stop-btn-compact,
-[data-theme="dark"] .agent-approval-btn {
+[data-theme="dark"] .stop-btn-compact {
   background: color-mix(in srgb, var(--chat-surface-soft) 80%, #0b1220 20%);
 }
 
 [data-theme="dark"] .message--user .message,
 [data-theme="dark"] .tool-part,
-[data-theme="dark"] .agent-task-card,
-[data-theme="dark"] .agent-execution-panel,
-[data-theme="dark"] .agent-approval-preview,
 [data-theme="dark"] .input-menu-popup {
   background: color-mix(in srgb, var(--chat-surface-soft) 74%, #0b1220 26%);
 }
@@ -5536,10 +4858,6 @@ watch(
 .menu-icon {
   width: 14px;
   height: 14px;
-}
-
-.agent-ops-grid {
-  margin-bottom: 6px;
 }
 
 @media (max-width: 780px) {
@@ -5710,158 +5028,6 @@ watch(
 .tool-part__output {
   font-size: 12px;
   color: color-mix(in srgb, var(--theme-text-secondary) 90%, transparent);
-}
-
-.agent-approval-bar {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: 8px !important;
-  margin: 2px 14px 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: none;
-  background: color-mix(in srgb, var(--theme-bg-secondary) 90%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 45%, transparent);
-}
-
-.agent-approval-card {
-  margin: 8px 0 6px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 66%, transparent);
-  background: color-mix(in srgb, var(--theme-bg-secondary) 92%, transparent);
-  box-shadow: 0 4px 18px color-mix(in srgb, #000 7%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 36%, transparent);
-  overflow: hidden;
-}
-
-.agent-approval-card--inline {
-  max-width: 100%;
-}
-
-.agent-approval-card__head {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: start;
-  gap: 10px;
-  padding: 10px 12px;
-}
-
-.agent-approval-card__icon {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  color: color-mix(in srgb, var(--theme-accent) 88%, transparent);
-}
-
-.agent-approval-card__icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.agent-approval-card__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.agent-approval-card__title {
-  font-size: 13px;
-  font-weight: 650;
-  color: color-mix(in srgb, var(--theme-text) 98%, transparent);
-}
-
-.agent-approval-card__target,
-.agent-approval-card__scope {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--theme-text-secondary) 90%, transparent);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agent-approval-card__dismiss {
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: color-mix(in srgb, var(--theme-text-secondary) 80%, transparent);
-  line-height: 1;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.agent-approval-card__dismiss:hover {
-  background: color-mix(in srgb, var(--theme-bg-hover) 78%, transparent);
-  color: var(--theme-text);
-}
-
-.agent-approval-card__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border) 55%, transparent);
-}
-
-.agent-approval-card__hint {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--theme-text-secondary) 88%, transparent);
-}
-
-.agent-approval-card__actions {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.agent-approval-preview--inline {
-  margin: 8px 0 6px;
-}
-
-@media (max-width: 640px) {
-  .agent-approval-card__foot {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .agent-approval-card__actions {
-    width: 100%;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-  }
-}
-
-.agent-approval-btn {
-  flex: 0 0 auto !important;
-  border: none !important;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--theme-bg-secondary) 78%, transparent);
-  box-shadow: none !important;
-  font-size: 12px;
-  height: 30px;
-  padding: 0 12px;
-  font-weight: 560;
-}
-
-.agent-approval-btn--accept {
-  background: color-mix(in srgb, #10b981 16%, var(--theme-bg-secondary));
-  color: color-mix(in srgb, #065f46 82%, var(--theme-text));
-}
-
-.agent-approval-btn--reject {
-  background: color-mix(in srgb, #ef4444 13%, var(--theme-bg-secondary));
-  color: color-mix(in srgb, #7f1d1d 84%, var(--theme-text));
-}
-
-.agent-approval-preview {
-  border: none;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-bg-secondary) 88%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-border) 42%, transparent);
 }
 
 /* Composer */
@@ -6094,10 +5260,6 @@ watch(
 
 [data-theme="dark"] .chat-input-unified-box,
 [data-theme="dark"] .tool-part,
-[data-theme="dark"] .agent-approval-bar,
-[data-theme="dark"] .agent-task-card,
-[data-theme="dark"] .agent-execution-panel,
-[data-theme="dark"] .agent-approval-preview,
 [data-theme="dark"] .input-menu-popup {
   background: color-mix(in srgb, #0b1220 68%, var(--theme-bg-secondary) 32%);
 }
@@ -6187,156 +5349,6 @@ watch(
   .status-update__text {
     animation: none !important;
     background-size: 100% 100% !important;
-  }
-}
-
-/* ===== Session history: shadcn-style refresh ===== */
-.session-history-panel {
-  top: 54px;
-  right: 10px;
-  left: auto;
-  bottom: auto;
-  width: min(340px, calc(100% - 20px));
-  max-height: min(56vh, 420px);
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 70%, transparent);
-  background: color-mix(in srgb, var(--theme-surface) 98%, transparent);
-  box-shadow: 0 16px 34px color-mix(in srgb, #000 12%, transparent);
-  overflow: hidden;
-  z-index: 120;
-}
-
-.session-history__header {
-  min-height: 36px;
-  padding: 6px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 58%, transparent);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: color-mix(in srgb, var(--theme-text-secondary) 88%, transparent);
-}
-
-.session-history__header .close-btn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: color-mix(in srgb, var(--theme-text-secondary) 86%, transparent);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.session-history__header .close-btn:hover {
-  background: color-mix(in srgb, var(--theme-bg-secondary) 85%, transparent);
-  color: var(--theme-text);
-}
-
-.session-history__list {
-  padding: 7px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
-}
-
-.session-history__empty {
-  border: 1px dashed color-mix(in srgb, var(--theme-border) 65%, transparent);
-  border-radius: 10px;
-  padding: 18px 12px;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--theme-text-secondary) 84%, transparent);
-}
-
-.session-item {
-  min-height: 32px;
-  margin: 0;
-  border-radius: 9px;
-  border: 1px solid transparent;
-  background: transparent;
-  padding: 6px 8px;
-}
-
-.session-item:hover {
-  border-color: color-mix(in srgb, var(--theme-border) 60%, transparent);
-  background: color-mix(in srgb, var(--theme-bg-secondary) 78%, transparent);
-}
-
-.session-item--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border));
-  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-bg-secondary));
-}
-
-.session-item--pinned {
-  border-left: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
-}
-
-.session-item__preview {
-  font-size: 12px;
-  line-height: 1.3;
-  color: color-mix(in srgb, var(--theme-text) 92%, transparent);
-  gap: 6px;
-}
-
-.pin-indicator {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: color-mix(in srgb, var(--theme-accent) 84%, transparent);
-}
-
-.pin-indicator svg {
-  width: 9px;
-  height: 9px;
-}
-
-.session-item__actions {
-  gap: 4px;
-}
-
-.session-item__btn {
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: color-mix(in srgb, var(--theme-text-secondary) 82%, transparent);
-}
-
-.session-item__btn:hover {
-  background: color-mix(in srgb, var(--theme-bg-secondary) 85%, transparent);
-  color: var(--theme-text);
-}
-
-.session-item__btn--danger:hover {
-  background: color-mix(in srgb, #ef4444 11%, var(--theme-bg-secondary));
-  color: #b91c1c;
-}
-
-.session-item__btn svg {
-  width: 11px;
-  height: 11px;
-}
-
-.session-rename-input {
-  border-radius: 7px;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
-  background: color-mix(in srgb, var(--theme-bg-secondary) 76%, var(--theme-surface) 24%);
-  font-size: 12px;
-  height: 26px;
-  padding: 0 8px;
-}
-
-@media (max-width: 780px) {
-  .session-history-panel {
-    top: 50px;
-    right: 8px;
-    width: calc(100% - 16px);
-    max-height: 52vh;
   }
 }
 
@@ -6437,10 +5449,6 @@ watch(
 .agent-chat__messages .tool-part__pending,
 .agent-chat__messages .tool-part__check {
   flex-shrink: 0;
-}
-
-.agent-chat__messages .agent-approval-card {
-  border-radius: 12px;
 }
 
 [data-theme="dark"] .agent-chat__messages .tool-part {
