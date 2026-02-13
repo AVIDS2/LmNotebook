@@ -51,13 +51,14 @@
           <div
             v-if="categoryMenuVisible"
             class="category-menu-overlay"
-            @click="categoryMenuVisible = false"
+            @click="closeCategoryPanels"
           ></div>
           <div
             v-if="categoryMenuVisible"
             ref="categoryMenuRef"
             class="category-menu"
             :style="{ left: `${categoryMenuPosition.x}px`, top: `${categoryMenuPosition.y}px` }"
+            @contextmenu.prevent="handleCategoryMenuBlankContextMenu"
           >
             <button class="category-menu__item category-menu__item--ghost" @click="selectNoCategory">
               {{ t('noteList.layerUncategorized') }}
@@ -68,13 +69,33 @@
               class="category-menu__item"
               :class="{ 'category-menu__item--active': noteStore.currentView === 'category' && noteStore.currentCategoryId === category.id }"
               @click="selectCategory(category.id)"
+              @mousedown.right.prevent.stop="openCategoryContextMenu(category.id, $event)"
+              @contextmenu.prevent.stop="openCategoryContextMenu(category.id, $event)"
             >
               <span class="category-dot" :style="{ background: category.color }"></span>
               <span>{{ category.name }}</span>
             </button>
             <div class="category-menu__divider"></div>
-            <button class="category-menu__item" @click="showAddCategory = true">
+            <button class="category-menu__item" @click="openCreateCategoryModal">
               {{ t('sidebar.newCategory') }}
+            </button>
+          </div>
+          <div
+            v-if="categoryContextMenu.visible"
+            ref="categoryContextMenuRef"
+            class="category-menu category-menu--context"
+            :style="{ left: `${categoryContextMenu.x}px`, top: `${categoryContextMenu.y}px` }"
+            @click.stop
+          >
+            <button class="category-menu__item" @click="handleCreateNoteInCategoryFromContext">
+              {{ t('noteList.contextNewNoteInFolder') }}
+            </button>
+            <div class="category-menu__divider"></div>
+            <button class="category-menu__item" @click="openRenameCategoryModalFromContext">
+              {{ t('noteList.contextRenameFolder') }}
+            </button>
+            <button class="category-menu__item category-menu__item--danger" @click="deleteCategoryFromContext">
+              {{ t('noteList.contextDeleteFolder') }}
             </button>
           </div>
         </Teleport>
@@ -104,12 +125,14 @@
     <Teleport to="body">
       <div v-if="showAddCategory" class="modal-overlay" @click.self="showAddCategory = false">
         <div class="modal">
-          <h3 class="modal__title">{{ t('sidebar.newCategory') }}</h3>
+          <h3 class="modal__title">
+            {{ categoryModalMode === 'create' ? t('sidebar.newCategory') : t('noteList.contextRenameFolder') }}
+          </h3>
           <input
             v-model="newCategoryName"
             class="modal__input"
             :placeholder="t('sidebar.categoryName')"
-            @keyup.enter="handleAddCategory"
+            @keyup.enter="handleCategoryModalSubmit"
           />
           <div class="modal__colors">
             <button
@@ -123,7 +146,7 @@
           </div>
           <div class="modal__actions">
             <button class="modal__btn" @click="showAddCategory = false">{{ t('common.cancel') }}</button>
-            <button class="modal__btn modal__btn--primary" @click="handleAddCategory">{{ t('common.confirm') }}</button>
+            <button class="modal__btn modal__btn--primary" @click="handleCategoryModalSubmit">{{ t('common.confirm') }}</button>
           </div>
         </div>
       </div>
@@ -148,9 +171,18 @@ const showDataSettings = ref(false)
 const showAddCategory = ref(false)
 const newCategoryName = ref('')
 const newCategoryColor = ref('#C4A882')
+const categoryModalMode = ref<'create' | 'rename'>('create')
+const editingCategoryId = ref<string | null>(null)
 const categoryMenuVisible = ref(false)
 const categoryMenuRef = ref<HTMLElement | null>(null)
 const categoryMenuPosition = reactive({ x: 72, y: 112 })
+const categoryContextMenuRef = ref<HTMLElement | null>(null)
+const categoryContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  categoryId: null as string | null
+})
 
 const categoryColors = [
   '#6366F1',
@@ -167,9 +199,46 @@ async function handleNewNote(): Promise<void> {
   await noteStore.createNote()
 }
 
-async function handleAddCategory(): Promise<void> {
-  if (!newCategoryName.value.trim()) return
-  await categoryStore.addCategory(newCategoryName.value.trim(), newCategoryColor.value)
+function resetCategoryModalState(): void {
+  categoryModalMode.value = 'create'
+  editingCategoryId.value = null
+  newCategoryName.value = ''
+  newCategoryColor.value = '#C4A882'
+}
+
+function openCreateCategoryModal(): void {
+  closeCategoryPanels()
+  categoryModalMode.value = 'create'
+  editingCategoryId.value = null
+  newCategoryName.value = ''
+  newCategoryColor.value = '#C4A882'
+  showAddCategory.value = true
+}
+
+function openRenameCategoryModal(categoryId: string): void {
+  const category = categoryStore.getCategoryById(categoryId)
+  if (!category) return
+  closeCategoryPanels()
+  categoryModalMode.value = 'rename'
+  editingCategoryId.value = category.id
+  newCategoryName.value = category.name
+  newCategoryColor.value = category.color
+  showAddCategory.value = true
+}
+
+async function handleCategoryModalSubmit(): Promise<void> {
+  const name = newCategoryName.value.trim()
+  if (!name) return
+
+  if (categoryModalMode.value === 'rename' && editingCategoryId.value) {
+    await categoryStore.updateCategory(editingCategoryId.value, {
+      name,
+      color: newCategoryColor.value
+    })
+  } else {
+    await categoryStore.addCategory(name, newCategoryColor.value)
+  }
+  resetCategoryModalState()
   newCategoryName.value = ''
   newCategoryColor.value = '#C4A882'
   showAddCategory.value = false
@@ -177,12 +246,12 @@ async function handleAddCategory(): Promise<void> {
 
 function selectCategory(categoryId: string): void {
   noteStore.setView('category', categoryId)
-  categoryMenuVisible.value = false
+  closeCategoryPanels()
 }
 
 function selectNoCategory(): void {
   noteStore.setView('all')
-  categoryMenuVisible.value = false
+  closeCategoryPanels()
 }
 
 function updateCategoryMenuPosition(): void {
@@ -196,25 +265,119 @@ function updateCategoryMenuPosition(): void {
   categoryMenuPosition.y = Math.max(margin, rect.top)
 }
 
+function updateCategoryContextMenuPosition(): void {
+  if (!categoryContextMenu.visible || !categoryContextMenuRef.value) return
+  const menuRect = categoryContextMenuRef.value.getBoundingClientRect()
+  const padding = 8
+  categoryContextMenu.x = Math.max(
+    padding,
+    Math.min(categoryContextMenu.x, window.innerWidth - menuRect.width - padding)
+  )
+  categoryContextMenu.y = Math.max(
+    padding,
+    Math.min(categoryContextMenu.y, window.innerHeight - menuRect.height - padding)
+  )
+}
+
+function hideCategoryContextMenu(): void {
+  categoryContextMenu.visible = false
+  categoryContextMenu.categoryId = null
+}
+
+function openCategoryContextMenu(categoryId: string, event: MouseEvent): void {
+  categoryContextMenu.visible = true
+  categoryContextMenu.categoryId = categoryId
+  categoryContextMenu.x = event.clientX
+  categoryContextMenu.y = event.clientY
+  nextTick(() => {
+    updateCategoryContextMenuPosition()
+  })
+}
+
+function handleCategoryMenuBlankContextMenu(event: MouseEvent): void {
+  categoryContextMenu.visible = true
+  categoryContextMenu.categoryId = null
+  categoryContextMenu.x = event.clientX
+  categoryContextMenu.y = event.clientY
+  nextTick(() => {
+    updateCategoryContextMenuPosition()
+  })
+}
+
+async function handleCreateNoteInCategoryFromContext(): Promise<void> {
+  const categoryId = categoryContextMenu.categoryId
+  if (!categoryId) {
+    openCreateCategoryModal()
+    return
+  }
+  await noteStore.createNote({ categoryId })
+  closeCategoryPanels()
+}
+
+function openRenameCategoryModalFromContext(): void {
+  const categoryId = categoryContextMenu.categoryId
+  if (!categoryId) {
+    openCreateCategoryModal()
+    return
+  }
+  openRenameCategoryModal(categoryId)
+}
+
+async function deleteCategoryFromContext(): Promise<void> {
+  const categoryId = categoryContextMenu.categoryId
+  if (!categoryId) {
+    closeCategoryPanels()
+    return
+  }
+  const category = categoryStore.getCategoryById(categoryId)
+  if (!category) {
+    closeCategoryPanels()
+    return
+  }
+  if (!confirm(t('noteList.confirmDeleteFolder', { name: category.name }))) return
+  await categoryStore.deleteCategory(categoryId)
+  if (noteStore.currentView === 'category' && noteStore.currentCategoryId === categoryId) {
+    noteStore.setView('all')
+  }
+  closeCategoryPanels()
+}
+
+function closeCategoryPanels(): void {
+  categoryMenuVisible.value = false
+  hideCategoryContextMenu()
+}
+
 watch(categoryMenuVisible, (open) => {
-  if (!open) return
+  if (!open) {
+    hideCategoryContextMenu()
+    return
+  }
   nextTick(() => {
     updateCategoryMenuPosition()
   })
 })
 
+watch(showAddCategory, (open) => {
+  if (!open) {
+    resetCategoryModalState()
+  }
+})
+
 function handleWindowUpdate(): void {
   updateCategoryMenuPosition()
+  updateCategoryContextMenuPosition()
 }
 
 onMounted(() => {
   window.addEventListener('resize', handleWindowUpdate)
   window.addEventListener('scroll', handleWindowUpdate, true)
+  window.addEventListener('click', hideCategoryContextMenu)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowUpdate)
   window.removeEventListener('scroll', handleWindowUpdate, true)
+  window.removeEventListener('click', hideCategoryContextMenu)
 })
 </script>
 
@@ -301,6 +464,11 @@ onBeforeUnmount(() => {
   z-index: 13021;
 }
 
+.category-menu--context {
+  width: 188px;
+  z-index: 13022;
+}
+
 .category-menu__item {
   width: 100%;
   border: none;
@@ -326,6 +494,14 @@ onBeforeUnmount(() => {
 
   &--ghost {
     color: var(--color-text-secondary);
+  }
+
+  &--danger {
+    color: var(--color-danger, #ef4444);
+
+    &:hover {
+      background: color-mix(in srgb, #ef4444 12%, transparent);
+    }
   }
 }
 

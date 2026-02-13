@@ -89,23 +89,30 @@
           </div>
         </div>
 
-        <SessionHistoryPanel
-          :visible="showSessionHistory"
-          :title="t('agent.history')"
-          :empty-text="t('agent.emptyHistory')"
-          :sessions="sessionList"
-          :current-session-id="currentSessionId"
-          :editing-session-id="editingSessionId"
-          :editing-title="editingTitle"
-          @close="showSessionHistory = false"
-          @load-session="loadSession"
-          @toggle-pin="togglePinSession"
-          @rename-session="renameSession"
-          @delete-session="deleteSession"
-          @confirm-rename="confirmRename"
-          @cancel-rename="cancelRename"
-          @update:editing-title="editingTitle = $event"
-        />
+        <div
+          v-if="showSessionHistory"
+          class="agent-chat__history-overlay"
+          @mousedown.stop
+          @click.stop
+        >
+          <SessionHistoryPanel
+            :visible="showSessionHistory"
+            :title="t('agent.history')"
+            :empty-text="t('agent.emptyHistory')"
+            :sessions="sessionList"
+            :current-session-id="currentSessionId"
+            :editing-session-id="editingSessionId"
+            :editing-title="editingTitle"
+            @close="showSessionHistory = false"
+            @load-session="loadSession"
+            @toggle-pin="togglePinSession"
+            @rename-session="renameSession"
+            @delete-session="deleteSession"
+            @confirm-rename="confirmRename"
+            @cancel-rename="cancelRename"
+            @update:editing-title="editingTitle = $event"
+          />
+        </div>
 
         <!-- Messages -->
         <div class="agent-chat__messages" ref="messagesContainer" @scroll="handleMessagesScroll">
@@ -699,8 +706,22 @@ function loadPersistedUiState(sessionId: string): boolean {
     if (!parsed || parsed.version !== 1) return false
     messages.value = (parsed.messages || []).map(m => ({
       role: m.role,
-      content: m.content || '',
-      parts: m.parts || [],
+      content: stripLeakedControlTokens(m.content || ''),
+      parts: (m.parts || []).map((part: any) => {
+        if (part?.type === 'text') {
+          return {
+            ...part,
+            content: stripLeakedControlTokens(String(part.content || ''))
+          }
+        }
+        if (part?.type === 'tool' && part.output) {
+          return {
+            ...part,
+            output: stripLeakedControlTokens(String(part.output))
+          }
+        }
+        return part
+      }),
       attachments: m.attachments || [],
       timestamp: new Date(m.timestamp || Date.now()),
       isError: m.isError
@@ -844,7 +865,7 @@ async function loadSession(sessionId: string) {
       if (!restored) {
         messages.value = (data.messages || []).map((m: any) => ({
           role: m.role,
-          content: m.content,
+          content: stripLeakedControlTokens(m.content),
           timestamp: new Date()
         }))
       }
@@ -1172,7 +1193,7 @@ async function enableAutoAcceptAndApply(): Promise<void> {
 }
 
 const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
-const isEnglishLocale = computed(() => locale.value.startsWith('en'))
+const isEnglishLocale = computed<boolean>(() => locale.value === 'en-US')
 const visibleMessages = computed(() =>
   messages.value.filter(
     m => m.content.trim() || (m.parts && m.parts.length) || (m.attachments && m.attachments.length)
@@ -1285,7 +1306,7 @@ const showStatusDots = computed(() => {
 })
 
 function normalizeStatusText(statusText: string): string {
-  const trimmed = String(statusText || '').trim()
+  const trimmed = stripLeakedControlTokens(String(statusText || ''))
   if (!trimmed) return ''
   const lowered = trimmed.toLowerCase()
   if (lowered.includes('thinking') || trimmed.includes('思考')) {
@@ -1362,7 +1383,10 @@ const currentModelProvider = computed<ModelMenuOption | null>(() => {
 
 const currentModelLabel = computed(() => {
   const current = currentModelProvider.value
-  if (!current) return locale.value === 'en-US' ? 'No model' : '无模型'
+  if (!current) {
+    if (selectedModelName.value) return selectedModelName.value
+    return locale.value === 'en-US' ? 'No model' : '无模型'
+  }
   return current.modelName
 })
 
@@ -1637,11 +1661,16 @@ const handleResize = () => {
 }
 
 let connectionHeartbeatTimer: ReturnType<typeof setInterval> | null = null
+let modelProvidersRetryTimer: ReturnType<typeof setTimeout> | null = null
 
 // Initial Position setup
 onMounted(() => {
   checkConnection(true) // Start checks with "isStartup = true"
   void loadComposerModelProviders()
+  if (modelProvidersRetryTimer) clearTimeout(modelProvidersRetryTimer)
+  modelProvidersRetryTimer = setTimeout(() => {
+    void loadComposerModelProviders()
+  }, 1200)
   if (connectionHeartbeatTimer) {
     clearInterval(connectionHeartbeatTimer)
   }
@@ -1665,6 +1694,10 @@ onUnmounted(() => {
     clearInterval(connectionHeartbeatTimer)
     connectionHeartbeatTimer = null
   }
+  if (modelProvidersRetryTimer) {
+    clearTimeout(modelProvidersRetryTimer)
+    modelProvidersRetryTimer = null
+  }
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('origin-agent-sidebar-mode-changed', syncSidebarModeFromExternal as EventListener)
   window.removeEventListener('storage', syncSidebarModeFromExternal)
@@ -1673,7 +1706,7 @@ onUnmounted(() => {
 // ----------------------
 
 function formatToolOutput(output: string): string {
-  const compact = String(output || '')
+  const compact = stripLeakedControlTokens(String(output || ''))
     .replace(/\s+/g, ' ')
     .trim()
   if (!compact) return ''
@@ -1799,6 +1832,7 @@ async function runHealthCheck(): Promise<boolean> {
 }
 
 async function checkConnection(isStartup = false) {
+  const wasConnected = isConnected.value
   if (!healthCheckInFlight) {
     healthCheckInFlight = runHealthCheck().finally(() => {
       healthCheckInFlight = null
@@ -1808,6 +1842,9 @@ async function checkConnection(isStartup = false) {
 
   if (isConnected.value) {
     retryCount.value = 0 // Reset on success
+    if (!wasConnected || !currentModelProvider.value) {
+      void loadComposerModelProviders()
+    }
   }
 
   // Startup Intelligence: If starting up and failed, retry quickly
@@ -2082,17 +2119,21 @@ async function sendMessage(
                   
                   if (chunk.part_type === 'text') {
                       finalizeAwaitingReadTools()
+                      const rawDelta = String(chunk.delta || '')
+                      if (!rawDelta) continue
                       // Find or create text part at the end
                       const lastPart = msg.parts[msg.parts.length - 1]
                       if (lastPart && lastPart.type === 'text') {
                           // Append to existing text part
-                          lastPart.content += chunk.delta
+                          lastPart.content = stripLeakedControlTokens(`${lastPart.content || ''}${rawDelta}`)
                       } else {
                           // Create new text part
-                          msg.parts.push({ type: 'text', content: chunk.delta })
+                          const initialText = stripLeakedControlTokens(rawDelta)
+                          if (!initialText) continue
+                          msg.parts.push({ type: 'text', content: initialText })
                       }
                       // Also update legacy content for compatibility
-                      msg.content += chunk.delta
+                      msg.content = stripLeakedControlTokens(`${msg.content || ''}${rawDelta}`)
                   } 
                   else if (chunk.part_type === 'tool') {
                       if (chunk.status === 'running' || chunk.status === 'pending') {
@@ -2127,7 +2168,7 @@ async function sendMessage(
                               toolPart = findToolPartForCompletion(undefined, chunk.tool)
                           }
                           if (toolPart) {
-                              toolPart.output = chunk.output
+                              toolPart.output = stripLeakedControlTokens(String(chunk.output || ''))
                               markToolPartCompleted(toolPart, chunk.tool)
                           }
                           if (chunk.tool === 'update_note') {
@@ -2166,7 +2207,7 @@ async function sendMessage(
                           }
                           if (toolPart) {
                               toolPart.status = 'error'
-                              toolPart.output = chunk.output
+                              toolPart.output = stripLeakedControlTokens(String(chunk.output || ''))
                           } else {
                               msg.parts.push({
                                   type: 'tool',
@@ -2175,7 +2216,7 @@ async function sendMessage(
                                   status: 'error',
                                   startedAt: Date.now(),
                                   title: chunk.title,
-                                  output: chunk.output,
+                                  output: stripLeakedControlTokens(String(chunk.output || '')),
                                   inputPreview: chunk.input_preview
                               } as ToolPart)
                           }
@@ -2208,7 +2249,11 @@ async function sendMessage(
               } 
               // 3. Legacy Text Content (fallback)
               else if (chunk.text) {
-                  console.log('[SSE] Legacy text chunk:', chunk.text.substring(0, 20))
+                  const rawLegacyText = String(chunk.text || '')
+                  if (!rawLegacyText) continue
+                  const cleanLegacyText = stripLeakedControlTokens(rawLegacyText)
+                  if (!cleanLegacyText) continue
+                  console.log('[SSE] Legacy text chunk:', cleanLegacyText.substring(0, 20))
                   // Normal text
                   if (messageIndex === -1) {
                       const assistantMessage: ChatMessage = {
@@ -2227,7 +2272,9 @@ async function sendMessage(
                   
                   if (currentStatus.value) currentStatus.value = ''
                   
-                  messages.value[messageIndex].content += chunk.text
+                  messages.value[messageIndex].content = stripLeakedControlTokens(
+                    `${messages.value[messageIndex].content || ''}${cleanLegacyText}`
+                  )
                   messages.value = [...messages.value]
                   scrollToBottom()
               }
@@ -2237,7 +2284,10 @@ async function sendMessage(
                       messages.value.push({ role: 'assistant', content: '', parts: [], timestamp: new Date(), isError: true })
                       messageIndex = messages.value.length - 1
                    }
-                   messages.value[messageIndex].content += `错误：${chunk.error}`
+                   const safeErr = stripLeakedControlTokens(String(chunk.error || ''))
+                   messages.value[messageIndex].content = stripLeakedControlTokens(
+                     `${messages.value[messageIndex].content || ''}${safeErr ? `错误：${safeErr}` : ''}`
+                   )
               }
           } catch (e) {
               console.warn("Failed to parse SSE JSON:", rawData, e)
@@ -2504,13 +2554,14 @@ function forceScrollToBottom() {
 
 function renderMarkdown(text: string): string {
   if (!text) return ''
+  const safeText = stripLeakedControlTokens(text)
   
   try {
     const mathBlocks: string[] = []
     const mathInlines: string[] = []
 
     // 1. Double escape certain math chars and protect blocks
-    let tmp = text
+    let tmp = safeText
       .replace(/\$\$([\s\S]+?)\$\$/g, (_, f) => {
         mathBlocks.push(f)
         return `__MATH_BLOCK_${mathBlocks.length - 1}__`
@@ -2569,8 +2620,48 @@ function renderMarkdown(text: string): string {
     return html
   } catch (e) {
     console.error('Markdown rendering error:', e)
-    return text
+    return safeText
   }
+}
+
+const CONTROL_TOKEN_PATTERN = '(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)'
+const CONTROL_CHAIN_PATTERN = new RegExp(
+  `^\\s*[\\\\/]*[_\\-\\s]*(?:${CONTROL_TOKEN_PATTERN})(?:[_\\-\\s]+(?:${CONTROL_TOKEN_PATTERN}))*\\s*[:：\\-]?\\s*`,
+  'i'
+)
+const CONTROL_LINE_PREFIX_PATTERN = new RegExp(
+  `(^|\\n)[\\t ]*[\\\\/]*[_\\-\\s]*(?:${CONTROL_TOKEN_PATTERN})(?:[_\\-\\s]+(?:${CONTROL_TOKEN_PATTERN}))*\\s*[:：\\-]?\\s*`,
+  'gi'
+)
+const CONTROL_LINE_ONLY_PATTERN = new RegExp(
+  `(^|\\n)[\\t ]*[\\\\/]*[_\\-\\s]*(?:${CONTROL_TOKEN_PATTERN})(?:[_\\-\\s]+(?:${CONTROL_TOKEN_PATTERN}))*\\s*[:：\\-]?\\s*(?=\\n|$)`,
+  'gi'
+)
+
+function stripLeakedControlTokens(text: string): string {
+  let cleaned = String(text || '')
+  if (!cleaned) return ''
+  // Strip format/invisible chars that can split leaked control tokens
+  // such as "_WRITE\u2063_WRITE" and bypass prefix cleanup.
+  cleaned = cleaned.replace(/[\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+  cleaned = cleaned.replace(/\uFF3F/g, '_')
+  cleaned = cleaned.replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+  cleaned = cleaned.replace(/\r\n?/g, '\n')
+  for (let i = 0; i < 8; i += 1) {
+    const next = cleaned.replace(CONTROL_CHAIN_PATTERN, '')
+    if (next === cleaned) break
+    cleaned = next
+  }
+  cleaned = cleaned.replace(CONTROL_LINE_PREFIX_PATTERN, '$1')
+  cleaned = cleaned.replace(CONTROL_LINE_ONLY_PATTERN, '$1')
+  for (let i = 0; i < 4; i += 1) {
+    const next = cleaned.replace(CONTROL_CHAIN_PATTERN, '')
+    if (next === cleaned) break
+    cleaned = next
+  }
+  cleaned = cleaned.replace(/[\uE000-\uF8FF]/g, '')
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim()
+  return cleaned
 }
 
 
@@ -3008,9 +3099,19 @@ watch(
 }
 
 /* Keep floating overlays (like session history) out of normal document flow */
-.agent-chat > .session-history-panel {
+.agent-chat__history-overlay {
   position: absolute;
+  top: 56px;
+  right: 12px;
+  left: auto;
+  width: min(420px, calc(100% - 24px));
+  max-height: calc(100% - 132px);
   z-index: 30;
+  pointer-events: none;
+}
+
+.agent-chat__history-overlay :deep(.session-history-panel) {
+  pointer-events: auto;
 }
 
 .agent-container--sidebar {
@@ -3030,6 +3131,13 @@ watch(
   border-left: 1px solid var(--theme-border);
   box-shadow: none;
   transform-origin: top right;
+}
+
+.agent-chat.sidebar-mode .agent-chat__history-overlay {
+  top: 60px;
+  right: 14px;
+  width: min(420px, calc(100% - 28px));
+  max-height: calc(100% - 140px);
 }
 
 .agent-chat.sidebar-mode::after {
@@ -4895,6 +5003,15 @@ watch(
   border-color: #ffffff;
 }
 
+[data-theme="dark"] .stop-btn-compact {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .stop-btn-compact:hover:not(:disabled) {
+  background: #ffffff;
+}
+
 /* ===== Right-reference full chat redesign override ===== */
 .agent-chat {
   border-radius: 14px;
@@ -5197,6 +5314,23 @@ watch(
 .stop-btn-compact {
   width: 32px !important;
   height: 32px !important;
+}
+
+/* Final lock: avoid white-on-white stop button after layered overrides */
+.stop-btn-compact {
+  background: #0f0f10 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.stop-btn-compact:hover:not(:disabled) {
+  background: #1d1d20 !important;
+  box-shadow: 0 6px 16px rgba(15, 15, 16, 0.25) !important;
+}
+
+.stop-icon-small {
+  background: currentColor !important;
 }
 
 .input-menu-popup {

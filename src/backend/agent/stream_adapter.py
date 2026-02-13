@@ -103,14 +103,14 @@ def _is_internal_control_text(text: str) -> bool:
 _CONTROL_TOKEN_PATTERN = r"(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)"
 _CONTROL_CHAIN_PATTERN = rf"{_CONTROL_TOKEN_PATTERN}(?:[_\-\s]+{_CONTROL_TOKEN_PATTERN})*"
 _CONTROL_PREFIX_RE = re.compile(
-    rf"^\s*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*",
+    rf"^\s*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*",
     re.IGNORECASE,
 )
 _CONTROL_LINE_RE = re.compile(
-    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
+    rf"(?im)^[\t ]*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
 )
 _CONTROL_LINE_PREFIX_RE = re.compile(
-    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
+    rf"(?im)^[\t ]*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
 )
 
 
@@ -121,7 +121,12 @@ def _sanitize_user_visible_text(text: str) -> str:
     """
     if not text or not isinstance(text, str):
         return ""
-    cleaned = text
+    # Strip format/invisible characters that can split leaked control tokens
+    # (e.g. "_WRITE\u2063_WRITE") and bypass prefix sanitization.
+    cleaned = re.sub(r"[\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]", "", text)
+    cleaned = cleaned.replace("\uFF3F", "_")
+    cleaned = re.sub(r"[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]", " ", cleaned)
+    cleaned = re.sub(r"\r\n?", "\n", cleaned)
     # Strip repeated control prefixes defensively.
     for _ in range(8):
         next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
@@ -132,6 +137,13 @@ def _sanitize_user_visible_text(text: str) -> str:
     cleaned = _CONTROL_LINE_PREFIX_RE.sub("", cleaned)
     # Drop lines that are pure control labels.
     cleaned = _CONTROL_LINE_RE.sub("", cleaned)
+    # Re-run prefix removal once after line-level cleanup for chained leaks.
+    for _ in range(4):
+        next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
+        if next_cleaned == cleaned:
+            break
+        cleaned = next_cleaned
+    cleaned = re.sub(r"[\uE000-\uF8FF]", "", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 

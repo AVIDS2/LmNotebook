@@ -85,7 +85,9 @@ defineEmits<{
 function toSingleLine(value: string): string {
   return String(value || '')
     .replace(/[\uE000-\uF8FF]/g, '')
+    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '')
     .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\|{2,}/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }
@@ -93,11 +95,10 @@ function toSingleLine(value: string): string {
 
 <style scoped lang="scss">
 .session-history-panel {
-  position: absolute;
-  top: 52px;
-  left: 12px;
-  right: 12px;
-  z-index: 30;
+  position: relative;
+  width: 100%;
+  max-height: 100%;
+  z-index: 1;
   border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-bg-card) 97%, transparent);
@@ -137,7 +138,7 @@ function toSingleLine(value: string): string {
 }
 
 .session-history__list {
-  max-height: min(60vh, 460px);
+  max-height: min(56vh, 420px);
   overflow-y: auto;
   padding: 6px;
   display: flex;

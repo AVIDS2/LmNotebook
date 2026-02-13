@@ -79,6 +79,31 @@ class ModelManager:
             except Exception as e:
                 safe_print(f"[ERROR] Failed to load models.json: {e}")
                 self.providers = []
+        self._ensure_default_provider_if_empty()
+        self._ensure_active_provider()
+
+    def _ensure_default_provider_if_empty(self):
+        if self.providers:
+            return
+        default_provider = {
+            "id": "default",
+            "name": "Default (from .env)",
+            "baseUrl": settings.OPENAI_BASE_URL,
+            "apiKey": settings.OPENAI_API_KEY,
+            "modelName": settings.MODEL_NAME,
+            "isActive": True,
+        }
+        self.providers = [default_provider]
+        self._normalize_providers()
+        self._save_config()
+
+    def _ensure_active_provider(self):
+        if not self.providers:
+            return
+        if any(bool(p.get("isActive")) for p in self.providers):
+            return
+        self.providers[0]["isActive"] = True
+        self._save_config()
 
     def _normalize_provider(self, provider: Dict[str, Any]) -> Dict[str, Any]:
         """

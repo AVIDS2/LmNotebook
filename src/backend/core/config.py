@@ -3,24 +3,54 @@ Configuration settings for the Agent Backend.
 """
 import os
 import json
+import platform
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
+def _config_path_candidates() -> list[Path]:
+    """Return possible Electron config paths across platforms/legacy names."""
+    env_override = os.environ.get("ORIGIN_NOTES_CONFIG_PATH", "").strip()
+    if env_override:
+        return [Path(env_override)]
+
+    home = Path.home()
+    candidates: list[Path] = []
+
+    if os.name == 'nt':
+        app_data = Path(os.environ.get('APPDATA', home / 'AppData' / 'Roaming'))
+        candidates.extend([
+            app_data / 'Origin Notes' / 'origin-notes-config.json',
+            app_data / 'origin-notes' / 'origin-notes-config.json',
+        ])
+        return candidates
+
+    # macOS
+    if platform.system().lower() == 'darwin':
+        candidates.extend([
+            home / 'Library' / 'Application Support' / 'Origin Notes' / 'origin-notes-config.json',
+            home / 'Library' / 'Application Support' / 'origin-notes' / 'origin-notes-config.json',
+        ])
+        return candidates
+
+    # Linux / other unix
+    xdg_config = Path(os.environ.get('XDG_CONFIG_HOME', home / '.config'))
+    candidates.extend([
+        xdg_config / 'Origin Notes' / 'origin-notes-config.json',
+        xdg_config / 'origin-notes' / 'origin-notes-config.json',
+    ])
+    return candidates
+
+
 def get_user_data_directory() -> Path:
     """Get the user-configured data directory from Electron config."""
-    # Try to read from Electron's config file
-    if os.name == 'nt':  # Windows
-        app_data = os.environ.get('APPDATA', '')
-        config_path = Path(app_data) / 'origin-notes' / 'origin-notes-config.json'
-    else:  # macOS/Linux
-        config_path = Path.home() / '.config' / 'origin-notes' / 'origin-notes-config.json'
-    
     # Default path
     default_path = Path.home() / "Documents" / "OriginNotes"
-    
+
     try:
-        if config_path.exists():
+        for config_path in _config_path_candidates():
+            if not config_path.exists():
+                continue
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
                 data_dir = config.get('dataDirectory')
@@ -28,7 +58,7 @@ def get_user_data_directory() -> Path:
                     return Path(data_dir)
     except Exception:
         pass
-    
+
     return default_path
 
 

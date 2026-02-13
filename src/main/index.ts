@@ -2,7 +2,7 @@
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { createWriteStream } from 'fs'
+import { createWriteStream, existsSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import * as database from './database'
@@ -122,7 +122,7 @@ function startBackend(): void {
   // Only auto-start backend in production to avoid conflicts during dev.
   if (!app.isPackaged) return
 
-  const backendDir = join(process.resourcesPath, 'backend_src')
+  const backendDir = join(process.resourcesPath, 'backend')
   const logPath = join(app.getPath('userData'), 'backend_error.log')
   const logStream = createWriteStream(logPath, { flags: 'a' })
 
@@ -133,15 +133,24 @@ function startBackend(): void {
   let cwd: string
 
   if (app.isPackaged) {
-    // Production: run the compiled executable.
-    backendExec = join(process.resourcesPath, 'backend', 'origin_backend.exe')
-    cwd = join(process.resourcesPath, 'backend')
+    // Production: run the compiled executable with OS-specific fallback.
+    cwd = backendDir
+    const execCandidates =
+      process.platform === 'win32'
+        ? [join(backendDir, 'origin_backend.exe')]
+        : [join(backendDir, 'origin_backend'), join(backendDir, 'origin_backend.bin'), join(backendDir, 'origin_backend.exe')]
+    const resolvedExec = execCandidates.find((candidate) => existsSync(candidate))
 
-    if (!require('fs').existsSync(backendExec)) {
-      logStream.write(`[FATAL] Backend executable not found at: ${backendExec}\n`)
-    } else {
-      logStream.write(`[Production] Starting compiled backend: ${backendExec}\n`)
+    if (!resolvedExec) {
+      logStream.write(`[FATAL] Backend executable not found. Tried:\n${execCandidates.map((p) => `  - ${p}`).join('\n')}\n`)
+      dialog.showErrorBox(
+        'Backend Missing',
+        `Backend executable was not found.\n\nChecked:\n${execCandidates.join('\n')}\n\nSee log: ${logPath}`
+      )
+      return
     }
+    backendExec = resolvedExec
+    logStream.write(`[Production] Starting compiled backend: ${backendExec}\n`)
   } else {
     // Development: run python script from local env.
     const pythonExe = join(process.cwd(), 'backend_env', 'Scripts', 'python.exe')
@@ -182,10 +191,16 @@ function startBackend(): void {
 }
 
 function getTrayIconPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'build', 'icon.ico')
+  const baseDir = app.isPackaged ? join(process.resourcesPath, 'build') : join(app.getAppPath(), 'build')
+  const candidates =
+    process.platform === 'win32'
+      ? [join(baseDir, 'icon.ico'), join(baseDir, 'icon.png')]
+      : [join(baseDir, 'icon.png'), join(baseDir, 'icon.ico')]
+  const existing = candidates.find((candidate) => existsSync(candidate))
+  if (existing) {
+    return existing
   }
-  return join(app.getAppPath(), 'build', 'icon.ico')
+  return candidates[0]
 }
 
 function createTray(window: BrowserWindow): void {
@@ -593,7 +608,11 @@ app.on('before-quit', () => {
         // Ignore errors if process is already dead.
       }
     } else {
-      backendProcess.kill()
+      try {
+        backendProcess.kill('SIGTERM')
+      } catch (_e) {
+        // Ignore errors if process is already dead.
+      }
     }
     backendProcess = null
   }

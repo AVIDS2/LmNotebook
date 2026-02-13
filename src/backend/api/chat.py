@@ -1,4 +1,4 @@
-"""
+﻿"""
 Chat API endpoints.
 """
 from typing import Any, Optional, List
@@ -56,11 +56,15 @@ configure_utf8_stdio()
 _MAX_SESSION_TITLE_LEN = 48
 _CONTROL_TOKEN_PATTERN = r"(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)"
 _CONTROL_CHAIN_PATTERN = rf"{_CONTROL_TOKEN_PATTERN}(?:[_\-\s]+{_CONTROL_TOKEN_PATTERN})*"
+_CONTROL_PREFIX_RE = re.compile(
+    rf"^\s*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*",
+    re.IGNORECASE,
+)
 _CONTROL_LINE_PREFIX_RE = re.compile(
-    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
+    rf"(?im)^[\t ]*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*"
 )
 _CONTROL_LINE_RE = re.compile(
-    rf"(?im)^[\t ]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
+    rf"(?im)^[\t ]*[\\/]*[_\-\s]*{_CONTROL_CHAIN_PATTERN}\s*[:：\-]?\s*$"
 )
 
 
@@ -319,8 +323,25 @@ async def format_text(request: ChatRequest):
 def _content_to_text(content: Any) -> str:
     """Normalize LangChain/LangGraph message content into plain preview text."""
     def _sanitize(text: str) -> str:
-        cleaned = _CONTROL_LINE_PREFIX_RE.sub("", text or "")
+        # Strip format/invisible characters that can split leaked control tokens
+        # and bypass prefix sanitization in preview/title generation.
+        cleaned = re.sub(r"[\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]", "", text or "")
+        cleaned = cleaned.replace("\uFF3F", "_")
+        cleaned = re.sub(r"[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]", " ", cleaned)
+        cleaned = re.sub(r"\r\n?", "\n", cleaned)
+        # Strip repeated leaked control prefixes like "_WRITE_WRITE".
+        for _ in range(8):
+            next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
+            if next_cleaned == cleaned:
+                break
+            cleaned = next_cleaned
+        cleaned = _CONTROL_LINE_PREFIX_RE.sub("", cleaned)
         cleaned = _CONTROL_LINE_RE.sub("", cleaned)
+        for _ in range(4):
+            next_cleaned = _CONTROL_PREFIX_RE.sub("", cleaned)
+            if next_cleaned == cleaned:
+                break
+            cleaned = next_cleaned
         cleaned = re.sub(r"[\uE000-\uF8FF]", "", cleaned)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
         return cleaned
@@ -832,4 +853,5 @@ async def process_text(request: TextProcessRequest):
     except Exception as e:
         safe_print(f"[API] Text process error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 

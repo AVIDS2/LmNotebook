@@ -44,10 +44,36 @@
                     <h3>{{ t('settings.general.language') }}</h3>
                     <p>{{ t('settings.general.languageHint') }}</p>
                   </div>
-                  <select class="select" :value="locale" @change="handleLocaleChange">
-                    <option value="zh-CN">{{ t('language.zh-CN') }}</option>
-                    <option value="en-US">{{ t('language.en-US') }}</option>
-                  </select>
+                  <div class="dropdown-select" ref="localeDropdownRef">
+                    <button
+                      class="dropdown-select__trigger"
+                      :class="{ 'dropdown-select__trigger--open': localeDropdownOpen }"
+                      @click="localeDropdownOpen = !localeDropdownOpen"
+                    >
+                      <span class="dropdown-select__label">{{ localeLabel }}</span>
+                      <svg class="dropdown-select__caret" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <Transition name="dropdown-fade">
+                      <div v-if="localeDropdownOpen" class="dropdown-select__menu">
+                        <button
+                          class="dropdown-select__item"
+                          :class="{ 'dropdown-select__item--active': locale === 'zh-CN' }"
+                          @click="setLocaleFromMenu('zh-CN')"
+                        >
+                          {{ t('language.zh-CN') }}
+                        </button>
+                        <button
+                          class="dropdown-select__item"
+                          :class="{ 'dropdown-select__item--active': locale === 'en-US' }"
+                          @click="setLocaleFromMenu('en-US')"
+                        >
+                          {{ t('language.en-US') }}
+                        </button>
+                      </div>
+                    </Transition>
+                  </div>
                 </div>
                 <div class="settings-row settings-row--stackable">
                   <div>
@@ -76,6 +102,29 @@
                     >
                       {{ t('sidebar.theme.dark') }}
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <h3 class="card-title">{{ t('settings.general.aboutTitle') }}</h3>
+                <p class="muted">{{ t('settings.general.aboutDescription') }}</p>
+                <div class="about-grid">
+                  <div class="about-item">
+                    <h4>{{ t('settings.general.aboutNotebookTitle') }}</h4>
+                    <p>{{ t('settings.general.aboutNotebookBody') }}</p>
+                  </div>
+                  <div class="about-item">
+                    <h4>{{ t('settings.general.aboutAgentTitle') }}</h4>
+                    <p>{{ t('settings.general.aboutAgentBody') }}</p>
+                  </div>
+                  <div class="about-item">
+                    <h4>{{ t('settings.general.aboutModeTitle') }}</h4>
+                    <p>{{ t('settings.general.aboutModeBody') }}</p>
+                  </div>
+                  <div class="about-item">
+                    <h4>{{ t('settings.general.aboutSafetyTitle') }}</h4>
+                    <p>{{ t('settings.general.aboutSafetyBody') }}</p>
                   </div>
                 </div>
               </div>
@@ -140,12 +189,31 @@
                     <h3>{{ t('settings.backup.maxCount') }}</h3>
                     <p>{{ t('settings.backup.maxCountHint') }}</p>
                   </div>
-                  <select v-model.number="config.maxBackups" @change="saveConfig" class="select">
-                    <option :value="5">5</option>
-                    <option :value="10">10</option>
-                    <option :value="20">20</option>
-                    <option :value="50">50</option>
-                  </select>
+                  <div class="dropdown-select" ref="backupCountDropdownRef">
+                    <button
+                      class="dropdown-select__trigger"
+                      :class="{ 'dropdown-select__trigger--open': backupCountDropdownOpen }"
+                      @click="backupCountDropdownOpen = !backupCountDropdownOpen"
+                    >
+                      <span class="dropdown-select__label">{{ config.maxBackups }}</span>
+                      <svg class="dropdown-select__caret" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <Transition name="dropdown-fade">
+                      <div v-if="backupCountDropdownOpen" class="dropdown-select__menu">
+                        <button
+                          v-for="count in backupCountOptions"
+                          :key="count"
+                          class="dropdown-select__item"
+                          :class="{ 'dropdown-select__item--active': config.maxBackups === count }"
+                          @click="setBackupCount(count)"
+                        >
+                          {{ count }}
+                        </button>
+                      </div>
+                    </Transition>
+                  </div>
                 </div>
               </div>
 
@@ -297,6 +365,11 @@ const updateState = ref<UpdaterState>({
   currentVersion: appMeta.value.version,
   autoCheck: true
 })
+const localeDropdownRef = ref<HTMLElement | null>(null)
+const localeDropdownOpen = ref(false)
+const backupCountDropdownRef = ref<HTMLElement | null>(null)
+const backupCountDropdownOpen = ref(false)
+const backupCountOptions = [5, 10, 20, 50]
 
 let unsubscribeUpdater: (() => void) | null = null
 
@@ -325,10 +398,27 @@ const updaterStageLabel = computed(() => {
   }
   return map[updateState.value.stage] || updateState.value.stage
 })
+const localeLabel = computed(() => (locale.value === 'zh-CN' ? t('language.zh-CN') : t('language.en-US')))
 
-function handleLocaleChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value as 'zh-CN' | 'en-US'
+function setLocaleFromMenu(value: 'zh-CN' | 'en-US'): void {
   setLocale(value)
+  localeDropdownOpen.value = false
+}
+
+async function setBackupCount(value: number): Promise<void> {
+  config.value.maxBackups = value
+  backupCountDropdownOpen.value = false
+  await saveConfig()
+}
+
+function handleGlobalPointerDown(event: MouseEvent): void {
+  const target = event.target as Node
+  if (localeDropdownOpen.value && !localeDropdownRef.value?.contains(target)) {
+    localeDropdownOpen.value = false
+  }
+  if (backupCountDropdownOpen.value && !backupCountDropdownRef.value?.contains(target)) {
+    backupCountDropdownOpen.value = false
+  }
 }
 
 function setTheme(mode: ThemeMode): void {
@@ -351,10 +441,12 @@ onMounted(async () => {
       updateState.value = state
     })
   }
+  document.addEventListener('mousedown', handleGlobalPointerDown)
 })
 
 onBeforeUnmount(() => {
   unsubscribeUpdater?.()
+  document.removeEventListener('mousedown', handleGlobalPointerDown)
 })
 
 async function loadAppMeta(): Promise<void> {
@@ -804,6 +896,34 @@ function formatDate(timestamp: number): string {
   color: var(--color-text-muted);
 }
 
+.about-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.about-item {
+  border: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--color-bg-hover) 42%, transparent);
+
+  h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+  }
+}
+
 .input,
 .select,
 .btn {
@@ -813,6 +933,101 @@ function formatDate(timestamp: number): string {
   background: transparent;
   color: var(--color-text-primary);
   font-size: 12px;
+}
+
+.dropdown-select {
+  position: relative;
+  min-width: 116px;
+}
+
+.dropdown-select__trigger {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.dropdown-select__trigger:hover {
+  background: var(--color-bg-hover);
+}
+
+.dropdown-select__trigger--open {
+  border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
+}
+
+.dropdown-select__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-select__caret {
+  color: var(--color-text-muted);
+  transition: transform 0.14s ease;
+}
+
+.dropdown-select__trigger--open .dropdown-select__caret {
+  transform: rotate(180deg);
+}
+
+.dropdown-select__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 52000;
+  width: 100%;
+  min-width: 140px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 64%, transparent);
+  background: color-mix(in srgb, var(--color-bg-card) 96%, transparent);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.dropdown-select__item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.dropdown-select__item:hover {
+  background: var(--color-bg-hover);
+}
+
+.dropdown-select__item--active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--color-accent) 74%, var(--color-text-primary));
+}
+
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .input {
@@ -913,6 +1128,10 @@ function formatDate(timestamp: number): string {
 
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .about-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-row--stackable {
