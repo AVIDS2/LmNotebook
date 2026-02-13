@@ -42,4 +42,4 @@ jobs:
         run: npm run build
 
       - name: Publish artifacts
-        run: npx electron-builder --${{ matrix.platform }} --publish always
+        run: npx electron-builder --${{ matrix.platform }} --publish always --config.extraMetadata.version=${GITHUB_REF_NAME#v}

@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "description": "简约风格的原子笔记应用",
   "main": "./out/main/index.js",
-  "author": "Origin-Notes",
+  "author": {
+    "name": "Origin-Notes",
+    "email": "origin-notes@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
@@ -92,6 +95,7 @@
       "category": "public.app-category.productivity"
     },
     "linux": {
+      "maintainer": "Origin-Notes <origin-notes@users.noreply.github.com>",
       "target": [
         {
           "target": "AppImage",
