@@ -1,112 +1,99 @@
-﻿# Origin Notes
+﻿# LmNotebook (Origin Notes)
 
 [中文](README.md) | [English](README.en.md)
 
-Origin Notes is a local-first AI note app built with Electron + Vue 3 + Python. All data stays on your machine by default.
+LmNotebook (formerly Origin Notes) is a local-first AI notebook for individuals and small teams.
+It is built with Electron + Vue 3 + FastAPI + LangGraph, with notes, vector index, and chat session data stored locally by default.
 
-## Key Features
+## Why LmNotebook
+
+- Local-first: your data stays on your machine by default
+- Model-flexible: multi-provider and multi-model switching
+- Agent-ready: Ask / Agent modes with approval workflow
+- Release-ready: Windows / macOS / Linux distribution pipeline
+
+## Core Capabilities
 
 ### Notes
-- Rich text editor (headings, lists, tasks, code, tables, math)
-- Images stored locally
-- Categories, pinning, trash, batch operations
-- Full-text search
-- Drag-and-drop ordering
-- Auto-save
 
-### AI Assistant (Origin)
-- LangGraph-based agent with tool calling
-- RAG search over your notes (FAISS)
-- Multi-provider LLM via OpenAI-compatible protocol
-- Streaming responses
-- Note CRUD via tools (create / update / rename / delete / categorize)
+- Markdown editing with structured formatting (headings, lists, code, tables, math)
+- Folders / categories / pin / trash
+- Full-text search and quick filtering
+- Auto-save and local backup
 
-### Data
-- Local SQLite storage (better-sqlite3)
-- Configurable data directory
-- Automatic backups
-- Export/Import (JSON, Markdown)
+### AI Agent
+
+- LangGraph-based orchestration
+- Tool calls: read, search, create, update, rename, categorize, delete
+- Approval workflow: manual review / auto-accept
+- Session modes: Ask (read-only) / Agent (action-enabled)
+- Attachments: image and file upload, paste, drag-and-drop
+
+### RAG
+
+- Local FAISS vector retrieval
+- Incremental note vector sync
+- Configurable embedding model
 
 ## Tech Stack
 
 - Frontend: Electron + Vue 3 + TypeScript + Pinia + TipTap
 - Backend: Python + FastAPI + LangGraph + LangChain
-- Vector Search: FAISS
+- Retrieval: FAISS
 - Storage: SQLite
 
 ## Quick Start
 
 ### Requirements
+
 - Node.js 18+
 - Python 3.10+
-- pnpm / npm
+- npm or pnpm
 
 ### Install
 
 ```bash
-# Frontend deps
 npm install
-
-# Backend deps
 cd src/backend
 pip install -r requirements.txt
 ```
 
-### Configure
+### Configure Models
 
-Copy `src/backend/.env.example` to `src/backend/.env` and set the keys you need.
+Copy `src/backend/.env.example` to `src/backend/.env`:
 
 ```env
-# OpenAI-compatible provider (OpenAI / DeepSeek / Gemini / etc.)
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=your_api_key
 MODEL_NAME=gpt-4o-mini
 
-# Embeddings (DashScope default in this repo)
 DASHSCOPE_API_KEY=your_dashscope_key
-EMBEDDING_MODEL=embedding-2
+EMBEDDING_MODEL=text-embedding-v3
 ```
 
-You can also manage model providers in the app UI (Model Settings). This persists to `models.json` in the user data directory and overrides `.env` defaults.
+You can also manage providers and models from in-app `Model Settings`. UI config is persisted in the user data directory and overrides `.env` defaults.
 
 ### Run (Dev)
 
 ```bash
-# Backend
+# backend
 cd src/backend
 python main.py
 
-# Frontend (new terminal)
+# frontend (new terminal)
 npm run dev
 ```
 
-## Packaging
+## Packaging and Release
 
-See `PACKAGING.md` for the correct packaging flow. Important: use the `backend_env` virtual environment when running PyInstaller.
+- Packaging guide: `PACKAGING.md`
+- Release checklist: `docs/release-checklist.md`
 
-## Docs Index
+## Docs
 
-- `PACKAGING.md` - Packaging flow (backend_env required)
-- `src/backend/README.md` - Backend setup and architecture
-- `docs/dev/` - Developer notes and investigation logs
-
-## Project Structure
-
-```text
-src/
-  main/           Electron main process
-  preload/        IPC bridge
-  renderer/       Vue app
-    components/
-    stores/
-    database/
-    services/
-  backend/        Python backend
-    agent/        LangGraph agent
-    api/          FastAPI routes
-    core/         LLM config
-    services/     RAG + note services
-```
+- Backend docs: `src/backend/README.md`
+- Dev notes: `docs/dev/`
+- Plans and design docs: `docs/plans/`
 
 ## License
 
