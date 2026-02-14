@@ -26,3 +26,25 @@ test('zh-CN model menu label should be readable Chinese text', async () => {
   assert.ok(!/^\?+/.test(value.trim()), 'menuChooseModel should not start with question marks')
   assert.match(value, /\p{Script=Han}/u, 'menuChooseModel should contain Chinese characters')
 })
+
+test('zh-CN locale should not contain placeholder question-mark strings', async () => {
+  const messages = await loadMessages()
+  const hits = []
+
+  function walk(node, trail = []) {
+    if (typeof node === 'string') {
+      if (/\?{2,}/.test(node)) hits.push(`${trail.join('.')}: ${node}`)
+      return
+    }
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => walk(v, trail.concat(String(i))))
+      return
+    }
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) walk(v, trail.concat(k))
+    }
+  }
+
+  walk(messages['zh-CN'], ['zh-CN'])
+  assert.equal(hits.length, 0, `zh-CN contains placeholder strings:\n${hits.join('\n')}`)
+})
