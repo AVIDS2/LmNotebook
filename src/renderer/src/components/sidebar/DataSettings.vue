@@ -169,6 +169,34 @@
                   <button v-if="!isDefaultDirectory" class="btn btn--ghost" @click="resetToDefault">{{ t('settings.actions.resetDefault') }}</button>
                 </div>
               </div>
+
+              <div class="settings-card">
+                <h3 class="card-title">{{ t('settings.data.embeddingTitle') }}</h3>
+                <p class="muted">{{ t('settings.data.embeddingHint') }}</p>
+                <div class="settings-row settings-row--stackable">
+                  <div>
+                    <h3>{{ t('settings.data.embeddingMode') }}</h3>
+                    <p>{{ t('settings.data.embeddingModeHint') }}</p>
+                  </div>
+                  <select class="select" v-model="config.embeddingMode" @change="saveConfig">
+                    <option value="api">API</option>
+                    <option value="local">Local</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--stackable">
+                  <div>
+                    <h3>{{ t('settings.data.embeddingModel') }}</h3>
+                    <p>{{ t('settings.data.embeddingModelHint') }}</p>
+                  </div>
+                  <input
+                    type="text"
+                    class="input"
+                    v-model="config.embeddingModel"
+                    @blur="saveEmbeddingModel"
+                    @keyup.enter="saveEmbeddingModel"
+                  />
+                </div>
+              </div>
             </template>
 
             <template v-else-if="activeTab === 'backup'">
@@ -229,7 +257,7 @@
                   <div class="backup-item" v-for="backup in backups" :key="backup.filename">
                     <div>
                       <div class="backup-name">{{ backup.filename }}</div>
-                      <div class="backup-meta">{{ formatSize(backup.size) }} · {{ formatDate(backup.createdAt) }}</div>
+                      <div class="backup-meta">{{ formatSize(backup.size) }} 路 {{ formatDate(backup.createdAt) }}</div>
                     </div>
                     <button class="btn" @click="restoreBackup(backup)">{{ t('settings.actions.restore') }}</button>
                   </div>
@@ -302,6 +330,8 @@ interface AppConfig {
   backupDirectory: string
   maxBackups: number
   updateAutoCheck: boolean
+  embeddingMode: string
+  embeddingModel: string
 }
 
 interface BackupInfo {
@@ -346,13 +376,15 @@ const uiStore = useUIStore()
 const notify = useNotifyStore()
 
 const activeTab = ref<TabKey>('general')
-const appMeta = ref({ name: 'Origin Notes', version: '1.0.0', packaged: false })
+const appMeta = ref({ name: 'LmNotebook', version: '1.0.0', packaged: false })
 const config = ref<AppConfig>({
   dataDirectory: '',
   autoBackup: true,
   backupDirectory: '',
   maxBackups: 10,
-  updateAutoCheck: true
+  updateAutoCheck: true,
+  embeddingMode: 'api',
+  embeddingModel: 'text-embedding-v3'
 })
 const stats = ref<DbStats>({ noteCount: 0, categoryCount: 0, dbSize: 0 })
 const imageStats = ref<ImageStats>({ count: 0, totalSize: 0 })
@@ -483,6 +515,12 @@ async function saveConfig(): Promise<void> {
   config.value = await window.electronAPI.config.save(config.value)
 }
 
+async function saveEmbeddingModel(): Promise<void> {
+  const trimmed = (config.value.embeddingModel || '').trim()
+  config.value.embeddingModel = trimmed || 'text-embedding-v3'
+  await saveConfig()
+}
+
 async function handleUpdateAutoCheck(event: Event): Promise<void> {
   const enabled = (event.target as HTMLInputElement).checked
   updateState.value = await window.electronAPI.updater.setAutoCheck(enabled)
@@ -493,7 +531,7 @@ async function checkUpdates(): Promise<void> {
   try {
     updateState.value = await window.electronAPI.updater.checkForUpdates()
   } catch (error) {
-    notify.add(`检查更新失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    notify.add(`妫€鏌ユ洿鏂板け璐? ${error instanceof Error ? error.message : String(error)}`, 'error')
   }
 }
 
@@ -501,7 +539,7 @@ async function downloadUpdate(): Promise<void> {
   try {
     updateState.value = await window.electronAPI.updater.downloadUpdate()
   } catch (error) {
-    notify.add(`下载更新失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    notify.add(`涓嬭浇鏇存柊澶辫触: ${error instanceof Error ? error.message : String(error)}`, 'error')
   }
 }
 
@@ -525,7 +563,7 @@ async function selectDataDirectory(): Promise<void> {
     if (confirmMove) {
       const migrateResult = await window.electronAPI.data.migrate(result.path)
       if (!migrateResult.success) {
-        notify.add(`迁移失败: ${migrateResult.error}`, 'error')
+        notify.add(`杩佺Щ澶辫触: ${migrateResult.error}`, 'error')
       }
     }
   }
@@ -543,7 +581,7 @@ async function resetToDefault(): Promise<void> {
   if (confirmed) {
     const result = await window.electronAPI.data.migrate(defaultDirectory.value)
     if (!result.success) {
-      notify.add(`恢复失败: ${result.error}`, 'error')
+      notify.add(`鎭㈠澶辫触: ${result.error}`, 'error')
     }
   }
 }
@@ -1140,3 +1178,4 @@ function formatDate(timestamp: number): string {
   }
 }
 </style>
+

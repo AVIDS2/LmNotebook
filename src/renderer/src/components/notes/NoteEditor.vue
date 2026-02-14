@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="note-editor" ref="editorRootRef">
     <!-- 无笔记状态 -->
     <div v-if="!noteStore.currentNote" class="note-editor__empty">
@@ -759,6 +759,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import Underline from '@tiptap/extension-underline'
 import Table from '@tiptap/extension-table'
 import { NodeSelection } from '@tiptap/pm/state'
+import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
@@ -1042,13 +1043,13 @@ const moreMenuStyle = computed(() => ({
 const canUndo = computed(() => {
   // 依赖编辑器事务，确保按钮状态实时更新
   void editorStateVersion.value
-  return editor.value?.can().chain().focus().undo().run() ?? false
+  return editor.value ? undoDepth(editor.value.state) > 0 : false
 })
 
 const canRedo = computed(() => {
   // 依赖编辑器事务，确保按钮状态实时更新
   void editorStateVersion.value
-  return editor.value?.can().chain().focus().redo().run() ?? false
+  return editor.value ? redoDepth(editor.value.state) > 0 : false
 })
 
 const showOutlinePanel = computed(() => outlineOpen.value)
@@ -2604,17 +2605,18 @@ watch(
         })
       }
       
-      // 只在切换笔记时重置历史
-      if (newId !== oldId) {
-        const { state, view } = editor.value
-        const tr = state.tr.setMeta('addToHistory', false)
-        view.dispatch(tr)
-      }
+      const switchedNote = newId !== oldId
       
       if (editor.value.getHTML() !== newContent) {
         runWithoutAutoSave(() => {
           editor.value?.commands.setContent(newContent, false, { preserveWhitespace: 'full' })
         })
+      }
+      if (switchedNote) {
+        // Reset per-note history so undo/redo does not cross note boundaries.
+        const { state, view } = editor.value
+        const resetState = state.reconfigure({ plugins: state.plugins })
+        view.updateState(resetState)
       }
       nextTick(() => {
         scheduleOutlineSync()

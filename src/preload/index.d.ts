@@ -91,6 +91,8 @@ export interface AppConfig {
   backupDirectory: string
   maxBackups: number
   updateAutoCheck: boolean
+  embeddingMode: string
+  embeddingModel: string
 }
 
 // 备份信息类型

@@ -58,6 +58,9 @@ interface AppConfig {
   autoBackup: boolean
   backupDirectory: string
   maxBackups: number
+  updateAutoCheck: boolean
+  embeddingMode: string
+  embeddingModel: string
 }
 
 interface BackupInfo {

@@ -6,6 +6,10 @@ out/
 dist/
 release/
 build/
+!build/
+build/*
+!build/icon.ico
+!build/icon.png
 src/backend/build/
 src/backend/dist/
 
@@ -71,7 +75,7 @@ htmlcov/
 
 # PyInstaller
 *.spec
-!origin-backend.spec
+!src/backend/origin-backend.spec
 
 # Vector store data
 vector_store/

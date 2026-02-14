@@ -11,6 +11,8 @@ interface AppConfig {
     backupDirectory: string
     maxBackups: number
     updateAutoCheck: boolean
+    embeddingMode: string
+    embeddingModel: string
 }
 
 const CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
@@ -22,7 +24,9 @@ function getDefaultConfig(): AppConfig {
         autoBackup: true,
         backupDirectory: join(defaultDataPath, 'backups'),
         maxBackups: 10,
-        updateAutoCheck: true
+        updateAutoCheck: true,
+        embeddingMode: 'api',
+        embeddingModel: 'text-embedding-v3'
     }
 }
 

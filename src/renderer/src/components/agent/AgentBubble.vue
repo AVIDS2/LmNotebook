@@ -14,10 +14,7 @@
       @click.stop="handleClick"
     >
       <div class="agent-bubble__icon">
-        <!-- Origin asterisk logo -->
-        <svg v-if="!isOpen" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2L13.09 8.26L18 4L14.74 9.91L21 10.91L14.74 12.09L18 18L13.09 13.74L12 20L10.91 13.74L6 18L9.26 12.09L3 10.91L9.26 9.91L6 4L10.91 8.26L12 2Z"/>
-        </svg>
+        <span v-if="!isOpen" class="agent-bubble__logo-text">LM</span>
         <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"/>
           <line x1="6" y1="6" x2="18" y2="18"/>
@@ -42,7 +39,7 @@
         <!-- Header -->
         <div class="agent-chat__header">
           <div class="agent-chat__title" @mousedown="startDrag" style="cursor: grab;">
-            <span>ORIGIN</span>
+            <span>{{ t('app.brand') }}</span>
           </div>
           <div class="agent-chat__actions">
             <button 
@@ -103,6 +100,10 @@
             :current-session-id="currentSessionId"
             :editing-session-id="editingSessionId"
             :editing-title="editingTitle"
+            :pin-title="t('agent.sessionPin')"
+            :unpin-title="t('agent.sessionUnpin')"
+            :rename-title="t('agent.sessionRename')"
+            :delete-title="t('agent.sessionDelete')"
             @close="showSessionHistory = false"
             @load-session="loadSession"
             @toggle-pin="togglePinSession"
@@ -288,7 +289,7 @@
               @keydown.enter.exact.prevent="sendMessage()"
               @input="autoResizeInput"
               @paste="handleComposerPaste"
-              :placeholder="isEnglishLocale ? 'Ask, search, or make anything...' : '提问、搜索或执行任务...'"
+              :placeholder="t('agent.composerPlaceholder')"
               :style="{ height: `${composerInputHeight}px` }"
               rows="1"
               ref="inputRef"
@@ -318,7 +319,7 @@
                             <path d="M21 15l-5-5L5 21"></path>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ isEnglishLocale ? 'Upload image' : '上传图片' }}</span>
+                        <span class="menu-label">{{ t('agent.menuUploadImage') }}</span>
                       </div>
                       <div class="menu-item" @click="openFileUpload">
                         <span class="menu-icon smaller">
@@ -327,11 +328,11 @@
                             <polyline points="14 2 14 8 20 8"></polyline>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ isEnglishLocale ? 'Upload file' : '上传文件' }}</span>
+                        <span class="menu-label">{{ t('agent.menuUploadFile') }}</span>
                       </div>
                       <div class="menu-item" @click="triggerKnowledgeSearch">
                         <span class="menu-icon">@</span>
-                        <span class="menu-label">{{ isEnglishLocale ? 'Knowledge base' : '笔记知识库' }}</span>
+                        <span class="menu-label">{{ t('agent.menuKnowledgeBase') }}</span>
                       </div>
                       <div class="menu-item" @click="toggleNoteSelector">
                         <span class="menu-icon smaller">
@@ -340,7 +341,7 @@
                             <circle cx="12" cy="12" r="2.6"></circle>
                           </svg>
                         </span>
-                        <span class="menu-label">{{ isEnglishLocale ? 'Add note context' : '添加笔记上下文' }}</span>
+                        <span class="menu-label">{{ t('agent.menuAddNoteContext') }}</span>
                       </div>
                     </div>
                   </Transition>
@@ -362,7 +363,7 @@
                   
                   <Transition name="menu-fade">
                     <div v-if="showNoteSelector" class="note-selector-dropdown shallow-glass" ref="selectorRef">
-                      <div class="selector-header">{{ isEnglishLocale ? 'Select note' : '选择笔记' }}</div>
+                      <div class="selector-header">{{ t('agent.menuSelectNote') }}</div>
                       <div class="selector-list">
                         <div 
                           v-for="note in noteStore.notes" 
@@ -378,9 +379,9 @@
                               <line x1="9" y1="17" x2="13" y2="17"></line>
                             </svg>
                           </span>
-                          <span class="item-title">{{ note.title || (isEnglishLocale ? 'Untitled' : '无标题') }}</span>
+                          <span class="item-title">{{ note.title || t('common.untitled') }}</span>
                         </div>
-                        <div v-if="noteStore.notes.length === 0" class="selector-empty">{{ isEnglishLocale ? 'No notes' : '暂无笔记' }}</div>
+                        <div v-if="noteStore.notes.length === 0" class="selector-empty">{{ t('agent.menuNoNotes') }}</div>
                       </div>
                     </div>
                   </Transition>
@@ -402,7 +403,7 @@
                   <Transition name="menu-fade">
                     <div v-if="showModelSelector" class="composer-model-menu input-menu-popup shallow-glass">
                       <div class="menu-item menu-item--disabled">
-                        <span class="menu-label">{{ isEnglishLocale ? 'Choose model' : '选择模型' }}</span>
+                        <span class="menu-label">{{ t('agent.menuChooseModel') }}</span>
                       </div>
                       <div
                         v-for="option in modelMenuOptions"
@@ -527,7 +528,7 @@ type MessagePart = TextPart | ToolPart
 
 // Stores
 const noteStore = useNoteStore()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const setEditorContent = inject<(html: string) => void>('setEditorContent')
 
 // Config
@@ -554,7 +555,9 @@ const autoAcceptEdits = ref(localStorage.getItem(AUTO_ACCEPT_EDITS_KEY) !== '0')
 type AgentMode = 'ask' | 'agent'
 const AGENT_MODE_KEY = 'origin_agent_mode'
 const agentMode = ref<AgentMode>(localStorage.getItem(AGENT_MODE_KEY) === 'ask' ? 'ask' : 'agent')
-const THINKING_STATUS_TEXT = 'Thinking...'
+const THINKING_STATUS_TEXT = computed(() => t('agent.thinking'))
+const LEGACY_KNOWLEDGE_TRIGGER = '@笔记知识库'
+const localizedKnowledgeTrigger = computed(() => t('agent.knowledgeTrigger'))
 
 // --- Auto-scroll control ---
 const userScrolledUp = ref(false)
@@ -908,8 +911,14 @@ function toggleNoteSelector() {
   }
 }
 
+function getKnowledgeTriggers(): string[] {
+  return Array.from(
+    new Set([localizedKnowledgeTrigger.value, LEGACY_KNOWLEDGE_TRIGGER].filter(Boolean))
+  )
+}
+
 function triggerKnowledgeSearch() {
-  const triggerText = "@笔记知识库"
+  const triggerText = localizedKnowledgeTrigger.value || LEGACY_KNOWLEDGE_TRIGGER
   if (!inputText.value.includes(triggerText)) {
     inputText.value = triggerText + inputText.value
   }
@@ -1193,7 +1202,6 @@ async function enableAutoAcceptAndApply(): Promise<void> {
 }
 
 const currentPendingApproval = computed(() => pendingApprovals.value[0] || null)
-const isEnglishLocale = computed<boolean>(() => locale.value === 'en-US')
 const visibleMessages = computed(() =>
   messages.value.filter(
     m => m.content.trim() || (m.parts && m.parts.length) || (m.attachments && m.attachments.length)
@@ -1226,10 +1234,10 @@ const visibleApprovalDiffBlocks = computed(() => {
 
 const approvalCardTitle = computed(() => {
   if (isExecutionAwaitingApproval.value && pendingExecutionApproval.value) {
-    return isEnglishLocale.value ? 'Allow write action?' : '允许执行写入操作？'
+    return t('agent.approvalAllowWriteTitle')
   }
   if (currentPendingApproval.value) {
-    return isEnglishLocale.value ? 'Review proposed changes' : '请确认待应用变更'
+    return t('agent.approvalReviewTitle')
   }
   return ''
 })
@@ -1246,22 +1254,22 @@ const approvalCardTarget = computed(() => {
 
 const approvalCardScope = computed(() => {
   if (pendingExecutionApproval.value) {
-    return pendingExecutionApproval.value.scope || pendingExecutionApproval.value.message || (isEnglishLocale.value ? 'This action may modify note content.' : '该操作可能修改笔记内容。')
+    return pendingExecutionApproval.value.scope || pendingExecutionApproval.value.message || t('agent.approvalScopeMayModify')
   }
-  return currentApprovalSummary.value || (isEnglishLocale.value ? 'This action includes note changes.' : '该操作包含笔记内容变更。')
+  return currentApprovalSummary.value || t('agent.approvalScopeIncludesChanges')
 })
 
 const approvalCardHint = computed(() => {
   if (isExecutionAwaitingApproval.value) {
-    return isEnglishLocale.value ? 'Agent requests permission before writing.' : 'Agent 需要授权后才会执行写入。'
+    return t('agent.approvalHintRequestPermission')
   }
-  return isEnglishLocale.value ? 'Review and apply this change set.' : '请检查后再应用这组变更。'
+  return t('agent.approvalHintReviewApply')
 })
 
-const allowOnceLabel = computed(() => (isEnglishLocale.value ? 'Allow once' : '接受一次'))
-const rejectLabel = computed(() => (isEnglishLocale.value ? 'Reject' : '拒绝'))
-const autoAllowLabel = computed(() => (isEnglishLocale.value ? 'Auto allow' : '自动接受'))
-const structuredDiffTitle = computed(() => (isEnglishLocale.value ? 'Structured diff' : '结构化差异'))
+const allowOnceLabel = computed(() => t('agent.approvalAllowOnce'))
+const rejectLabel = computed(() => t('agent.approvalReject'))
+const autoAllowLabel = computed(() => t('agent.approvalAutoAllow'))
+const structuredDiffTitle = computed(() => t('agent.approvalStructuredDiffTitle'))
 const viewChangesLabel = computed(() => t('agent.viewChanges'))
 const hideChangesLabel = computed(() => t('agent.hideChanges'))
 const showUnchangedLabel = computed(() => t('agent.showUnchanged'))
@@ -1310,7 +1318,7 @@ function normalizeStatusText(statusText: string): string {
   if (!trimmed) return ''
   const lowered = trimmed.toLowerCase()
   if (lowered.includes('thinking') || trimmed.includes('思考')) {
-    return THINKING_STATUS_TEXT
+    return THINKING_STATUS_TEXT.value
   }
   return trimmed
 }
@@ -1385,7 +1393,7 @@ const currentModelLabel = computed(() => {
   const current = currentModelProvider.value
   if (!current) {
     if (selectedModelName.value) return selectedModelName.value
-    return locale.value === 'en-US' ? 'No model' : '无模型'
+    return t('agent.noModel')
   }
   return current.modelName
 })
@@ -1901,7 +1909,7 @@ async function sendMessage(
   if (!isResume && pendingExecutionApproval.value) {
     messages.value.push({
       role: 'assistant',
-      content: '检测到待审批任务，请先点击 Accept 或 Reject 后再继续。',
+      content: t('agent.pendingApprovalBlocked'),
       timestamp: new Date()
     })
     return
@@ -1957,7 +1965,7 @@ async function sendMessage(
     }
   })
   
-  currentStatus.value = isResume ? t('agent.running') : THINKING_STATUS_TEXT
+  currentStatus.value = isResume ? t('agent.running') : THINKING_STATUS_TEXT.value
   
   // Ensure keyboard on mobile doesn't hide input
   nextTick(() => {
@@ -1975,7 +1983,7 @@ async function sendMessage(
      if (!isConnected.value) {
         messages.value.push({ 
             role: 'assistant', 
-            content: '无法连接到 AI 服务。请确保后端服务 (Port 8765) 正在运行。',
+            content: t('agent.connectionError'),
             isError: true,
             timestamp: new Date()
         })
@@ -1998,13 +2006,16 @@ async function sendMessage(
     const activeNoteId = includeActiveNote.value ? (noteStore.currentNote?.id || null) : null
     
     // Detection for knowledge search in text
-    const kbTrigger = "@笔记知识库"
+    const kbTriggers = getKnowledgeTriggers()
     let finalMessage = messageText
     let explicitKnowledge = false
     
-    if (!isResume && messageText.startsWith(kbTrigger)) {
-      explicitKnowledge = true
-      finalMessage = messageText.substring(kbTrigger.length).trim()
+    if (!isResume) {
+      const matchedTrigger = kbTriggers.find((token) => messageText.startsWith(token))
+      if (matchedTrigger) {
+        explicitKnowledge = true
+        finalMessage = messageText.substring(matchedTrigger.length).trim()
+      }
     }
 
     // Note: We no longer send full history. Backend manages state via session_id.
@@ -2040,10 +2051,10 @@ async function sendMessage(
       body: JSON.stringify(payload)
     })
     
-    if (!response.ok) throw new Error('请求失败')
+    if (!response.ok) throw new Error(t('agent.requestFailed'))
     
     const reader = response.body?.getReader()
-    if (!reader) throw new Error('无法读取响应流')
+    if (!reader) throw new Error(t('agent.responseStreamUnavailable'))
     const decoder = new TextDecoder()
     let buffer = ''
     
@@ -2284,10 +2295,10 @@ async function sendMessage(
                       messages.value.push({ role: 'assistant', content: '', parts: [], timestamp: new Date(), isError: true })
                       messageIndex = messages.value.length - 1
                    }
-                   const safeErr = stripLeakedControlTokens(String(chunk.error || ''))
-                   messages.value[messageIndex].content = stripLeakedControlTokens(
-                     `${messages.value[messageIndex].content || ''}${safeErr ? `错误：${safeErr}` : ''}`
-                   )
+                  const safeErr = stripLeakedControlTokens(String(chunk.error || ''))
+                  messages.value[messageIndex].content = stripLeakedControlTokens(
+                    `${messages.value[messageIndex].content || ''}${safeErr ? `${t('agent.errorPrefix')}${safeErr}` : ''}`
+                  )
               }
           } catch (e) {
               console.warn("Failed to parse SSE JSON:", rawData, e)
@@ -2297,7 +2308,7 @@ async function sendMessage(
     
     // Guard against no message created (edge case)
     if (messageIndex === -1) {
-      messages.value.push({ role: 'assistant', content: '*(No response received)*', timestamp: new Date() })
+      messages.value.push({ role: 'assistant', content: t('agent.noResponse'), timestamp: new Date() })
       messageIndex = messages.value.length - 1
     }
     
@@ -2333,7 +2344,7 @@ async function sendMessage(
             const newNote = await noteRepository.getById(data.note_id)
             if (newNote) noteStore.currentNote = newNote
           }
-          finalMsg.content = data.message || '已成功创建笔记。'
+          finalMsg.content = data.message || t('agent.noteCreated')
         } else if (data.tool_call === 'note_updated') {
           await noteStore.loadNotes()
           // Refresh editor content if the updated note is currently open
@@ -2346,14 +2357,14 @@ async function sendMessage(
               }
             }
           }
-          finalMsg.content = data.message || '笔记已更新。'
+          finalMsg.content = data.message || t('agent.noteUpdated')
         } else if (data.tool_call === 'note_deleted') {
           await noteStore.loadNotes()
-          finalMsg.content = data.message || '笔记已移动到回收站。'
+          finalMsg.content = data.message || t('agent.noteDeleted')
         } else if ((data.tool_call === 'format_apply' || data.tool_call === 'note_updated') && data.formatted_html && setEditorContent) {
           const renderedHtml = await marked.parse(data.formatted_html, { async: true, breaks: true, gfm: true })
           setEditorContent(renderedHtml)
-          finalMsg.content = finalMsg.content || data.message || '笔记同步完成。'
+          finalMsg.content = finalMsg.content || data.message || t('agent.noteSynced')
         } else if (data.tool_call === 'note_summarized') {
           finalMsg.content = data.message || data.content
         }
@@ -2366,9 +2377,9 @@ async function sendMessage(
     if (!isOpen.value) hasUnread.value = true
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      if (streamingMessage.value) streamingMessage.value.content += ' \n\n*(已由用户停止生成)*'
+      if (streamingMessage.value) streamingMessage.value.content += ` \n\n${t('agent.stoppedByUser')}`
     } else {
-      if (streamingMessage.value) streamingMessage.value.content = '无法连接到 AI 服务。请确保后端服务 (Port 8765) 正在运行。'
+      if (streamingMessage.value) streamingMessage.value.content = t('agent.connectionError')
     }
     // Mark all running tools as completed/aborted on error
     finalizeRunningTools(streamingMessage.value, { completeRunning: !streamInterruptedForApproval })
@@ -2685,7 +2696,7 @@ function handleContextMenu(event: MouseEvent, content: string) {
   menu.className = 'agent-context-menu'
   menu.style.cssText = `position: fixed; left: ${event.clientX}px; top: ${event.clientY}px; background: white; border: 1px solid #E8E4DF; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; z-index: 10000; min-width: 120px;`
   const copyItem = document.createElement('div')
-  copyItem.textContent = '复制'
+  copyItem.textContent = t('common.copy')
   copyItem.style.cssText = `padding: 8px 16px; cursor: pointer; font-size: 14px; color: #2D2A26;`
   copyItem.onmouseover = () => { copyItem.style.background = '#F5F1EC' }
   copyItem.onmouseout = () => { copyItem.style.background = 'transparent' }
@@ -3042,6 +3053,16 @@ watch(
   pointer-events: none;
 }
 .agent-bubble__icon svg { width: 100%; height: 100%; }
+.agent-bubble__logo-text {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
 
 .agent-bubble__badge {
   position: absolute;
@@ -5195,11 +5216,24 @@ watch(
 }
 
 .chat-input-bottom {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   gap: 6px !important;
+  min-width: 0 !important;
+  container-type: inline-size;
+  container-name: composerRow;
 }
 
 .chat-input-bottom__left {
+  display: inline-flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
   gap: 6px !important;
+  overflow: visible !important;
 }
 
 .menu-trigger-btn,
@@ -5222,6 +5256,9 @@ watch(
 
 .composer-model-wrapper {
   position: relative;
+  flex: 1 1 210px;
+  min-width: 120px;
+  max-width: min(42vw, 260px);
 }
 
 .composer-model-btn {
@@ -5232,11 +5269,15 @@ watch(
   color: var(--theme-text);
   font-size: 12px;
   font-weight: 520;
-  padding: 0 4px;
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 5px;
   cursor: pointer;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
 }
 
 .composer-model-btn:disabled {
@@ -5245,7 +5286,10 @@ watch(
 }
 
 .composer-model-btn__label {
-  max-width: 160px;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5496,7 +5540,10 @@ watch(
 .chat-input-bottom__right {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 0;
 }
 
 .composer-mode-btn--mode {
@@ -5524,6 +5571,9 @@ watch(
   padding: 0 4px;
   cursor: pointer;
   white-space: nowrap;
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer-review-btn:hover {
@@ -5536,7 +5586,18 @@ watch(
     padding: 0 8px !important;
   }
   .composer-review-btn {
-    font-size: 10.5px;
+    display: none;
+  }
+}
+
+@container composerRow (max-width: 420px) {
+  .composer-review-btn {
+    display: none;
+  }
+
+  .composer-mode-btn--mode {
+    min-width: 48px;
+    padding: 0 6px !important;
   }
 }
 

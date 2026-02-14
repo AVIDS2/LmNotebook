@@ -22,10 +22,14 @@ $backendEnv = Join-Path $RepoRoot "backend_env"
 $backendEnvActivate = Join-Path $backendEnv "Scripts\activate"
 $backendDist = Join-Path $RepoRoot "src\backend\dist\origin_backend"
 $backendEnvFile = Join-Path $RepoRoot "src\backend\.env"
+$iconIco = Join-Path $RepoRoot "build\icon.ico"
+$iconPng = Join-Path $RepoRoot "build\icon.png"
 
 # Checks
 Test-PathRequired $backendEnv "backend_env directory"
 Test-PathRequired $backendEnvActivate "backend_env activation script"
+Test-PathRequired $iconIco "Windows icon"
+Test-PathRequired $iconPng "PNG icon"
 Test-PathWarn $backendEnvFile "backend .env"
 Test-PathWarn $backendDist "backend build output (run PyInstaller first)"
 

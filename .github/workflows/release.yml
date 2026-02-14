@@ -29,6 +29,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify packaging assets
+        shell: bash
+        run: |
+          test -f build/icon.png || { echo "Missing required asset: build/icon.png"; exit 1; }
+          test -f build/icon.ico || { echo "Missing required asset: build/icon.ico"; exit 1; }
+          test -f src/backend/origin-backend.spec || { echo "Missing backend spec: src/backend/origin-backend.spec"; exit 1; }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

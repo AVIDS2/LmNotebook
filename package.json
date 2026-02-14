@@ -1,7 +1,7 @@
 {
   "name": "origin-notes",
-  "version": "1.0.4",
-  "description": "简约风格的原子笔记应用",
+  "version": "1.0.6",
+  "description": "绠€绾﹂鏍肩殑鍘熷瓙绗旇搴旂敤",
   "main": "./out/main/index.js",
   "author": {
     "name": "Origin-Notes",
@@ -67,7 +67,7 @@
   },
   "build": {
     "appId": "com.origin.notes",
-    "productName": "Origin Notes",
+    "productName": "LmNotebook",
     "directories": {
       "output": "dist"
     },
@@ -118,7 +118,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Origin Notes"
+      "shortcutName": "LmNotebook"
     },
     "files": [
       "out/**/*",

@@ -35,18 +35,18 @@
             @blur="$emit('confirm-rename', session.id)"
           />
           <div v-if="editingSessionId !== session.id" class="session-item__actions">
-            <button class="session-item__btn" @click.stop="$emit('toggle-pin', session.id)" :title="session.pinned ? '取消置顶' : '置顶'">
+            <button class="session-item__btn" @click.stop="$emit('toggle-pin', session.id)" :title="session.pinned ? unpinTitle : pinTitle">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M16 4l4 4-1.5 1.5-1-1L14 12l1 5-2 2-3-4-4 4-1-1 4-4-4-3 2-2 5 1 3.5-3.5-1-1z"/>
               </svg>
             </button>
-            <button class="session-item__btn" @click.stop="$emit('rename-session', session.id)" title="重命名">
+            <button class="session-item__btn" @click.stop="$emit('rename-session', session.id)" :title="renameTitle">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
               </svg>
             </button>
-            <button class="session-item__btn session-item__btn--danger" @click.stop="$emit('delete-session', session.id)" title="删除">
+            <button class="session-item__btn session-item__btn--danger" @click.stop="$emit('delete-session', session.id)" :title="deleteTitle">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
               </svg>
@@ -69,6 +69,10 @@ defineProps<{
   currentSessionId: string
   editingSessionId: string | null
   editingTitle: string
+  pinTitle: string
+  unpinTitle: string
+  renameTitle: string
+  deleteTitle: string
 }>()
 
 defineEmits<{

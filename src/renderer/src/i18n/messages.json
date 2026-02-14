@@ -1,4 +1,4 @@
-﻿{
+{
   "zh-CN": {
     "language": {
       "zh-CN": "中文",
@@ -15,7 +15,8 @@
       "hideAgentSidebar": "隐藏右侧对话栏",
       "layout": {
         "cycleTitle": "切换布局预设（写作/均衡/研究）"
-      }
+      },
+      "brand": "LmNotebook"
     },
     "startup": {
       "title": "企业知识，从第一条笔记开始",
@@ -53,25 +54,25 @@
         "backup": "备份",
         "update": "更新"
       },
-        "general": {
-          "appVersion": "应用版本",
-          "buildRelease": "发布版",
-          "buildDev": "开发版",
-          "language": "界面语言",
-          "languageHint": "用于切换界面显示语言",
-          "theme": "主题外观",
-          "themeHint": "选择默认、暖色或深色视觉风格",
-          "aboutTitle": "关于 Origin Notes",
-          "aboutDescription": "面向个人与小团队的本地优先笔记工作台，强调清晰结构、快速检索与可控 AI 协作。",
-          "aboutNotebookTitle": "笔记系统",
-          "aboutNotebookBody": "支持 Markdown 编辑、分类管理、回收站、备份与恢复。内容保存在本地数据目录，便于自主管理。",
-          "aboutAgentTitle": "Agent 助手",
-          "aboutAgentBody": "可读取上下文、生成草稿、整理格式与执行笔记操作。支持图片与文件上下文输入，并提供可追溯的工具状态。",
-          "aboutModeTitle": "Ask / Agent 模式",
-          "aboutModeBody": "Ask 适合只读问答与分析；Agent 适合执行操作。两种模式可在输入区快速切换。",
-          "aboutSafetyTitle": "审核与安全",
-          "aboutSafetyBody": "涉及写入的操作可走手动审核或自动接受流程。建议关键内容使用手动审核，确保每次变更可确认。"
-        },
+      "general": {
+        "appVersion": "应用版本",
+        "buildRelease": "发布版",
+        "buildDev": "开发版",
+        "language": "界面语言",
+        "languageHint": "用于切换界面显示语言",
+        "theme": "主题外观",
+        "themeHint": "选择默认、暖色或深色视觉风格",
+        "aboutTitle": "?? LmNotebook",
+        "aboutDescription": "面向个人与小团队的本地优先笔记工作台，强调清晰结构、快速检索与可控 AI 协作。",
+        "aboutNotebookTitle": "笔记系统",
+        "aboutNotebookBody": "支持 Markdown 编辑、分类管理、回收站、备份与恢复。内容保存在本地数据目录，便于自主管理。",
+        "aboutAgentTitle": "Agent 助手",
+        "aboutAgentBody": "可读取上下文、生成草稿、整理格式与执行笔记操作。支持图片与文件上下文输入，并提供可追溯的工具状态。",
+        "aboutModeTitle": "Ask / Agent 模式",
+        "aboutModeBody": "Ask 适合只读问答与分析；Agent 适合执行操作。两种模式可在输入区快速切换。",
+        "aboutSafetyTitle": "审核与安全",
+        "aboutSafetyBody": "涉及写入的操作可走手动审核或自动接受流程。建议关键内容使用手动审核，确保每次变更可确认。"
+      },
       "data": {
         "stats": "数据统计",
         "notes": "笔记",
@@ -84,7 +85,13 @@
         "pickDirectory": "选择数据存储目录",
         "confirmMove": "确定迁移到新目录吗？",
         "confirmReset": "确定恢复默认目录吗？",
-        "willRestart": "迁移完成后应用将重启"
+        "willRestart": "迁移完成后应用将重启",
+        "embeddingTitle": "向量模型配置",
+        "embeddingHint": "配置用于笔记向量化与语义检索的模型参数。",
+        "embeddingMode": "向量模式",
+        "embeddingModeHint": "API 为云端向量化；Local 为本地向量化（后续扩展）。",
+        "embeddingModel": "向量模型",
+        "embeddingModelHint": "示例：text-embedding-v3"
       },
       "backup": {
         "autoBackup": "自动备份",
@@ -135,7 +142,8 @@
       "delete": "删除",
       "restore": "恢复",
       "expand": "展开",
-      "collapse": "收起"
+      "collapse": "收起",
+      "copy": "??"
     },
     "search": {
       "placeholder": "搜索笔记..."
@@ -275,7 +283,7 @@
       }
     },
     "agent": {
-      "title": "Origin Agent",
+      "title": "Lm Agent",
       "modelSettings": "模型设置",
       "history": "历史对话",
       "newSession": "开始新对话",
@@ -323,10 +331,69 @@
       "thinking": "思考中",
       "searching": "正在搜索知识库",
       "writing": "正在撰写",
-      "error": "出错了"
-      ,
+      "error": "出错了",
       "completed": "已完成",
-      "failed": "失败"
+      "failed": "失败",
+      "sessionPin": "??",
+      "sessionUnpin": "????",
+      "sessionRename": "???",
+      "sessionDelete": "??",
+      "composerPlaceholder": "\u63d0\u95ee\u3001\u641c\u7d22\u6216\u6267\u884c\u4efb\u52a1...",
+      "menuUploadImage": "????",
+      "menuUploadFile": "????",
+      "menuKnowledgeBase": "???",
+      "menuAddNoteContext": "???????",
+      "menuSelectNote": "????",
+      "menuNoNotes": "????",
+      "menuChooseModel": "\u9009\u62e9\u6a21\u578b",
+      "knowledgeTrigger": "@?????",
+      "approvalAllowWriteTitle": "?????????",
+      "approvalReviewTitle": "??????",
+      "approvalScopeMayModify": "????????????",
+      "approvalScopeIncludesChanges": "????????????",
+      "approvalHintRequestPermission": "Agent ???????",
+      "approvalHintReviewApply": "???????????",
+      "approvalAllowOnce": "????",
+      "approvalReject": "??",
+      "approvalAutoAllow": "????",
+      "approvalStructuredDiffTitle": "?????",
+      "noModel": "?????",
+      "pendingApprovalBlocked": "??????????????????????",
+      "connectionError": "???? AI ???????????8765 ???????",
+      "requestFailed": "????",
+      "responseStreamUnavailable": "???????",
+      "errorPrefix": "???",
+      "noResponse": "*(?????)*",
+      "noteCreated": "???????",
+      "noteUpdated": "??????",
+      "noteDeleted": "?????????",
+      "noteSynced": "???????",
+      "stoppedByUser": "*(?????)*",
+      "modelSettingsTitle": "????",
+      "modelSettingsSubtitle": "?? AI ?????",
+      "modelSettingsInUseBadge": "???",
+      "modelSettingsAddProvider": "?????",
+      "modelSettingsAddTitle": "?????",
+      "modelSettingsEditTitle": "?????",
+      "modelSettingsSetActive": "????",
+      "modelSettingsActiveNow": "????",
+      "modelSettingsDelete": "??",
+      "modelSettingsProviderNameLabel": "?????",
+      "modelSettingsProviderNamePlaceholder": "???DeepSeek?OpenAI...",
+      "modelSettingsBaseUrlLabel": "API ???Base URL?",
+      "modelSettingsBaseUrlHint": "???? OpenAI ????",
+      "modelSettingsApiKeyLabel": "API ??",
+      "modelSettingsHideKey": "??",
+      "modelSettingsShowKey": "??",
+      "modelSettingsModelListLabel": "????????????????",
+      "modelSettingsModelListPlaceholder": "???????????\nqwen-flash\nqwen-plus\ngpt-4o-mini",
+      "modelSettingsModelListHint": "?????????????????",
+      "modelSettingsActiveModelLabel": "??????????",
+      "modelSettingsSelectModel": "?????",
+      "modelSettingsSave": "????",
+      "modelSettingsEmpty": "?????????",
+      "modelSettingsDeleteConfirm": "??????????",
+      "modelSettingsNewProviderName": "????"
     }
   },
   "en-US": {
@@ -345,7 +412,8 @@
       "hideAgentSidebar": "Hide right chat sidebar",
       "layout": {
         "cycleTitle": "Switch layout preset (Writing/Balanced/Research)"
-      }
+      },
+      "brand": "LmNotebook"
     },
     "startup": {
       "title": "Enterprise knowledge starts with the first note",
@@ -383,25 +451,25 @@
         "backup": "Backup",
         "update": "Update"
       },
-        "general": {
-          "appVersion": "App version",
-          "buildRelease": "Release",
-          "buildDev": "Dev",
-          "language": "Language",
-          "languageHint": "Choose the interface language",
-          "theme": "Theme",
-          "themeHint": "Switch between default, warm, and dark appearance",
-          "aboutTitle": "About Origin Notes",
-          "aboutDescription": "A local-first notes workspace for individuals and small teams, focused on structure, fast retrieval, and controllable AI collaboration.",
-          "aboutNotebookTitle": "Notebook System",
-          "aboutNotebookBody": "Supports Markdown editing, category management, recycle bin, backup, and restore. Data stays in your local directory for full ownership.",
-          "aboutAgentTitle": "Agent Assistant",
-          "aboutAgentBody": "Can read context, generate drafts, format notes, and execute note operations. Image/file context input and traceable tool states are supported.",
-          "aboutModeTitle": "Ask / Agent Modes",
-          "aboutModeBody": "Use Ask for read-only Q&A and analysis. Use Agent for execution. You can switch modes directly in the composer.",
-          "aboutSafetyTitle": "Review & Safety",
-          "aboutSafetyBody": "Write operations can run in manual-review or auto-accept flow. For important content, manual review is recommended."
-        },
+      "general": {
+        "appVersion": "App version",
+        "buildRelease": "Release",
+        "buildDev": "Dev",
+        "language": "Language",
+        "languageHint": "Choose the interface language",
+        "theme": "Theme",
+        "themeHint": "Switch between default, warm, and dark appearance",
+        "aboutTitle": "About LmNotebook",
+        "aboutDescription": "A local-first notes workspace for individuals and small teams, focused on structure, fast retrieval, and controllable AI collaboration.",
+        "aboutNotebookTitle": "Notebook System",
+        "aboutNotebookBody": "Supports Markdown editing, category management, recycle bin, backup, and restore. Data stays in your local directory for full ownership.",
+        "aboutAgentTitle": "Agent Assistant",
+        "aboutAgentBody": "Can read context, generate drafts, format notes, and execute note operations. Image/file context input and traceable tool states are supported.",
+        "aboutModeTitle": "Ask / Agent Modes",
+        "aboutModeBody": "Use Ask for read-only Q&A and analysis. Use Agent for execution. You can switch modes directly in the composer.",
+        "aboutSafetyTitle": "Review & Safety",
+        "aboutSafetyBody": "Write operations can run in manual-review or auto-accept flow. For important content, manual review is recommended."
+      },
       "data": {
         "stats": "Statistics",
         "notes": "Notes",
@@ -414,7 +482,13 @@
         "pickDirectory": "Select data directory",
         "confirmMove": "Migrate data to this directory?",
         "confirmReset": "Reset to default directory?",
-        "willRestart": "The app will restart after migration"
+        "willRestart": "The app will restart after migration",
+        "embeddingTitle": "Embedding configuration",
+        "embeddingHint": "Configure model settings used by note vectorization and semantic retrieval.",
+        "embeddingMode": "Embedding mode",
+        "embeddingModeHint": "API uses cloud embeddings; Local is reserved for local embedding backends.",
+        "embeddingModel": "Embedding model",
+        "embeddingModelHint": "Example: text-embedding-v3"
       },
       "backup": {
         "autoBackup": "Auto backup",
@@ -465,7 +539,8 @@
       "delete": "Delete",
       "restore": "Restore",
       "expand": "Expand",
-      "collapse": "Collapse"
+      "collapse": "Collapse",
+      "copy": "Copy"
     },
     "search": {
       "placeholder": "Search notes..."
@@ -605,7 +680,7 @@
       }
     },
     "agent": {
-      "title": "Origin Agent",
+      "title": "Lm Agent",
       "modelSettings": "Model settings",
       "history": "History",
       "newSession": "New session",
@@ -653,10 +728,69 @@
       "thinking": "Thinking",
       "searching": "Searching knowledge",
       "writing": "Writing",
-      "error": "Error"
-      ,
+      "error": "Error",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "sessionPin": "Pin",
+      "sessionUnpin": "Unpin",
+      "sessionRename": "Rename",
+      "sessionDelete": "Delete",
+      "composerPlaceholder": "Ask, search, or make anything...",
+      "menuUploadImage": "Upload image",
+      "menuUploadFile": "Upload file",
+      "menuKnowledgeBase": "Knowledge base",
+      "menuAddNoteContext": "Add note context",
+      "menuSelectNote": "Select note",
+      "menuNoNotes": "No notes",
+      "menuChooseModel": "Choose model",
+      "knowledgeTrigger": "@KnowledgeBase",
+      "approvalAllowWriteTitle": "Allow write action?",
+      "approvalReviewTitle": "Review proposed changes",
+      "approvalScopeMayModify": "This action may modify note content.",
+      "approvalScopeIncludesChanges": "This action includes note changes.",
+      "approvalHintRequestPermission": "Agent requests permission before writing.",
+      "approvalHintReviewApply": "Review and apply this change set.",
+      "approvalAllowOnce": "Allow once",
+      "approvalReject": "Reject",
+      "approvalAutoAllow": "Auto allow",
+      "approvalStructuredDiffTitle": "Structured diff",
+      "noModel": "No model",
+      "pendingApprovalBlocked": "A pending approval exists. Please click Accept or Reject before continuing.",
+      "connectionError": "Unable to connect to AI service. Ensure backend service (Port 8765) is running.",
+      "requestFailed": "Request failed",
+      "responseStreamUnavailable": "Unable to read response stream",
+      "errorPrefix": "Error: ",
+      "noResponse": "*(No response received)*",
+      "noteCreated": "Note created successfully.",
+      "noteUpdated": "Note updated.",
+      "noteDeleted": "Note moved to recycle bin.",
+      "noteSynced": "Note sync completed.",
+      "stoppedByUser": "*(Generation stopped by user)*",
+      "modelSettingsTitle": "Model settings",
+      "modelSettingsSubtitle": "Configure AI service providers",
+      "modelSettingsInUseBadge": "In use",
+      "modelSettingsAddProvider": "Add provider",
+      "modelSettingsAddTitle": "Add provider",
+      "modelSettingsEditTitle": "Configure provider",
+      "modelSettingsSetActive": "Set active",
+      "modelSettingsActiveNow": "Active",
+      "modelSettingsDelete": "Delete",
+      "modelSettingsProviderNameLabel": "Provider name",
+      "modelSettingsProviderNamePlaceholder": "e.g. DeepSeek, OpenAI...",
+      "modelSettingsBaseUrlLabel": "API address (Base URL)",
+      "modelSettingsBaseUrlHint": "Must follow OpenAI-compatible protocol",
+      "modelSettingsApiKeyLabel": "API key",
+      "modelSettingsHideKey": "Hide",
+      "modelSettingsShowKey": "Show",
+      "modelSettingsModelListLabel": "Model list (multiple allowed per provider)",
+      "modelSettingsModelListPlaceholder": "One model per line, for example:\nqwen-flash\nqwen-plus\ngpt-4o-mini",
+      "modelSettingsModelListHint": "One model name per line; after saving you can switch directly in the chat panel.",
+      "modelSettingsActiveModelLabel": "Default model (active model)",
+      "modelSettingsSelectModel": "Select a model",
+      "modelSettingsSave": "Save settings",
+      "modelSettingsEmpty": "Select or add a provider",
+      "modelSettingsDeleteConfirm": "Delete this provider?",
+      "modelSettingsNewProviderName": "New provider"
     }
   }
 }

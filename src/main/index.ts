@@ -2,7 +2,7 @@
 import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { createWriteStream, existsSync } from 'fs'
+import { createWriteStream, existsSync, mkdirSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import * as database from './database'
@@ -12,6 +12,40 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
 let backendProcess: ChildProcess | null = null
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (process.platform === 'win32') {
+  // Stabilize taskbar identity/icon resolution on Windows.
+  app.setAppUserModelId('com.origin.notes')
+}
+
+if (!app.isPackaged) {
+  const devRuntimeRoot = join(app.getPath('temp'), 'lmnotebook-dev-runtime')
+  const devSessionDataPath = join(devRuntimeRoot, 'session')
+  const devDiskCachePath = join(devRuntimeRoot, 'disk-cache')
+
+  mkdirSync(devSessionDataPath, { recursive: true })
+  mkdirSync(devDiskCachePath, { recursive: true })
+
+  // Isolate Chromium cache/session in dev to avoid collisions with installed app processes.
+  app.setPath('sessionData', devSessionDataPath)
+  app.commandLine.appendSwitch('disk-cache-dir', devDiskCachePath)
+}
+
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore()
+    }
+    if (!mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+    mainWindow.focus()
+  })
+}
 
 type UpdaterStage =
   | 'idle'
@@ -234,7 +268,7 @@ function createTray(window: BrowserWindow): void {
     }
   ])
 
-  tray.setToolTip('Origin Notes')
+  tray.setToolTip('LmNotebook')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {
@@ -255,6 +289,7 @@ function createWindow(): void {
     minHeight: 600,
     frame: false,
     titleBarStyle: 'hidden',
+    icon: getTrayIconPath(),
     backgroundColor: '#FAFAF8',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -268,6 +303,14 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  mainWindow.on('close', (event) => {
+    // Keep app resident in tray unless user explicitly exits from tray menu/system quit.
+    if (!quitting && tray) {
+      event.preventDefault()
+      mainWindow?.hide()
+    }
   })
 
   // Enterprise-grade security: block in-app external navigation.
@@ -284,13 +327,6 @@ function createWindow(): void {
       return { action: 'deny' }
     })
   }
-
-  mainWindow.on('close', (event) => {
-    if (!quitting) {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
-  })
 
   // Handle external links.
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -320,7 +356,11 @@ ipcMain.on('window-maximize', () => {
 })
 
 ipcMain.on('window-close', () => {
-  mainWindow?.close()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close()
+    return
+  }
+  app.quit()
 })
 
 ipcMain.handle('window-is-maximized', () => {
@@ -545,7 +585,8 @@ ipcMain.handle('image-delete', (_event, imageRef: string) => imageStore.deleteIm
 ipcMain.handle('image-stats', () => imageStore.getImageStats())
 ipcMain.handle('image-cleanup', (_event, usedImageRefs: string[]) => imageStore.cleanupUnusedImages(usedImageRefs))
 
-app.whenReady().then(() => {
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
   setupAutoUpdater()
 
   // Register file protocol handler: origin-image://
@@ -587,7 +628,8 @@ app.whenReady().then(() => {
       mainWindow.focus()
     }
   })
-})
+  })
+}
 
 async function performAutoBackup(): Promise<void> {
   const config = database.getConfig()

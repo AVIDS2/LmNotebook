@@ -3,7 +3,7 @@
     <!-- 自定义标题栏 -->
     <header class="titlebar" @dblclick="handleMaximize">
       <div class="titlebar__drag-region"></div>
-      <div class="titlebar__title">Origin Notes</div>
+      <div class="titlebar__title">{{ t('app.brand') }}</div>
       <div class="titlebar__controls">
         <button class="titlebar__btn" @click="handleMinimize">
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -92,10 +92,12 @@ import { useUIStore } from '@/stores/uiStore'
 import { noteRepository } from '@/database/noteRepository'
 import { exportService } from '@/services/exportService'
 import { shouldShowStartupPage } from '@/utils/startupVisibility'
+import { useI18n } from '@/i18n'
 
 const noteStore = useNoteStore()
 const categoryStore = useCategoryStore()
 const uiStore = useUIStore()
+const { t } = useI18n()
 const isAgentSidebarMode = ref(localStorage.getItem('origin_agent_sidebar_mode') === '1')
 const isBootstrapped = ref(false)
 const showStartupPage = computed(() =>

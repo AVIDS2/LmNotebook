@@ -2,7 +2,7 @@
   <section class="startup-page">
     <div class="startup-page__hero">
       <div class="startup-page__hero-main">
-        <div class="startup-page__badge">Origin Notes</div>
+        <div class="startup-page__badge">{{ t('app.brand') }}</div>
         <h1 class="startup-page__title">{{ t('startup.title') }}</h1>
         <p class="startup-page__subtitle">{{ t('startup.subtitle') }}</p>
         <div class="startup-page__cta">
@@ -54,7 +54,7 @@
 
       <div class="startup-page__footnote">
         <span class="startup-page__footnote-line"></span>
-        <span class="startup-page__footnote-text">Origin Notes</span>
+        <span class="startup-page__footnote-text">{{ t('app.brand') }}</span>
       </div>
     </div>
   </section>

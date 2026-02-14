@@ -1,21 +1,20 @@
 <template>
   <div class="settings-overlay" @click.self="$emit('close')">
     <div class="settings-modal glass-panel">
-      <!-- Sidebar -->
       <div class="settings-sidebar">
         <div class="sidebar-header">
-          <h3>模型设置</h3>
-          <p>配置 AI 服务提供商</p>
+          <h3>{{ t('agent.modelSettingsTitle') }}</h3>
+          <p>{{ t('agent.modelSettingsSubtitle') }}</p>
         </div>
         <div class="provider-list">
-          <div 
-            v-for="p in providers" 
+          <div
+            v-for="p in providers"
             :key="p.id"
             class="provider-item"
-            :class="{ 
-              'active': selectedProvider?.id === p.id,
-              'dragging': draggedId === p.id,
-              'dragover': dragOverId === p.id && !p.isActive
+            :class="{
+              active: selectedProvider?.id === p.id,
+              dragging: draggedId === p.id,
+              dragover: dragOverId === p.id && !p.isActive
             }"
             draggable="true"
             @click="selectProvider(p)"
@@ -30,78 +29,77 @@
             </div>
             <div class="provider-info">
               <span class="provider-name">{{ p.name }}</span>
-              <span v-if="p.isActive" class="active-badge">使用中</span>
+              <span v-if="p.isActive" class="active-badge">{{ t('agent.modelSettingsInUseBadge') }}</span>
             </div>
           </div>
-            <button class="add-btn" @mousedown.stop @click.stop="addNewProvider">
-            <span>+ 添加提供商</span>
+          <button class="add-btn" @mousedown.stop @click.stop="addNewProvider">
+            <span>+ {{ t('agent.modelSettingsAddProvider') }}</span>
           </button>
         </div>
       </div>
 
-      <!-- Main Content -->
-      <div class="settings-content" v-if="selectedProvider" @mousedown.stop>
+      <div v-if="selectedProvider" class="settings-content" @mousedown.stop>
         <div class="content-header">
-          <h2>{{ isNew ? '添加提供商' : '配置提供商' }}</h2>
-          <div class="header-actions" v-if="!isNew">
-            <button 
-              class="action-btn use-btn" 
+          <h2>{{ isNew ? t('agent.modelSettingsAddTitle') : t('agent.modelSettingsEditTitle') }}</h2>
+          <div v-if="!isNew" class="header-actions">
+            <button
+              class="action-btn use-btn"
               :disabled="selectedProvider.isActive"
               @click.stop="setActiveProvider(selectedProvider.id)"
             >
-              {{ selectedProvider.isActive ? '正在使用' : '设为活动' }}
+              {{ selectedProvider.isActive ? t('agent.modelSettingsActiveNow') : t('agent.modelSettingsSetActive') }}
             </button>
             <button class="action-btn delete-btn" @click.stop="deleteProvider(selectedProvider.id)">
-              删除
+              {{ t('agent.modelSettingsDelete') }}
             </button>
           </div>
         </div>
 
         <div class="settings-form">
           <div class="form-group">
-            <label>提供商名称</label>
-            <input v-model="selectedProvider.name" placeholder="例如: DeepSeek, OpenAI..." />
-          </div>
-          
-          <div class="form-group">
-            <label>API 地址 (Base URL)</label>
-            <input v-model="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
-            <span class="hint">必须符合 OpenAI 兼容协议</span>
+            <label>{{ t('agent.modelSettingsProviderNameLabel') }}</label>
+            <input v-model="selectedProvider.name" :placeholder="t('agent.modelSettingsProviderNamePlaceholder')" />
           </div>
 
           <div class="form-group">
-            <label>API 密钥</label>
+            <label>{{ t('agent.modelSettingsBaseUrlLabel') }}</label>
+            <input v-model="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
+            <span class="hint">{{ t('agent.modelSettingsBaseUrlHint') }}</span>
+          </div>
+
+          <div class="form-group">
+            <label>{{ t('agent.modelSettingsApiKeyLabel') }}</label>
             <div class="password-input">
-              <input 
-                :type="showKey ? 'text' : 'password'" 
-                v-model="selectedProvider.apiKey" 
-                placeholder="sk-..." 
+              <input
+                :type="showKey ? 'text' : 'password'"
+                v-model="selectedProvider.apiKey"
+                placeholder="sk-..."
               />
-              <button @click="showKey = !showKey" class="toggle-btn">
-                {{ showKey ? '隐藏' : '显示' }}
+              <button class="toggle-btn" @click="showKey = !showKey">
+                {{ showKey ? t('agent.modelSettingsHideKey') : t('agent.modelSettingsShowKey') }}
               </button>
             </div>
           </div>
 
           <div class="form-group">
-            <label>模型列表（同一提供商可配置多个）</label>
+            <label>{{ t('agent.modelSettingsModelListLabel') }}</label>
             <textarea
               v-model="modelsText"
               class="model-list-textarea"
-              placeholder="每行一个模型名，例如：&#10;qwen-flash&#10;qwen-plus&#10;gpt-4o-mini"
+              :placeholder="t('agent.modelSettingsModelListPlaceholder')"
             />
-            <span class="hint">每行一个模型名称；保存后可在对话框中直接切换。</span>
+            <span class="hint">{{ t('agent.modelSettingsModelListHint') }}</span>
           </div>
 
           <div class="form-group">
-            <label>默认模型（活动模型）</label>
-            <div class="model-dropdown" ref="activeModelDropdownRef">
+            <label>{{ t('agent.modelSettingsActiveModelLabel') }}</label>
+            <div ref="activeModelDropdownRef" class="model-dropdown">
               <button
                 class="model-dropdown__trigger"
                 :class="{ 'model-dropdown__trigger--open': activeModelDropdownOpen }"
                 @click.stop="toggleActiveModelDropdown"
               >
-                <span class="model-dropdown__label">{{ selectedProvider.activeModel || '请选择模型' }}</span>
+                <span class="model-dropdown__label">{{ selectedProvider.activeModel || t('agent.modelSettingsSelectModel') }}</span>
                 <svg class="model-dropdown__caret" width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path d="M3 5.5L7 9L11 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
@@ -123,29 +121,32 @@
         </div>
 
         <div class="content-footer">
-          <button class="save-btn" @click="saveProvider" :disabled="!isValid">
-            保存配置
+          <button class="save-btn" :disabled="!isValid" @click="saveProvider">
+            {{ t('agent.modelSettingsSave') }}
           </button>
         </div>
       </div>
+
       <div v-else class="empty-state">
-        <span class="empty-icon">✦</span>
-        <p>请选择或添加一个提供商</p>
+        <span class="empty-icon">✓</span>
+        <p>{{ t('agent.modelSettingsEmpty') }}</p>
       </div>
-      
+
       <button class="close-btn" @click="$emit('close')">×</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from '@/i18n'
 
 const props = defineProps<{
   backendUrl: string
 }>()
 
 const emit = defineEmits(['close', 'updated'])
+const { t } = useI18n()
 
 interface Provider {
   id: string
@@ -166,31 +167,32 @@ const modelsText = ref('')
 const activeModelDropdownOpen = ref(false)
 const activeModelDropdownRef = ref<HTMLElement | null>(null)
 
-// Drag and Drop state
 const draggedId = ref<string | null>(null)
 const dragOverId = ref<string | null>(null)
 
+const parsedModels = computed(() =>
+  modelsText.value
+    .split('\n')
+    .map((model) => model.trim())
+    .filter(Boolean)
+)
+
 const isValid = computed(() => {
   if (!selectedProvider.value) return false
-  const p = selectedProvider.value
-  return !!(p.name && p.baseUrl && p.apiKey && parsedModels.value.length > 0 && p.activeModel)
-})
-
-const parsedModels = computed(() => {
-  return modelsText.value
-    .split('\n')
-    .map(m => m.trim())
-    .filter(Boolean)
+  const provider = selectedProvider.value
+  return !!(provider.name && provider.baseUrl && provider.apiKey && parsedModels.value.length > 0 && provider.activeModel)
 })
 
 function normalizeProvider(raw: Provider): Provider {
   const models = Array.isArray(raw.models) && raw.models.length
-    ? raw.models.map(m => String(m).trim()).filter(Boolean)
+    ? raw.models.map((m) => String(m).trim()).filter(Boolean)
     : (raw.modelName ? [raw.modelName] : [])
+
   const uniqModels = Array.from(new Set(models))
   const activeModel = raw.activeModel && uniqModels.includes(raw.activeModel)
     ? raw.activeModel
     : (raw.modelName && uniqModels.includes(raw.modelName) ? raw.modelName : (uniqModels[0] || ''))
+
   return {
     ...raw,
     models: uniqModels,
@@ -204,6 +206,7 @@ function syncModelsTextFromProvider() {
     modelsText.value = ''
     return
   }
+
   const models = selectedProvider.value.models || (selectedProvider.value.modelName ? [selectedProvider.value.modelName] : [])
   modelsText.value = models.join('\n')
 }
@@ -216,26 +219,27 @@ async function fetchProviders() {
       providers.value = []
       return
     }
+
     const data = await res.json()
-    let rawProviders = Array.isArray(data) ? data : []
-    
-    // 🔝 Sticky Active: Ensure active provider is ALWAYS at the top
-    // For non-active items, preserve original order (stable sort)
-    providers.value = rawProviders.map(normalizeProvider).sort((a, b) => {
-      if (a.isActive && !b.isActive) return -1
-      if (!a.isActive && b.isActive) return 1
-      return 0
-    })
+    const rawProviders = Array.isArray(data) ? data : []
+
+    providers.value = rawProviders
+      .map(normalizeProvider)
+      .sort((a, b) => {
+        if (a.isActive && !b.isActive) return -1
+        if (!a.isActive && b.isActive) return 1
+        return 0
+      })
 
     if (providers.value.length > 0) {
       if (selectedProvider.value) {
-        const matched = providers.value.find(p => p.id === selectedProvider.value?.id)
+        const matched = providers.value.find((p) => p.id === selectedProvider.value?.id)
         if (matched) {
           selectProvider(matched)
           return
         }
       }
-      selectProvider(providers.value.find(p => p.isActive) || providers.value[0])
+      selectProvider(providers.value.find((p) => p.isActive) || providers.value[0])
     }
   } catch (e) {
     console.error('Failed to fetch providers:', e)
@@ -244,11 +248,10 @@ async function fetchProviders() {
 }
 
 function addNewProvider() {
-  console.log('Adding new provider...')
   isNew.value = true
   selectedProvider.value = {
     id: '',
-    name: '新建提供商',
+    name: t('agent.modelSettingsNewProviderName'),
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     modelName: 'gpt-4o-mini',
@@ -287,17 +290,18 @@ async function saveProvider() {
   const activeModel = selectedProvider.value.activeModel && models.includes(selectedProvider.value.activeModel)
     ? selectedProvider.value.activeModel
     : models[0]
+
   const payload = {
     ...selectedProvider.value,
     models,
     activeModel,
     modelName: activeModel
   }
-  
-  const url = isNew.value 
-    ? `${props.backendUrl}/api/models/providers` 
+
+  const url = isNew.value
+    ? `${props.backendUrl}/api/models/providers`
     : `${props.backendUrl}/api/models/providers/${selectedProvider.value.id}`
-  
+
   const method = isNew.value ? 'POST' : 'PUT'
 
   try {
@@ -306,7 +310,7 @@ async function saveProvider() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-    
+
     if (res.ok) {
       isNew.value = false
       await fetchProviders()
@@ -328,7 +332,8 @@ async function setActiveProvider(id: string) {
 }
 
 async function deleteProvider(id: string) {
-  if (!confirm('确定要删除此提供商吗？')) return
+  if (!confirm(t('agent.modelSettingsDeleteConfirm'))) return
+
   try {
     await fetch(`${props.backendUrl}/api/models/providers/${id}`, { method: 'DELETE' })
     selectedProvider.value = null
@@ -339,7 +344,6 @@ async function deleteProvider(id: string) {
   }
 }
 
-// Drag and Drop Handlers
 function handleDragStart(e: DragEvent, id: string, isActive: boolean) {
   if (isActive) {
     e.preventDefault()
@@ -353,7 +357,7 @@ function handleDragStart(e: DragEvent, id: string, isActive: boolean) {
   }
 }
 
-function handleDragOver(e: DragEvent, id: string, isActive: boolean) {
+function handleDragOver(_e: DragEvent, id: string, isActive: boolean) {
   if (draggedId.value === id || isActive) return
   dragOverId.value = id
 }
@@ -362,19 +366,19 @@ function handleDragLeave() {
   dragOverId.value = null
 }
 
-async function handleDrop(e: DragEvent, targetId: string, isActive: boolean) {
+async function handleDrop(_e: DragEvent, targetId: string, isActive: boolean) {
   if (!draggedId.value || draggedId.value === targetId || isActive) return
-  
+
   try {
     const res = await fetch(`${props.backendUrl}/api/models/providers/reorder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         draggedId: draggedId.value,
-        targetId: targetId
+        targetId
       })
     })
-    
+
     if (res.ok) {
       await fetchProviders()
     }
@@ -414,7 +418,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick, true)
 })
 </script>
-
 <style scoped>
 .settings-overlay {
   /* Light Theme Variables (Default) */
@@ -885,3 +888,4 @@ onBeforeUnmount(() => {
   color: var(--theme-accent);
 }
 </style>
+
