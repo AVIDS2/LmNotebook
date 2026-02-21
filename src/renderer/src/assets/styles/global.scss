@@ -1,109 +1,123 @@
 @use './variables' as *;
 @use './animations';
 
-// ========== CSS 鍙橀噺涓婚绯荤粺 ==========
+// ========== CSS 閸欐﹢鍣烘稉濠氼暯缁崵绮?==========
 :root {
-  // 浜壊涓婚锛堥粯璁わ級
-  --color-bg-primary: #F7F8FA;
-  --color-bg-secondary: #F2F4F7;
-  --color-bg-card: #FFFFFF;
-  --color-bg-hover: #ECEFF3;
-  --color-bg-active: #E5E9EF;
-  
-  --color-primary: #2F333A;
-  --color-primary-light: #444B55;
-  --color-primary-dark: #1F232A;
-  
-  --color-accent: #A88A65;
-  
-  --color-text-primary: #232730;
-  --color-text-secondary: #5F6671;
-  --color-text-muted: #8B93A0;
-  --color-text-placeholder: #A6AEBA;
-  
-  --color-border: #DBE0E7;
-  --color-border-light: #E7EBF1;
-  --color-border-dark: #CCD3DC;
-  
-  --color-danger: #C45C5C;
-  --color-warning: #C9A456;
-  --color-success: #5C9E5C;
-  
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.06);
-  
-  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --font-family-sans: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-family-mono: "JetBrains Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 15px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 24px;
+  --line-height-tight: 1.32;
+  --line-height-normal: 1.55;
+  --line-height-relaxed: 1.82;
+  --letter-tight: -0.02em;
+  --letter-normal: 0;
+  --letter-wide: 0.03em;
+
+  --color-bg-primary: #f6f8fb;
+  --color-bg-secondary: #eef2f7;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #e8edf5;
+  --color-bg-active: #dfe7f2;
+
+  --color-primary: #0f172a;
+  --color-primary-light: #1e293b;
+  --color-primary-dark: #0b1324;
+
+  --color-accent: #334155;
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --color-text-placeholder: #94a3b8;
+
+  --color-border: #d6deea;
+  --color-border-light: #e6ebf3;
+  --color-border-dark: #c6d1df;
+
+  --color-danger: #dc2626;
+  --color-warning: #b45309;
+  --color-success: #166534;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.07);
+  --shadow-lg: 0 12px 30px rgba(15, 23, 42, 0.12);
+
+  --scrollbar-thumb: rgba(15, 23, 42, 0.22);
+  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
 }
 
-// 鏆楄壊涓婚
+// 閺嗘澹婃稉濠氼暯
 [data-theme="dark"] {
-  --color-bg-primary: #1A1A1C;
-  --color-bg-secondary: #232326;
-  --color-bg-card: #2A2A2E;
-  --color-bg-hover: #333338;
-  --color-bg-active: #3D3D42;
-  
-  --color-primary: #E0E0DE;
-  --color-primary-light: #F0F0EE;
-  --color-primary-dark: #CCCCCA;
-  
-  --color-accent: #D4C4A8;
-  
-  --color-text-primary: #E8E8E6;
-  --color-text-secondary: #A8A8A5;
-  --color-text-muted: #787875;
-  --color-text-placeholder: #585855;
-  
-  --color-border: #3A3A3E;
-  --color-border-light: #333338;
-  --color-border-dark: #4A4A4E;
-  
-  --color-danger: #E07070;
-  --color-warning: #E0B860;
-  --color-success: #70B870;
-  
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
-  
-  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --color-bg-primary: #0b1220;
+  --color-bg-secondary: #111a2c;
+  --color-bg-card: #0f172a;
+  --color-bg-hover: #1b2639;
+  --color-bg-active: #243246;
+
+  --color-primary: #e2e8f0;
+  --color-primary-light: #f1f5f9;
+  --color-primary-dark: #cbd5e1;
+
+  --color-accent: #94a3b8;
+
+  --color-text-primary: #e5e7eb;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  --color-text-placeholder: #64748b;
+
+  --color-border: #2a3a52;
+  --color-border-light: #223046;
+  --color-border-dark: #354962;
+
+  --color-danger: #f87171;
+  --color-warning: #fbbf24;
+  --color-success: #4ade80;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 16px 34px rgba(0, 0, 0, 0.45);
+
+  --scrollbar-thumb: rgba(148, 163, 184, 0.32);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.48);
 }
 
 [data-theme="classic"] {
-  --color-bg-primary: #FFFFFF;
-  --color-bg-secondary: #FAFBFC;
-  --color-bg-card: #FFFFFF;
-  --color-bg-hover: #F4F7FA;
-  --color-bg-active: #EEF2F7;
+  --color-bg-primary: #f8fafc;
+  --color-bg-secondary: #f1f5f9;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #e9eff7;
+  --color-bg-active: #dee7f3;
 
-  --color-primary: #2A2F36;
-  --color-primary-light: #424A56;
-  --color-primary-dark: #1D2228;
+  --color-primary: #111827;
+  --color-primary-light: #1f2937;
+  --color-primary-dark: #0b1324;
 
-  --color-accent: #8B97A8;
+  --color-accent: #475569;
 
-  --color-text-primary: #232730;
-  --color-text-secondary: #5D6673;
-  --color-text-muted: #8891A0;
-  --color-text-placeholder: #A5AEBB;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #6b7280;
+  --color-text-placeholder: #94a3b8;
 
-  --color-border: #E3E8EF;
-  --color-border-light: #EDF1F6;
-  --color-border-dark: #D5DEE8;
+  --color-border: #dde5f0;
+  --color-border-light: #e9eef6;
+  --color-border-dark: #c9d5e5;
 
-  --color-danger: #666666;
-  --color-warning: #707070;
-  --color-success: #5C5C5C;
+  --color-danger: #dc2626;
+  --color-warning: #b45309;
+  --color-success: #166534;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.015);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.02);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 10px 24px rgba(15, 23, 42, 0.08);
 
-  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.3);
 }
 * {
   margin: 0;
@@ -118,18 +132,20 @@ html, body, #app {
 }
 
 body {
-  font-family: $font-family;
-  font-size: $font-size-sm;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  letter-spacing: var(--letter-normal);
   color: var(--color-text-primary);
   background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
-  // 浣跨敤 GPU 鍔犻€熺殑灞炴€ц繘琛屼富棰樺垏鎹?
+  // 娴ｈ法鏁?GPU 閸旂娀鈧喓娈戠仦鐐粹偓褑绻樼悰灞煎瘜妫版ê鍨忛幑?
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-// 婊氬姩鏉℃牱寮?
+// 濠婃艾濮╅弶鈩冪壉瀵?
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -148,12 +164,12 @@ body {
   }
 }
 
-// 鍙紪杈戝尯鍩熷厑璁搁€夋嫨
+// 閸欘垳绱潏鎴濆隘閸╃喎鍘戠拋鎼佲偓澶嬪
 .allow-select {
   user-select: text;
 }
 
-// 鎸夐挳鍩虹鏍峰紡
+// 閹稿鎸抽崺铏诡攨閺嶅嘲绱?
 .btn {
   display: inline-flex;
   align-items: center;
@@ -196,7 +212,7 @@ body {
   }
 }
 
-// 杈撳叆妗嗗熀纭€鏍峰紡
+// 鏉堟挸鍙嗗鍡楃唨绾偓閺嶅嘲绱?
 .input {
   width: 100%;
   padding: $spacing-sm $spacing-md;
@@ -217,7 +233,7 @@ body {
   }
 }
 
-// 鍥炬爣鎸夐挳
+// 閸ョ偓鐖ｉ幐澶愭尦
 .icon-btn {
   display: flex;
   align-items: center;
@@ -240,3 +256,4 @@ body {
     background: var(--color-bg-active);
   }
 }
+

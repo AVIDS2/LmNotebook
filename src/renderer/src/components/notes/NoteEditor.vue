@@ -758,7 +758,7 @@ import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Underline from '@tiptap/extension-underline'
 import Table from '@tiptap/extension-table'
-import { NodeSelection } from '@tiptap/pm/state'
+import { EditorState, NodeSelection } from '@tiptap/pm/state'
 import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
@@ -2609,14 +2609,24 @@ watch(
       
       if (editor.value.getHTML() !== newContent) {
         runWithoutAutoSave(() => {
-          editor.value?.commands.setContent(newContent, false, { preserveWhitespace: 'full' })
+          editor.value
+            ?.chain()
+            .setMeta('addToHistory', false)
+            .setContent(newContent, false, { preserveWhitespace: 'full' })
+            .run()
         })
       }
       if (switchedNote) {
-        // Reset per-note history so undo/redo does not cross note boundaries.
+        // Recreate editor state to truly reset history plugin state per note.
         const { state, view } = editor.value
-        const resetState = state.reconfigure({ plugins: state.plugins })
+        const resetState = EditorState.create({
+          schema: state.schema,
+          doc: state.doc,
+          selection: state.selection,
+          plugins: state.plugins
+        })
         view.updateState(resetState)
+        editorStateVersion.value += 1
       }
       nextTick(() => {
         scheduleOutlineSync()

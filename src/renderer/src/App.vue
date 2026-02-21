@@ -426,13 +426,15 @@ watch(isAgentSidebarMode, () => {
 .main-content {
   position: relative;
   display: flex;
+  padding: 10px;
+  gap: 10px;
   flex: 1;
   overflow: hidden;
   background: var(--color-bg-primary);
   transition: padding-right 0.2s ease;
 
   &--agent-sidebar {
-    padding-right: var(--agent-sidebar-width);
+    padding-right: calc(var(--agent-sidebar-width) + 10px);
   }
 
   &--resizing {
@@ -453,10 +455,15 @@ watch(isAgentSidebarMode, () => {
   display: flex;
   flex-shrink: 0;
   will-change: width;
-  background: var(--color-bg-primary);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg-card) 92%, var(--color-bg-primary));
+  border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
 
   &--sidebar {
     z-index: 2;
+    width: 56px;
   }
 
   &--notelist {
@@ -466,6 +473,7 @@ watch(isAgentSidebarMode, () => {
   &--editor {
     flex: 1;
     min-width: 300px;
+    box-shadow: var(--shadow-md);
   }
 }
 
@@ -503,7 +511,7 @@ watch(isAgentSidebarMode, () => {
 .agent-sidebar-resizer {
   position: fixed;
   top: var(--app-titlebar-height);
-  bottom: 0;
+  bottom: 10px;
   right: var(--agent-sidebar-width);
   width: 6px;
   cursor: col-resize;
@@ -526,38 +534,169 @@ watch(isAgentSidebarMode, () => {
   }
 }
 
-/* Shell density pass: keep hierarchy minimal and avoid heavy nested cards */
+/* Workspace shadcn pass */
 .app-container {
   :deep(.sidebar-rail) {
-    background: var(--color-bg-secondary);
+    padding: 10px 6px;
+    border-right: none;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg-secondary) 86%, white 14%),
+      color-mix(in srgb, var(--color-bg-secondary) 96%, transparent)
+    );
+  }
+
+  :deep(.rail-btn) {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    border-color: transparent;
+    color: var(--color-text-secondary);
+  }
+
+  :deep(.rail-btn:hover),
+  :deep(.rail-btn--active) {
+    background: color-mix(in srgb, var(--color-bg-hover) 90%, transparent);
+    border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
+    color: var(--color-text-primary);
+  }
+
+  :deep(.rail-btn--primary) {
+    border-color: color-mix(in srgb, var(--color-border-dark) 72%, transparent);
+    background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
   }
 
   :deep(.note-list) {
-    background: var(--color-bg-secondary);
+    border-right: none;
+    background: transparent;
   }
 
   :deep(.search-bar) {
-    margin: 6px 8px 8px;
+    margin: 6px 8px 10px;
+    height: 38px;
     border-radius: 10px;
-    box-shadow: none;
+    background: color-mix(in srgb, var(--color-bg-card) 96%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 66%, transparent);
+    box-shadow: var(--shadow-sm);
   }
 
   :deep(.note-list__header) {
-    min-height: 30px;
-    padding: 4px 8px;
+    min-height: 40px;
+    padding: 10px 10px 6px;
   }
 
   :deep(.note-list__content) {
-    padding: 2px 8px 8px;
+    padding: 4px 8px 10px;
+  }
+
+  :deep(.note-list__folder-filter-trigger) {
+    height: 28px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--color-bg-card) 94%, transparent);
+  }
+
+  :deep(.note-card) {
+    margin-bottom: 4px;
+    border-radius: 11px;
+    border: 1px solid transparent;
+    background: transparent;
+  }
+
+  :deep(.note-card:hover) {
+    border-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+    background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
   }
 
   :deep(.note-card--active) {
-    border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
-    background: color-mix(in srgb, var(--color-bg-hover) 94%, transparent);
+    border-color: color-mix(in srgb, var(--color-border-dark) 86%, transparent);
+    background: color-mix(in srgb, var(--color-bg-card) 94%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+
+  :deep(.note-editor) {
+    background: transparent;
   }
 
   :deep(.note-editor__toolbar) {
-    background: var(--color-bg-primary);
+    margin: 10px 10px 0;
+    border: 1px solid color-mix(in srgb, var(--color-border) 66%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-bg-card) 96%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+
+  :deep(.note-editor__title-wrapper) {
+    margin: 8px 14px 0;
+    border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 74%, transparent);
+  }
+
+  :deep(.note-editor__title) {
+    font-size: clamp(24px, 2.2vw, 34px);
+    font-weight: 640;
+    letter-spacing: -0.02em;
+    padding: 12px 6px 12px;
+  }
+
+  :deep(.note-editor__content) {
+    padding: 0 16px 16px;
+  }
+
+  :deep(.note-editor .ProseMirror) {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 14px 10px 68px;
+    line-height: 1.82;
+  }
+
+  :deep(.note-editor__outline) {
+    border-radius: 12px;
+    border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
+    box-shadow: var(--shadow-md);
+  }
+
+  :deep(.agent-chat.sidebar-mode) {
+    border-radius: 14px !important;
+    border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent) !important;
+    box-shadow: var(--shadow-md) !important;
+    background: color-mix(in srgb, var(--color-bg-card) 96%, transparent) !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .agent-chat__header) {
+    background: color-mix(in srgb, var(--color-bg-primary) 95%, transparent) !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent) !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .agent-chat__messages) {
+    background: transparent !important;
+    padding: 12px 12px 10px !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .message--assistant .message) {
+    border: none !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .message--assistant .message__text) {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .status-update) {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  :deep(.agent-chat.sidebar-mode .message--user .message) {
+    border: 1px solid color-mix(in srgb, var(--color-border-dark) 78%, transparent) !important;
+    background: color-mix(in srgb, var(--color-bg-hover) 92%, transparent) !important;
+    border-radius: 12px !important;
   }
 }
 </style>

@@ -1034,6 +1034,7 @@ const emptyText = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   padding: 6px 8px;
   border: none;
   border-radius: 7px;
@@ -1047,17 +1048,25 @@ const emptyText = computed(() => {
 }
 
 .note-list__layer-title {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .note-list__layer-count {
   margin-left: auto;
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--color-text-muted);
 }
 
 .note-list__layer-chevron {
+  flex-shrink: 0;
   color: var(--color-text-muted);
   transition: transform 0.16s ease;
 }

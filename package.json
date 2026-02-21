@@ -1,6 +1,6 @@
 {
   "name": "origin-notes",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "绠€绾﹂鏍肩殑鍘熷瓙绗旇搴旂敤",
   "main": "./out/main/index.js",
   "author": {
@@ -13,6 +13,7 @@
     "dev:utf8": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev_utf8.ps1",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "verify:release": "node scripts/release-readiness.mjs",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux"
