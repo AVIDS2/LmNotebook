@@ -1,8 +1,8 @@
-﻿# LmNotebook (Origin Notes)
+# LmNotebook
 
 [中文](README.md) | [English](README.en.md)
 
-LmNotebook (formerly Origin Notes) is a local-first AI notebook for individuals and small teams.
+LmNotebook is a local-first AI notebook for individuals and small teams.
 It is built with Electron + Vue 3 + FastAPI + LangGraph, with notes, vector index, and chat session data stored locally by default.
 
 ## Why LmNotebook

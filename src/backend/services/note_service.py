@@ -1,5 +1,5 @@
 """
-Note Service - Interface to the Origin Notes SQLite database.
+Note Service - Interface to the LmNotebook SQLite database.
 Provides CRUD operations and bridges with the RAG service.
 """
 import aiosqlite

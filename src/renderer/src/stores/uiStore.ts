@@ -14,15 +14,24 @@ const AGENT_SIDEBAR_MAX = 620
 const COLLAPSED_SIDEBAR_WIDTH = 44
 const COLLAPSED_NOTELIST_WIDTH = 32
 
-const STORAGE_KEY_SIDEBAR = 'origin-notes-sidebar-width'
-const STORAGE_KEY_NOTELIST = 'origin-notes-notelist-width'
-const STORAGE_KEY_AGENT_SIDEBAR = 'origin-notes-agent-sidebar-width'
-const STORAGE_KEY_THEME = 'origin-notes-theme'
-const STORAGE_KEY_LOCALE = 'origin-notes-locale'
-const STORAGE_KEY_LAYOUT_PRESET = 'origin-notes-layout-preset'
-const STORAGE_KEY_NOTELIST_COLLAPSED = 'origin-notes-notelist-collapsed'
-const STORAGE_KEY_NOTELIST_LAYER_MODE = 'origin-notes-notelist-layer-mode'
-const STORAGE_KEY_UI_VERSION = 'origin-notes-ui-version'
+const STORAGE_KEY_SIDEBAR = 'lmnotebook-sidebar-width'
+const STORAGE_KEY_NOTELIST = 'lmnotebook-notelist-width'
+const STORAGE_KEY_AGENT_SIDEBAR = 'lmnotebook-agent-sidebar-width'
+const STORAGE_KEY_THEME = 'lmnotebook-theme'
+const STORAGE_KEY_LOCALE = 'lmnotebook-locale'
+const STORAGE_KEY_LAYOUT_PRESET = 'lmnotebook-layout-preset'
+const STORAGE_KEY_NOTELIST_COLLAPSED = 'lmnotebook-notelist-collapsed'
+const STORAGE_KEY_NOTELIST_LAYER_MODE = 'lmnotebook-notelist-layer-mode'
+const STORAGE_KEY_UI_VERSION = 'lmnotebook-ui-version'
+const LEGACY_STORAGE_KEY_SIDEBAR = 'origin-notes-sidebar-width'
+const LEGACY_STORAGE_KEY_NOTELIST = 'origin-notes-notelist-width'
+const LEGACY_STORAGE_KEY_AGENT_SIDEBAR = 'origin-notes-agent-sidebar-width'
+const LEGACY_STORAGE_KEY_THEME = 'origin-notes-theme'
+const LEGACY_STORAGE_KEY_LOCALE = 'origin-notes-locale'
+const LEGACY_STORAGE_KEY_LAYOUT_PRESET = 'origin-notes-layout-preset'
+const LEGACY_STORAGE_KEY_NOTELIST_COLLAPSED = 'origin-notes-notelist-collapsed'
+const LEGACY_STORAGE_KEY_NOTELIST_LAYER_MODE = 'origin-notes-notelist-layer-mode'
+const LEGACY_STORAGE_KEY_UI_VERSION = 'origin-notes-ui-version'
 const UI_VERSION = 'ob-rebuild-v3'
 
 export type ThemeMode = 'light' | 'classic' | 'dark'
@@ -121,22 +130,32 @@ export const useUIStore = defineStore('ui', () => {
     }
   }
 
+  function getStoredValue(primaryKey: string, legacyKey?: string): string | null {
+    const value = localStorage.getItem(primaryKey)
+    if (value !== null) return value
+    return legacyKey ? localStorage.getItem(legacyKey) : null
+  }
+
   function loadSavedState(): void {
-    const savedUIVersion = localStorage.getItem(STORAGE_KEY_UI_VERSION)
+    const savedUIVersion = getStoredValue(STORAGE_KEY_UI_VERSION, LEGACY_STORAGE_KEY_UI_VERSION)
     const shouldMigrateUI = savedUIVersion !== UI_VERSION
     if (shouldMigrateUI) {
       // One-time visual migration for redesigned shell density.
       localStorage.removeItem(STORAGE_KEY_SIDEBAR)
+      localStorage.removeItem(LEGACY_STORAGE_KEY_SIDEBAR)
       localStorage.removeItem(STORAGE_KEY_NOTELIST)
+      localStorage.removeItem(LEGACY_STORAGE_KEY_NOTELIST)
       localStorage.removeItem(STORAGE_KEY_LAYOUT_PRESET)
+      localStorage.removeItem(LEGACY_STORAGE_KEY_LAYOUT_PRESET)
       localStorage.removeItem(STORAGE_KEY_NOTELIST_LAYER_MODE)
+      localStorage.removeItem(LEGACY_STORAGE_KEY_NOTELIST_LAYER_MODE)
     }
 
-    const savedSidebar = localStorage.getItem(STORAGE_KEY_SIDEBAR)
-    const savedNoteList = localStorage.getItem(STORAGE_KEY_NOTELIST)
-    const savedAgentSidebar = localStorage.getItem(STORAGE_KEY_AGENT_SIDEBAR)
-    const savedNoteListCollapsed = localStorage.getItem(STORAGE_KEY_NOTELIST_COLLAPSED)
-    const savedNoteListLayerMode = localStorage.getItem(STORAGE_KEY_NOTELIST_LAYER_MODE) as NoteListLayerMode | null
+    const savedSidebar = getStoredValue(STORAGE_KEY_SIDEBAR, LEGACY_STORAGE_KEY_SIDEBAR)
+    const savedNoteList = getStoredValue(STORAGE_KEY_NOTELIST, LEGACY_STORAGE_KEY_NOTELIST)
+    const savedAgentSidebar = getStoredValue(STORAGE_KEY_AGENT_SIDEBAR, LEGACY_STORAGE_KEY_AGENT_SIDEBAR)
+    const savedNoteListCollapsed = getStoredValue(STORAGE_KEY_NOTELIST_COLLAPSED, LEGACY_STORAGE_KEY_NOTELIST_COLLAPSED)
+    const savedNoteListLayerMode = getStoredValue(STORAGE_KEY_NOTELIST_LAYER_MODE, LEGACY_STORAGE_KEY_NOTELIST_LAYER_MODE) as NoteListLayerMode | null
 
     if (savedSidebar) {
       const width = parseInt(savedSidebar, 10)
@@ -170,17 +189,17 @@ export const useUIStore = defineStore('ui', () => {
       noteListLayerMode.value = savedNoteListLayerMode
     }
 
-    const savedTheme = localStorage.getItem(STORAGE_KEY_THEME) as ThemeMode | null
+    const savedTheme = getStoredValue(STORAGE_KEY_THEME, LEGACY_STORAGE_KEY_THEME) as ThemeMode | null
     if (savedTheme === 'light' || savedTheme === 'classic' || savedTheme === 'dark') {
       theme.value = savedTheme
     }
 
-    const savedLocale = localStorage.getItem(STORAGE_KEY_LOCALE) as LocaleCode | null
+    const savedLocale = getStoredValue(STORAGE_KEY_LOCALE, LEGACY_STORAGE_KEY_LOCALE) as LocaleCode | null
     if (savedLocale === 'zh-CN' || savedLocale === 'en-US') {
       locale.value = savedLocale
     }
 
-    const savedLayoutPreset = localStorage.getItem(STORAGE_KEY_LAYOUT_PRESET) as LayoutPreset | null
+    const savedLayoutPreset = getStoredValue(STORAGE_KEY_LAYOUT_PRESET, LEGACY_STORAGE_KEY_LAYOUT_PRESET) as LayoutPreset | null
     if (savedLayoutPreset === 'writing' || savedLayoutPreset === 'balanced' || savedLayoutPreset === 'research' || savedLayoutPreset === 'custom') {
       layoutPreset.value = savedLayoutPreset
       if (savedLayoutPreset !== 'custom') {

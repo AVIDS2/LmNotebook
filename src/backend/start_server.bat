@@ -1,6 +1,6 @@
 @echo off
 echo ================================
-echo Origin Notes AI Agent Backend
+echo LmNotebook Origin Agent Backend
 echo ================================
 echo.
 

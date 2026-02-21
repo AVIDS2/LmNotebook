@@ -10,7 +10,10 @@ from pydantic_settings import BaseSettings
 
 def _config_path_candidates() -> list[Path]:
     """Return possible Electron config paths across platforms/legacy names."""
-    env_override = os.environ.get("ORIGIN_NOTES_CONFIG_PATH", "").strip()
+    env_override = (
+        os.environ.get("LMNOTEBOOK_CONFIG_PATH", "").strip()
+        or os.environ.get("ORIGIN_NOTES_CONFIG_PATH", "").strip()
+    )
     if env_override:
         return [Path(env_override)]
 
@@ -20,6 +23,8 @@ def _config_path_candidates() -> list[Path]:
     if os.name == 'nt':
         app_data = Path(os.environ.get('APPDATA', home / 'AppData' / 'Roaming'))
         candidates.extend([
+            app_data / 'LmNotebook' / 'lmnotebook-config.json',
+            app_data / 'lmnotebook' / 'lmnotebook-config.json',
             app_data / 'Origin Notes' / 'origin-notes-config.json',
             app_data / 'origin-notes' / 'origin-notes-config.json',
         ])
@@ -28,6 +33,8 @@ def _config_path_candidates() -> list[Path]:
     # macOS
     if platform.system().lower() == 'darwin':
         candidates.extend([
+            home / 'Library' / 'Application Support' / 'LmNotebook' / 'lmnotebook-config.json',
+            home / 'Library' / 'Application Support' / 'lmnotebook' / 'lmnotebook-config.json',
             home / 'Library' / 'Application Support' / 'Origin Notes' / 'origin-notes-config.json',
             home / 'Library' / 'Application Support' / 'origin-notes' / 'origin-notes-config.json',
         ])
@@ -36,6 +43,8 @@ def _config_path_candidates() -> list[Path]:
     # Linux / other unix
     xdg_config = Path(os.environ.get('XDG_CONFIG_HOME', home / '.config'))
     candidates.extend([
+        xdg_config / 'LmNotebook' / 'lmnotebook-config.json',
+        xdg_config / 'lmnotebook' / 'lmnotebook-config.json',
         xdg_config / 'Origin Notes' / 'origin-notes-config.json',
         xdg_config / 'origin-notes' / 'origin-notes-config.json',
     ])
@@ -44,8 +53,9 @@ def _config_path_candidates() -> list[Path]:
 
 def get_user_data_directory() -> Path:
     """Get the user-configured data directory from Electron config."""
-    # Default path
-    default_path = Path.home() / "Documents" / "OriginNotes"
+    preferred_default = Path.home() / "Documents" / "LmNotebook"
+    legacy_default = Path.home() / "Documents" / "OriginNotes"
+    default_path = preferred_default if preferred_default.exists() or not legacy_default.exists() else legacy_default
 
     try:
         for config_path in _config_path_candidates():

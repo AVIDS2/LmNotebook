@@ -1,4 +1,4 @@
-﻿# Origin Notes Packaging Guide
+# LmNotebook Packaging Guide
 
 ## Overview
 
@@ -41,7 +41,7 @@ npm run build:win
 ```
 
 Output:
-- `dist/Origin Notes Setup 1.0.0.exe`
+- `dist/LmNotebook Setup 1.0.0.exe`
 
 ## Why `backend_env` is Required
 

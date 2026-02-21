@@ -1,4 +1,4 @@
-﻿# 发布检查清单
+# 发布检查清单
 
 ## 构建前置条件
 
@@ -23,7 +23,7 @@
 
 1. `cd ../..`
 2. `npm run build:win`
-3. 确认产物存在：`dist/Origin Notes Setup 1.0.0.exe`
+3. 确认产物存在：`dist/LmNotebook Setup 1.0.0.exe`
 
 ## 本地冒烟测试
 

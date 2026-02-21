@@ -186,7 +186,11 @@ test('data settings should expose embedding model config entry', async () => {
   const preloadTypes = await readText('src/preload/index.d.ts')
   const mainDb = await readText('src/main/database.ts')
 
-  assert.match(dataSettings, /v-model="config\.embeddingMode"/, 'missing embedding mode selector in settings UI')
+  assert.match(
+    dataSettings,
+    /(v-model="config\.embeddingMode"|setEmbeddingMode\('api'\)|embeddingModeDropdownOpen)/,
+    'missing embedding mode selector in settings UI'
+  )
   assert.match(dataSettings, /v-model="config\.embeddingModel"/, 'missing embedding model input in settings UI')
 
   assert.match(preloadTypes, /embeddingMode:\s*string/, 'preload AppConfig should include embeddingMode')

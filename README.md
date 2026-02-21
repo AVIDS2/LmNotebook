@@ -1,8 +1,8 @@
-﻿# LmNotebook (Origin Notes)
+# LmNotebook
 
 [中文](README.md) | [English](README.en.md)
 
-LmNotebook（原 Origin Notes）是一款本地优先的 AI 笔记应用，面向个人与小团队。
+LmNotebook 是一款本地优先的 AI 笔记应用，面向个人与小团队。
 应用采用 Electron + Vue 3 + FastAPI + LangGraph 架构，默认将笔记、向量索引和会话数据保存在本地设备。
 
 ## 为什么是 LmNotebook

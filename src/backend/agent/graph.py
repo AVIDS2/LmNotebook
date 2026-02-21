@@ -1,4 +1,4 @@
-﻿"""
+"""
 LangGraph StateGraph Core Definition.
 
 This module defines the main agent graph using LangGraph 1.x StateGraph.
@@ -238,7 +238,7 @@ class NoteAgentGraph:
                 context_summary = f"Context: Last AI said '{prev_text}'. Now user says: '{query}'"
 
         classification_prompt = """
-        You are the Intent Router for Origin Notes. 
+        You are the Intent Router for LmNotebook (assistant name: Origin). 
         Analyze the conversation to decide if the next step should be a casual CHAT or a functional TASK.
 
         RULES:

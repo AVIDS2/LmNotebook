@@ -1,5 +1,5 @@
-﻿"""
-Origin Notes Agent Backend
+"""
+LmNotebook Origin Agent Backend
 FastAPI server for AI agent functionality.
 """
 import os
@@ -83,14 +83,14 @@ from api.routes import router as api_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Deeply simplified lifecycle."""
-    safe_print(f">> Origin Notes Backend Ready on port {settings.PORT}")
+    safe_print(f">> LmNotebook Origin Agent Backend Ready on port {settings.PORT}")
     yield
     safe_print(">> Shutdown complete.")
 
 
 app = FastAPI(
-    title="Origin Notes Agent",
-    description="AI-powered assistant for Origin Notes",
+    title="LmNotebook Origin Agent",
+    description="AI-powered Origin assistant for LmNotebook",
     version="1.0.0",
     lifespan=lifespan
 )

@@ -1,6 +1,6 @@
-﻿# Origin Notes Agent Backend
+# LmNotebook Origin Agent Backend
 
-FastAPI backend for the Origin Notes agent. Built on LangGraph with OpenAI-compatible providers and local FAISS search.
+FastAPI backend for the LmNotebook Origin agent. Built on LangGraph with OpenAI-compatible providers and local FAISS search.
 
 ## Quick Start
 

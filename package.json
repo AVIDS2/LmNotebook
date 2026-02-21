@@ -1,11 +1,11 @@
 {
-  "name": "origin-notes",
-  "version": "1.0.9",
+  "name": "lmnotebook",
+  "version": "1.0.10",
   "description": "绠€绾﹂鏍肩殑鍘熷瓙绗旇搴旂敤",
   "main": "./out/main/index.js",
   "author": {
-    "name": "Origin-Notes",
-    "email": "origin-notes@users.noreply.github.com"
+    "name": "LmNotebook",
+    "email": "lmnotebook@users.noreply.github.com"
   },
   "license": "MIT",
   "scripts": {
@@ -96,7 +96,7 @@
       "category": "public.app-category.productivity"
     },
     "linux": {
-      "maintainer": "Origin-Notes <origin-notes@users.noreply.github.com>",
+      "maintainer": "LmNotebook <lmnotebook@users.noreply.github.com>",
       "target": [
         {
           "target": "AppImage",
@@ -140,7 +140,7 @@
       {
         "provider": "github",
         "owner": "AVIDS2",
-        "repo": "Origin-Notes",
+        "repo": "LmNotebook",
         "releaseType": "release"
       }
     ]

@@ -2825,6 +2825,34 @@ watch(
   z-index: 9999;
 }
 
+/* Solarized Light (Warm Theme) Override */
+[data-theme="light"] .agent-container {
+  --theme-bg: rgba(253, 246, 227, 0.84);
+  --theme-bg-solid: rgba(253, 248, 234, 0.96);
+  --theme-text: #586e75;
+  --theme-text-secondary: #657b83;
+  --theme-accent: #b58900;
+  --theme-accent-light: rgba(181, 137, 0, 0.16);
+  --theme-border: rgba(227, 215, 187, 0.78);
+  --theme-input-bg: rgba(245, 236, 212, 0.78);
+  --theme-code-bg: #eee8d5;
+  --theme-bubble-bg: rgba(253, 248, 234, 0.82);
+  --theme-bubble-active: rgba(253, 248, 234, 0.96);
+  --theme-header-bg: rgba(245, 236, 212, 0.86);
+  --theme-footer-bg: rgba(245, 236, 212, 0.84);
+  --theme-suggestion-bg: rgba(253, 248, 234, 0.9);
+  --theme-surface: rgba(250, 242, 220, 0.84);
+  --theme-hover: rgba(181, 137, 0, 0.1);
+  --theme-bg-secondary: rgba(245, 236, 212, 0.76);
+  --theme-bg-hover: rgba(238, 227, 199, 0.86);
+  --theme-ring: rgba(181, 137, 0, 0.26);
+  --theme-shadow-soft: 0 16px 38px rgba(88, 110, 117, 0.14);
+  --theme-shadow-strong: 0 20px 52px rgba(88, 110, 117, 0.2);
+  --hero-grad-1: #b58900;
+  --hero-grad-2: #cb4b16;
+  --hero-grad-3: #859900;
+}
+
 /* Dark Theme Override */
 [data-theme="dark"] .agent-container {
   --theme-bg: rgba(20, 22, 28, 0.74);
@@ -5333,12 +5361,12 @@ watch(
 }
 
 .agent-chat {
-  background: #fdfdfd !important;
+  background: color-mix(in srgb, var(--theme-bg-solid) 94%, transparent) !important;
   box-shadow: none !important;
 }
 
 .agent-chat__messages {
-  background: #fdfdfd !important;
+  background: color-mix(in srgb, var(--theme-bg-secondary) 90%, var(--theme-bg-solid) 10%) !important;
   box-shadow: none !important;
 }
 

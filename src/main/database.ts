@@ -15,10 +15,24 @@ interface AppConfig {
     embeddingModel: string
 }
 
-const CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
+const CONFIG_FILE = join(app.getPath('userData'), 'lmnotebook-config.json')
+const LEGACY_CONFIG_FILE = join(app.getPath('userData'), 'origin-notes-config.json')
+const DEFAULT_DATA_DIR_NAME = 'LmNotebook'
+const LEGACY_DEFAULT_DATA_DIR_NAME = 'OriginNotes'
+
+function getPreferredDefaultDataDirectory(): string {
+    const preferredPath = join(app.getPath('documents'), DEFAULT_DATA_DIR_NAME)
+    const legacyPath = join(app.getPath('documents'), LEGACY_DEFAULT_DATA_DIR_NAME)
+
+    if (existsSync(preferredPath) || !existsSync(legacyPath)) {
+        return preferredPath
+    }
+
+    return legacyPath
+}
 
 function getDefaultConfig(): AppConfig {
-    const defaultDataPath = join(app.getPath('documents'), 'OriginNotes')
+    const defaultDataPath = getPreferredDefaultDataDirectory()
     return {
         dataDirectory: defaultDataPath,
         autoBackup: true,
@@ -32,8 +46,9 @@ function getDefaultConfig(): AppConfig {
 
 function loadConfig(): AppConfig {
     try {
-        if (existsSync(CONFIG_FILE)) {
-            const content = readFileSync(CONFIG_FILE, 'utf-8')
+        for (const configPath of [CONFIG_FILE, LEGACY_CONFIG_FILE]) {
+            if (!existsSync(configPath)) continue
+            const content = readFileSync(configPath, 'utf-8')
             const saved = JSON.parse(content) as Partial<AppConfig>
             return { ...getDefaultConfig(), ...saved }
         }
@@ -59,7 +74,7 @@ export function getConfig(): AppConfig {
 }
 
 export function getDefaultDataDirectory(): string {
-    return join(app.getPath('documents'), 'OriginNotes')
+    return getPreferredDefaultDataDirectory()
 }
 
 

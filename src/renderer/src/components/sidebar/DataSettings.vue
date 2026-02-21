@@ -178,10 +178,36 @@
                     <h3>{{ t('settings.data.embeddingMode') }}</h3>
                     <p>{{ t('settings.data.embeddingModeHint') }}</p>
                   </div>
-                  <select class="select" v-model="config.embeddingMode" @change="saveConfig">
-                    <option value="api">API</option>
-                    <option value="local">Local</option>
-                  </select>
+                  <div class="dropdown-select" ref="embeddingModeDropdownRef">
+                    <button
+                      class="dropdown-select__trigger"
+                      :class="{ 'dropdown-select__trigger--open': embeddingModeDropdownOpen }"
+                      @click="embeddingModeDropdownOpen = !embeddingModeDropdownOpen"
+                    >
+                      <span class="dropdown-select__label">{{ embeddingModeLabel }}</span>
+                      <svg class="dropdown-select__caret" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <Transition name="dropdown-fade">
+                      <div v-if="embeddingModeDropdownOpen" class="dropdown-select__menu">
+                        <button
+                          class="dropdown-select__item"
+                          :class="{ 'dropdown-select__item--active': config.embeddingMode === 'api' }"
+                          @click="setEmbeddingMode('api')"
+                        >
+                          API
+                        </button>
+                        <button
+                          class="dropdown-select__item"
+                          :class="{ 'dropdown-select__item--active': config.embeddingMode === 'local' }"
+                          @click="setEmbeddingMode('local')"
+                        >
+                          Local
+                        </button>
+                      </div>
+                    </Transition>
+                  </div>
                 </div>
                 <div class="settings-row settings-row--stackable">
                   <div>
@@ -399,6 +425,8 @@ const updateState = ref<UpdaterState>({
 })
 const localeDropdownRef = ref<HTMLElement | null>(null)
 const localeDropdownOpen = ref(false)
+const embeddingModeDropdownRef = ref<HTMLElement | null>(null)
+const embeddingModeDropdownOpen = ref(false)
 const backupCountDropdownRef = ref<HTMLElement | null>(null)
 const backupCountDropdownOpen = ref(false)
 const backupCountOptions = [5, 10, 20, 50]
@@ -431,6 +459,7 @@ const updaterStageLabel = computed(() => {
   return map[updateState.value.stage] || updateState.value.stage
 })
 const localeLabel = computed(() => (locale.value === 'zh-CN' ? t('language.zh-CN') : t('language.en-US')))
+const embeddingModeLabel = computed(() => (config.value.embeddingMode === 'local' ? 'Local' : 'API'))
 
 function setLocaleFromMenu(value: 'zh-CN' | 'en-US'): void {
   setLocale(value)
@@ -443,10 +472,23 @@ async function setBackupCount(value: number): Promise<void> {
   await saveConfig()
 }
 
+async function setEmbeddingMode(mode: 'api' | 'local'): Promise<void> {
+  if (config.value.embeddingMode === mode) {
+    embeddingModeDropdownOpen.value = false
+    return
+  }
+  config.value.embeddingMode = mode
+  embeddingModeDropdownOpen.value = false
+  await saveConfig()
+}
+
 function handleGlobalPointerDown(event: MouseEvent): void {
   const target = event.target as Node
   if (localeDropdownOpen.value && !localeDropdownRef.value?.contains(target)) {
     localeDropdownOpen.value = false
+  }
+  if (embeddingModeDropdownOpen.value && !embeddingModeDropdownRef.value?.contains(target)) {
+    embeddingModeDropdownOpen.value = false
   }
   if (backupCountDropdownOpen.value && !backupCountDropdownRef.value?.contains(target)) {
     backupCountDropdownOpen.value = false

@@ -47,7 +47,7 @@ export const exportService = {
     const date = new Date().toISOString().split('T')[0]
 
     const result = await window.electronAPI.exportFile({
-      defaultName: `origin-notes-backup-${date}.json`,
+      defaultName: `lmnotebook-backup-${date}.json`,
       filters: [{ name: 'JSON 文件', extensions: ['json'] }],
       content
     })
@@ -129,7 +129,7 @@ export const exportService = {
 
     const date = new Date().toISOString().split('T')[0]
     const result = await window.electronAPI.exportFile({
-      defaultName: `origin-notes-all-${date}.md`,
+      defaultName: `lmnotebook-all-${date}.md`,
       filters: [{ name: 'Markdown 文件', extensions: ['md'] }],
       content
     })
