@@ -18,14 +18,72 @@ test('agent composer should avoid control overlap on compact widths', async () =
 
   assert.match(
     agentBubble,
-    /\.composer-model-wrapper\s*\{[\s\S]*?flex:\s*1\s+1\s+auto[\s\S]*?min-width:\s*0/i,
+    /\.composer-model-wrapper\s*\{[\s\S]*?flex:\s*0\s+1\s+[0-9]+px[\s\S]*?min-width:\s*0/i,
     'model wrapper should be shrinkable so model text collapses first'
   )
 
   assert.match(
     agentBubble,
+    /\.composer-model-btn__label\s*\{[\s\S]*?flex:\s*0\s+1\s+auto[\s\S]*?max-width:\s*calc\(100%\s*-\s*14px\)/i,
+    'model label should truncate while keeping caret adjacent instead of pushing caret far right'
+  )
+
+  assert.match(
+    agentBubble,
+    /\.composer-model-btn\s*\{[\s\S]*?width:\s*auto[\s\S]*?max-width:\s*100%/i,
+    'model button should size to content instead of exposing a wide empty clickable area'
+  )
+
+  assert.match(
+    agentBubble,
+    /@container\s+composerRow\s*\(max-width:\s*420px\)[\s\S]*?\.composer-mode-btn--mode\s*\{[\s\S]*?min-width:\s*48px/i,
+    'very narrow composer width should keep mode toggle compact without forcing it hidden'
+  )
+
+  const compactModeMedia = agentBubble.match(
+    /@media\s*\(max-width:\s*780px\)\s*\{[\s\S]*?\.composer-mode-btn--mode[\s\S]*?\}\s*\}/i
+  )?.[0]
+  assert.ok(compactModeMedia, 'missing compact mode media block for composer controls')
+  assert.doesNotMatch(
+    compactModeMedia,
+    /\.composer-review-btn\s*\{[\s\S]*?display:\s*none/i,
+    'review toggle should not be hidden by broad viewport media query'
+  )
+
+  assert.match(
+    agentBubble,
+    /\.composer-review-btn\s*\{[\s\S]*?flex:\s*0\s+0\s+auto[\s\S]*?min-width:\s*max-content/i,
+    'review toggle should keep intrinsic width and not collapse away'
+  )
+
+  assert.doesNotMatch(
+    agentBubble,
     /@container\s+composerRow\s*\(max-width:\s*420px\)[\s\S]*?\.composer-review-btn\s*\{[\s\S]*?display:\s*none/i,
-    'very narrow composer width should hide review toggle via container query'
+    'review toggle should remain visible even on compact rows'
+  )
+
+  assert.match(
+    agentBubble,
+    /\.chat-input-bottom__right\s*\{[\s\S]*?position:\s*relative[\s\S]*?min-height:\s*32px[\s\S]*?z-index:\s*8/i,
+    'right control rail should anchor overlayed review action without stretching row height'
+  )
+
+  assert.match(
+    agentBubble,
+    /\.composer-review-btn\s*\{[\s\S]*?position:\s*absolute[\s\S]*?bottom:\s*calc\(100%\s*\+\s*8px\)[\s\S]*?z-index:\s*10/i,
+    'review action should be overlaid above send action instead of increasing control row height'
+  )
+
+  assert.match(
+    agentBubble,
+    /\.chat-input-bottom\s*\{[\s\S]*?position:\s*relative[\s\S]*?z-index:\s*6/i,
+    'bottom control row should sit above textarea layer to keep review button fully clickable'
+  )
+
+  assert.doesNotMatch(
+    agentBubble,
+    /@container\s+composerRow\s*\(max-width:\s*420px\)[\s\S]*?\.composer-mode-btn--mode\s*\{[\s\S]*?display:\s*none/i,
+    'mode toggle should not be force-hidden by container query'
   )
 })
 

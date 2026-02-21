@@ -35,6 +35,7 @@ def test_fast_chat_injects_ask_mode_guardrails():
     sys_msgs = _system_contents(graph.llm.last_messages)
     assert any("ASK MODE" in msg for msg in sys_msgs)
     assert any("read-only" in msg.lower() for msg in sys_msgs)
+    assert any("Do NOT proactively restate mode" in msg for msg in sys_msgs)
 
 
 def test_fast_chat_injects_agent_mode_capability_context():
@@ -49,6 +50,7 @@ def test_fast_chat_injects_agent_mode_capability_context():
     assert result["messages"][0].content == "ok"
     sys_msgs = _system_contents(graph.llm.last_messages)
     assert any("AGENT MODE" in msg for msg in sys_msgs)
+    assert any("Do NOT proactively restate mode" in msg for msg in sys_msgs)
 
 
 def test_router_prefers_chat_for_image_input_without_write_intent():

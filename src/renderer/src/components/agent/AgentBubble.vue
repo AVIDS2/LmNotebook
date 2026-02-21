@@ -5209,6 +5209,8 @@ watch(
   font-size: 12px !important;
   line-height: 1.38 !important;
   overflow-y: hidden;
+  position: relative;
+  z-index: 1 !important;
 }
 
 .chat-input-unified-box textarea::placeholder {
@@ -5222,6 +5224,8 @@ watch(
   justify-content: space-between !important;
   gap: 6px !important;
   min-width: 0 !important;
+  position: relative;
+  z-index: 6;
   container-type: inline-size;
   container-name: composerRow;
 }
@@ -5256,8 +5260,8 @@ watch(
 
 .composer-model-wrapper {
   position: relative;
-  flex: 1 1 210px;
-  min-width: 120px;
+  flex: 0 1 210px;
+  min-width: 0;
   max-width: min(42vw, 260px);
 }
 
@@ -5275,7 +5279,8 @@ watch(
   justify-content: flex-start;
   gap: 5px;
   cursor: pointer;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
   text-align: left;
 }
@@ -5287,9 +5292,9 @@ watch(
 
 .composer-model-btn__label {
   display: block;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: none;
+  max-width: calc(100% - 14px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5540,10 +5545,14 @@ watch(
 .chat-input-bottom__right {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
   min-width: 0;
+  position: relative;
+  min-height: 32px;
+  z-index: 8;
 }
 
 .composer-mode-btn--mode {
@@ -5561,6 +5570,13 @@ watch(
 }
 
 .composer-review-btn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  pointer-events: auto;
+  flex: 0 0 auto;
+  min-width: max-content;
   height: 24px;
   border-radius: 999px;
   border: none;
@@ -5585,16 +5601,9 @@ watch(
     min-width: 56px;
     padding: 0 8px !important;
   }
-  .composer-review-btn {
-    display: none;
-  }
 }
 
 @container composerRow (max-width: 420px) {
-  .composer-review-btn {
-    display: none;
-  }
-
   .composer-mode-btn--mode {
     min-width: 48px;
     padding: 0 6px !important;

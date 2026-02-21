@@ -285,7 +285,8 @@ class NoteAgentGraph:
             mode_instruction = SystemMessage(
                 content=(
                     "ASK MODE (read-only) is active for this conversation turn.\n"
-                    "- If user asks current mode/capability, explicitly state you are in Ask mode.\n"
+                    "- Do NOT proactively restate mode in normal replies.\n"
+                    "- Mention mode only when user asks mode/capability/permission, or when refusing write actions.\n"
                     "- In Ask mode, do not claim direct write execution capability.\n"
                     "- You may answer questions and provide drafts/suggestions only."
                 )
@@ -294,7 +295,8 @@ class NoteAgentGraph:
             mode_instruction = SystemMessage(
                 content=(
                     "AGENT MODE is active for this conversation turn.\n"
-                    "- If user asks current mode/capability, explicitly state you are in Agent mode.\n"
+                    "- Do NOT proactively restate mode in normal replies.\n"
+                    "- Mention mode only when user asks mode/capability/permission.\n"
                     "- You can execute notebook operations through the tool workflow."
                 )
             )
