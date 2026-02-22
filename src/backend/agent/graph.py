@@ -17,6 +17,7 @@ import hashlib
 import os
 from typing import Literal, Optional, Callable, Any, TypedDict
 import re
+import uuid
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -276,6 +277,7 @@ class NoteAgentGraph:
             m for m in state.get("messages", []) 
             if getattr(m, "additional_kwargs", {}).get("type") != "status_message"
         ]
+        filtered_messages = self._sanitize_history_for_provider(filtered_messages)
 
         lang = self._detect_user_language(filtered_messages)
         lang_instruction = SystemMessage(content=f"Always respond in the user's language ({lang}).")
@@ -393,6 +395,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             m for m in state.get("messages", []) 
             if getattr(m, "additional_kwargs", {}).get("type") != "status_message"
         ]
+        filtered_history = self._sanitize_history_for_provider(filtered_history)
 
         # Build message list
         lang = self._detect_user_language(filtered_history)
@@ -464,6 +467,18 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 model_for_turn=model_for_turn,
                 lang=lang,
             )
+
+        # Some providers return invalid_tool_calls instead of tool_calls.
+        # Recover the first valid tool call when possible, otherwise strip
+        # malformed tool metadata to avoid poisoning subsequent turns.
+        response = self._recover_invalid_tool_calls(response)
+
+        # Critical integrity guard:
+        # Some providers may still emit multiple tool calls in a single assistant turn.
+        # This workflow executes one tool at a time; keeping extra tool_calls in history
+        # causes provider-side "tool_calls must be followed by tool messages" errors.
+        response = self._coerce_single_tool_call(response)
+        response = self._strip_pre_tool_content(response)
         
         return {
             "messages": [response],
@@ -521,6 +536,160 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             or fallback_text
         )
         return AIMessage(content=content, tool_calls=cleaned_calls)
+
+    def _coerce_single_tool_call(self, response: AIMessage) -> AIMessage:
+        """
+        Keep at most one tool_call in assistant response history.
+
+        The graph runs tools sequentially (one tool per loop). If multiple tool_calls
+        are persisted in one AIMessage but only one ToolMessage is produced, future
+        model calls can fail strict provider validation.
+        """
+        tool_calls = list(getattr(response, "tool_calls", []) or [])
+        if not tool_calls:
+            return response
+
+        first_call = self._normalize_tool_call(tool_calls[0])
+        if len(tool_calls) > 1:
+            safe_print(
+                f"[AGENT] Coercing multi-tool response -> single tool call: "
+                f"kept={first_call.get('name', 'unknown')} dropped={len(tool_calls) - 1}"
+            )
+        return AIMessage(
+            content=getattr(response, "content", ""),
+            tool_calls=[first_call],
+            additional_kwargs=getattr(response, "additional_kwargs", {}) or {},
+        )
+
+    def _normalize_tool_call(self, tool_call: dict) -> dict:
+        """Ensure tool_call has stable shape and non-empty id for provider compatibility."""
+        normalized = dict(tool_call or {})
+        if not isinstance(normalized.get("args"), dict):
+            normalized["args"] = normalized.get("args") if isinstance(normalized.get("args"), dict) else {}
+        if not str(normalized.get("id", "")).strip():
+            normalized["id"] = f"call_{uuid.uuid4().hex[:24]}"
+        return normalized
+
+    def _strip_pre_tool_content(self, response: AIMessage) -> AIMessage:
+        """
+        Hide verbose pre-tool chatter when a tool call is present.
+        UI already shows tool status; leaving this text creates noisy repetition.
+        """
+        tool_calls = list(getattr(response, "tool_calls", []) or [])
+        if not tool_calls:
+            return response
+        content = str(getattr(response, "content", "") or "")
+        if not content.strip():
+            return response
+        return AIMessage(
+            content="",
+            tool_calls=tool_calls,
+            additional_kwargs=getattr(response, "additional_kwargs", {}) or {},
+        )
+
+    def _recover_invalid_tool_calls(self, response: AIMessage) -> AIMessage:
+        """
+        Recover first executable tool call from invalid_tool_calls when providers
+        return malformed function-call payloads.
+        """
+        existing_calls = list(getattr(response, "tool_calls", []) or [])
+        if existing_calls:
+            return response
+
+        invalid_calls = list(getattr(response, "invalid_tool_calls", []) or [])
+        if not invalid_calls:
+            return response
+
+        recovered_calls: list[dict] = []
+        for raw_call in invalid_calls:
+            if not isinstance(raw_call, dict):
+                continue
+            name = str(raw_call.get("name", "") or "").strip()
+            if not name:
+                continue
+
+            raw_args = raw_call.get("args", {})
+            parsed_args: dict
+            if isinstance(raw_args, dict):
+                parsed_args = raw_args
+            elif isinstance(raw_args, str):
+                try:
+                    parsed = json.loads(raw_args)
+                except Exception:
+                    parsed = None
+                parsed_args = parsed if isinstance(parsed, dict) else {}
+            else:
+                parsed_args = {}
+
+            recovered_calls.append(
+                self._normalize_tool_call(
+                    {
+                        "id": raw_call.get("id", ""),
+                        "name": name,
+                        "args": parsed_args,
+                    }
+                )
+            )
+
+        if recovered_calls:
+            first = recovered_calls[0]
+            safe_print(
+                f"[AGENT] Recovered tool call from invalid_tool_calls: "
+                f"{first.get('name', 'unknown')}"
+            )
+            return AIMessage(
+                content=getattr(response, "content", ""),
+                tool_calls=[first],
+                additional_kwargs=getattr(response, "additional_kwargs", {}) or {},
+            )
+
+        # If recovery fails, strip invalid metadata to avoid provider-side
+        # role validation errors on the next turn.
+        safe_print("[AGENT] Dropping unrecoverable invalid_tool_calls from assistant response")
+        return AIMessage(
+            content=getattr(response, "content", ""),
+            additional_kwargs=getattr(response, "additional_kwargs", {}) or {},
+        )
+
+    def _sanitize_history_for_provider(self, messages: list) -> list:
+        """
+        Remove malformed or orphan tool-call metadata from history before passing
+        it back to provider APIs.
+        """
+        if not messages:
+            return messages
+
+        responded_ids = {
+            str(getattr(m, "tool_call_id", "") or "").strip()
+            for m in messages
+            if str(getattr(m, "tool_call_id", "") or "").strip()
+        }
+
+        sanitized: list = []
+        for msg in messages:
+            if getattr(msg, "type", "") != "ai":
+                sanitized.append(msg)
+                continue
+
+            invalid_calls = list(getattr(msg, "invalid_tool_calls", []) or [])
+            if invalid_calls:
+                sanitized.append(AIMessage(content=getattr(msg, "content", "") or ""))
+                continue
+
+            tool_calls = list(getattr(msg, "tool_calls", []) or [])
+            if tool_calls:
+                has_orphan = any(
+                    not str((tc or {}).get("id", "")).strip()
+                    or str((tc or {}).get("id", "")).strip() not in responded_ids
+                    for tc in tool_calls
+                )
+                if has_orphan:
+                    sanitized.append(AIMessage(content=getattr(msg, "content", "") or ""))
+                    continue
+
+            sanitized.append(msg)
+
+        return sanitized
     
     # ========================================================================
     # CHAT-TOOL-CHAT PATTERN: 3-NODE TOOL EXECUTION
@@ -541,7 +710,7 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             return {"next_tool_call": None}
         
         # Take only the first tool_call
-        first_tool = last_message.tool_calls[0]
+        first_tool = self._normalize_tool_call(last_message.tool_calls[0])
         
         return {"next_tool_call": first_tool}
     
@@ -560,10 +729,39 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         
         current_tool_name = next_tool_call.get("name", "")
         tool_args = next_tool_call.get("args", {}) or {}
+        history = state.get("messages", [])
+        user_text = self._get_last_user_text(history)
+
+        # Context-note guard:
+        # If user is asking about the attached/referenced note content,
+        # force the read tool on context_note_id to avoid drifting to active note
+        # or unrelated knowledge search tools.
+        if current_tool_name != "read_note_content" and self._is_referenced_note_content_query(user_text, state):
+            context_note_id = state.get("context_note_id")
+            if context_note_id:
+                safe_print(
+                    f"[Agent] Rewriting tool '{current_tool_name}' -> 'read_note_content' "
+                    f"for referenced note {context_note_id}"
+                )
+                current_tool_name = "read_note_content"
+                tool_args = {"note_id": context_note_id}
+                next_tool_call["name"] = current_tool_name
+                next_tool_call["args"] = tool_args
+
+        # Auto-fill category_id for create_note when user explicitly requests categorization.
+        # This closes the create+categorize flow in one write action and avoids uncategorized duplicates.
+        if current_tool_name == "create_note":
+            tool_args = await self._try_attach_requested_category_for_create(tool_args, history)
+            next_tool_call["args"] = tool_args
 
         # Normalize tool args that depend on note_id to avoid placeholder usage.
         # This keeps agent behavior robust without hardcoding UI-specific strings.
-        tool_args = self._normalize_note_id_args(tool_args, state)
+        tool_args = self._normalize_note_id_args(
+            tool_args,
+            state,
+            current_tool_name,
+            history=history,
+        )
         next_tool_call["args"] = tool_args
 
         current_input_hash = hashlib.md5(
@@ -571,7 +769,6 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
         ).hexdigest()
 
         # Global write-policy safety gate: centralized decision before approval/execution.
-        history = state.get("messages", [])
         policy_decision = self._evaluate_tool_policy(
             state=state,
             tool_name=current_tool_name,
@@ -611,7 +808,12 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                     "last_tool_input_hash": current_input_hash,
                     "next_tool_call": None,
                 }
-            tool_args = self._normalize_note_id_args(resumed_args, state)
+            tool_args = self._normalize_note_id_args(
+                resumed_args,
+                state,
+                current_tool_name,
+                history=history,
+            )
             next_tool_call["args"] = tool_args
         
         # Check for doom loop
@@ -707,31 +909,108 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             return approved, original_args
         return False, original_args
 
-    def _normalize_note_id_args(self, args: dict, state: NoteAgentState) -> dict:
+    def _normalize_note_id_args(
+        self,
+        args: dict,
+        state: NoteAgentState,
+        tool_name: Optional[str] = None,
+        history: Optional[list] = None,
+    ) -> dict:
         """
         Ensure note_id is a real ID when tools require it.
-        If note_id is missing or malformed, fall back to active note in state.
+        If note_id is missing or malformed, fall back to a context-aware note:
+        - read_note_content: prefer explicit context note, then active note
+        - other tools: prefer active note, then explicit context note
         """
         if not isinstance(args, dict):
             return args
 
         note_id = args.get("note_id")
         active_note_id = state.get("active_note_id")
+        context_note_id = state.get("context_note_id")
+        normalized_tool_name = str(tool_name or "").strip()
+        user_text = self._get_last_user_text(history or [])
+        explicitly_current_note = self._explicitly_requests_current_note(user_text)
+        force_context_read = (
+            normalized_tool_name == "read_note_content"
+            and bool(context_note_id)
+            and not explicitly_current_note
+        )
+
+        if force_context_read:
+            fallback_note_id = context_note_id
+        elif normalized_tool_name == "read_note_content":
+            fallback_note_id = (active_note_id or context_note_id) if explicitly_current_note else (context_note_id or active_note_id)
+        else:
+            fallback_note_id = active_note_id or context_note_id
 
         if not note_id or not isinstance(note_id, str):
-            if active_note_id:
-                args["note_id"] = active_note_id
+            if fallback_note_id:
+                args["note_id"] = fallback_note_id
             return args
 
         # Accept both timestamp IDs and UUID IDs.
         # Fallback only for obvious placeholders or malformed ids.
         is_timestamp_id = bool(re.match(r"^\d{13}-[0-9a-f]{9}$", note_id))
         is_uuid_id = bool(re.match(r"^[0-9a-fA-F-]{32,36}$", note_id))
+        if force_context_read and context_note_id and note_id != context_note_id:
+            safe_print(f"[Agent] Overriding read_note_content note_id '{note_id}' -> '{context_note_id}'")
+            args["note_id"] = context_note_id
+            return args
         if not (is_timestamp_id or is_uuid_id):
-            if active_note_id:
-                safe_print(f"[WARN] Normalizing note_id '{note_id}' -> '{active_note_id}'")
-                args["note_id"] = active_note_id
+            if fallback_note_id:
+                safe_print(f"[WARN] Normalizing note_id '{note_id}' -> '{fallback_note_id}'")
+                args["note_id"] = fallback_note_id
         return args
+
+    def _explicitly_requests_current_note(self, user_text: str) -> bool:
+        """Detect explicit intent to operate on the active/current note."""
+        if not user_text:
+            return False
+        if re.search(r"(不是\s*当前笔记|not\s+(?:the\s+)?current\s+note)", user_text, re.IGNORECASE):
+            return False
+        patterns = [
+            r"(?:当前|现在|正在编辑的?)\s*(?:笔记|这篇|这个)?",
+            r"(?:this|the)\s+current\s+note",
+            r"active\s+note",
+        ]
+        return any(re.search(p, user_text, re.IGNORECASE) for p in patterns)
+
+    def _is_referenced_note_content_query(self, user_text: str, state: NoteAgentState) -> bool:
+        """
+        Detect turns where user is asking about the explicitly attached/referenced note.
+        """
+        if not user_text:
+            return False
+        if not state.get("context_note_id"):
+            return False
+        if self._explicitly_requests_current_note(user_text):
+            return False
+
+        text = user_text.strip()
+        attachment_ref = re.search(
+            r"(附件|附带|attached|referenced|引用|这个笔记|这篇笔记|该笔记|这个附件|that note)",
+            text,
+            re.IGNORECASE,
+        )
+        asks_content = re.search(
+            r"(内容|全文|完整内容|读取|读一下|读|看看|是什么|概括|总结|read|content|full\s*text|summar)",
+            text,
+            re.IGNORECASE,
+        )
+        correction = re.search(
+            r"(不是\s*当前笔记|not\s+(?:the\s+)?current\s+note|instead\s+of\s+current)",
+            text,
+            re.IGNORECASE,
+        )
+
+        if attachment_ref and (asks_content or correction):
+            return True
+        # When a referenced note exists and user asks directly "这个笔记内容是什么",
+        # treat deictic content requests as referring to the referenced note.
+        if asks_content and re.search(r"(这个|这篇|该)\s*笔记", text):
+            return True
+        return False
 
     def _task_requires_tool(self, state: NoteAgentState, history: list) -> bool:
         """
@@ -755,6 +1034,114 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
             if getattr(msg, "type", "") == "human" and getattr(msg, "content", None):
                 return self._extract_text_content(msg.content).lower()
         return ""
+
+    def _is_explicit_create_request(self, user_text: str) -> bool:
+        """Heuristic: did the user explicitly request creating a new note?"""
+        if not user_text:
+            return False
+        patterns = [
+            r"(?:创建|新建|再创建|重新创建|生成)(?:一篇|一个|个)?笔记",
+            r"(?:写|帮我写)(?:一篇|一个|个)?笔记",
+            r"(?:create|new|write)\s+(?:a\s+)?note",
+        ]
+        return any(re.search(p, user_text, re.IGNORECASE) for p in patterns)
+
+    def _is_category_feedback_without_create_intent(self, user_text: str) -> bool:
+        """
+        Detect follow-up complaints like "you didn't categorize it".
+        Used to block accidental duplicate create_note calls.
+        """
+        if not user_text:
+            return False
+        feedback_patterns = [
+            r"(?:没有|没|并没有|未)(?:归类|分类)",
+            r"(?:没有|没|并没有|未)(?:归到|归入|放到)",
+            r"not\s+categor(?:ized|ised)",
+            r"didn[’']?t\s+categor(?:ize|ise)",
+            r"not\s+in\s+(?:the\s+)?category",
+        ]
+        has_feedback = any(re.search(p, user_text, re.IGNORECASE) for p in feedback_patterns)
+        if not has_feedback:
+            return False
+        return not self._is_explicit_create_request(user_text)
+
+    def _extract_requested_category_hint(self, user_text: str) -> Optional[str]:
+        """Extract category hint from user text (e.g., '归类到工作' -> '工作')."""
+        if not user_text:
+            return None
+        text = user_text.strip()
+        patterns = [
+            r"(?:归类到|分类到|归入|归到|放到|分到|分类为|归类为)\s*[\"“”'‘’]?\s*([^\s，。,.!?！？；;]+)",
+            r"(?:categor(?:ize|ise)(?:\s+it|\s+this|\s+note)?\s*(?:to|as|under)?|assign\s+(?:it|this|note)?\s*to)\s*[\"“”'‘’]?\s*([a-z0-9_\-\u4e00-\u9fff ]+)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if not match:
+                continue
+            hint = match.group(1).strip().strip("\"'“”‘’.，,!?！？；;")
+            hint = re.sub(r"\s+", " ", hint)
+            if hint.endswith("分类") and len(hint) > 2:
+                hint = hint[:-2].strip()
+            if hint:
+                return hint
+        return None
+
+    async def _resolve_category_id_from_hint(self, hint: str) -> Optional[str]:
+        """Resolve category hint (name/id) to actual category_id from DB."""
+        if not hint:
+            return None
+        try:
+            from services.note_service import NoteService
+
+            categories = await NoteService().get_all_categories()
+            if not categories:
+                return None
+
+            def _norm(value: str) -> str:
+                return re.sub(r"\s+", "", (value or "").strip().lower())
+
+            hint_norm = _norm(hint)
+            # 1) Exact id match
+            for c in categories:
+                cid = str(c.get("id", "") or "")
+                if _norm(cid) == hint_norm:
+                    return cid
+            # 2) Exact name match
+            for c in categories:
+                cname = str(c.get("name", "") or "")
+                if _norm(cname) == hint_norm:
+                    return str(c.get("id", "") or "")
+            # 3) Contains match
+            for c in categories:
+                cname = str(c.get("name", "") or "")
+                if hint_norm and hint_norm in _norm(cname):
+                    return str(c.get("id", "") or "")
+            return None
+        except Exception as e:
+            safe_print(f"[Agent] Failed to resolve category hint '{hint}': {e}")
+            return None
+
+    async def _try_attach_requested_category_for_create(self, tool_args: dict, history: list) -> dict:
+        """Attach category_id to create_note args when user explicitly requested categorization."""
+        if not isinstance(tool_args, dict):
+            return tool_args
+        if str(tool_args.get("category_id", "")).strip():
+            return tool_args
+
+        user_text = self._get_last_user_text(history)
+        category_hint = self._extract_requested_category_hint(user_text)
+        if not category_hint:
+            return tool_args
+
+        category_id = await self._resolve_category_id_from_hint(category_hint)
+        if not category_id:
+            safe_print(f"[Agent] Category hint found but unresolved: {category_hint}")
+            return tool_args
+
+        updated_args = dict(tool_args)
+        updated_args["category_id"] = category_id
+        safe_print(f"[Agent] Auto-attached category_id '{category_id}' for create_note")
+        return updated_args
 
     def _extract_text_content(self, content: Any) -> str:
         """Normalize LangChain message content into plain text for routing/policy."""
@@ -823,6 +1210,13 @@ Do NOT use placeholders. If no ID is provided, ask for clarification.""")
                 "action": "deny",
                 "code": "missing_user_intent",
                 "reason": "No latest user intent found for a write operation.",
+            }
+
+        if tool_name == "create_note" and self._is_category_feedback_without_create_intent(user_text):
+            return {
+                "action": "deny",
+                "code": "duplicate_create_blocked_for_category_feedback",
+                "reason": "User asked to fix categorization for an existing note; do not create a duplicate note.",
             }
         cached_auth = state.get("write_authorized")
         if cached_auth is None:

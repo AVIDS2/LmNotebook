@@ -56,3 +56,45 @@ def test_status_node_uses_blocked_marker_on_tool_failure():
     msg = result["messages"][0]
 
     assert getattr(msg, "content", "") == "[Blocked] update_note"
+
+
+def test_create_note_denied_for_category_feedback_without_explicit_create():
+    graph = _graph_stub()
+    graph._get_last_user_text = lambda history: "你并没有归类到工作呀"
+    state = {
+        "agent_mode": "agent",
+        "auto_accept_writes": True,
+        "write_authorized": True,
+        "messages": [],
+    }
+
+    decision = graph._evaluate_tool_policy(
+        state=state,
+        tool_name="create_note",
+        tool_args={"title": "宇树科技的发展史", "content": "x"},
+        history=[],
+    )
+
+    assert decision["action"] == "deny"
+    assert decision["code"] == "duplicate_create_blocked_for_category_feedback"
+
+
+def test_create_note_allowed_when_user_explicitly_requests_new_creation():
+    graph = _graph_stub()
+    graph._get_last_user_text = lambda history: "请重新创建一篇笔记并归类到工作"
+    state = {
+        "agent_mode": "agent",
+        "auto_accept_writes": True,
+        "write_authorized": True,
+        "messages": [],
+    }
+
+    decision = graph._evaluate_tool_policy(
+        state=state,
+        tool_name="create_note",
+        tool_args={"title": "宇树科技的发展史", "content": "x"},
+        history=[],
+    )
+
+    assert decision["action"] == "allow"
+    assert decision["code"] == "semantic_allow_write"

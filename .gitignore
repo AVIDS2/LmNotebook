@@ -45,6 +45,7 @@ Thumbs.db
 # Local data
 *.sqlite
 *.db
+*.db-journal
 *.bak
 notes.db
 sessions.db
@@ -92,6 +93,7 @@ logo*.png
 # Temp/debug files
 claude.md
 debug_exe.py
+/.eb-cache/
 
 # Skills (if local only)
 skills/

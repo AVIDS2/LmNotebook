@@ -350,6 +350,33 @@ const noteLayers = computed<NoteLayer[]>(() => {
   if (!isLayeredByCategory.value) return []
 
   const ordered = new Map<string, NoteLayer>()
+
+  const ensureCategoryLayer = (categoryId: string): void => {
+    if (ordered.has(categoryId)) return
+    const category = categoryStore.getCategoryById(categoryId)
+    if (!category) return
+    ordered.set(categoryId, {
+      id: categoryId,
+      title: category.name,
+      notes: []
+    })
+  }
+
+  // Keep empty folders visible in layered mode (especially right after creation).
+  if (showFolderFilter.value) {
+    if (selectedFolderFilterId.value === '__all__') {
+      for (const category of categoryStore.categories) {
+        ordered.set(category.id, {
+          id: category.id,
+          title: category.name,
+          notes: []
+        })
+      }
+    } else if (selectedFolderFilterId.value !== '__uncategorized__') {
+      ensureCategoryLayer(selectedFolderFilterId.value)
+    }
+  }
+
   for (const note of filteredNotes.value) {
     const key = note.categoryId || '__uncategorized__'
     if (!ordered.has(key)) {

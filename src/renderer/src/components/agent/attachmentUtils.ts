@@ -1,11 +1,12 @@
 export interface ComposerAttachment {
   id: string
-  kind: 'image' | 'file'
+  kind: 'image' | 'file' | 'note'
   name: string
   mimeType?: string
   sizeBytes?: number
   dataUrl?: string
   textContent?: string
+  noteId?: string
 }
 
 export function formatAttachmentSize(sizeBytes?: number): string {

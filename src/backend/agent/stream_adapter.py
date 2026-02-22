@@ -114,7 +114,7 @@ _CONTROL_LINE_PREFIX_RE = re.compile(
 )
 
 
-def _sanitize_user_visible_text(text: str) -> str:
+def _sanitize_user_visible_text(text: str, trim_edges: bool = True) -> str:
     """
     Remove leaked internal control labels when they are prefixed to normal content,
     e.g. "DENY_WRITE该笔记..." -> "该笔记..."
@@ -144,7 +144,9 @@ def _sanitize_user_visible_text(text: str) -> str:
             break
         cleaned = next_cleaned
     cleaned = re.sub(r"[\uE000-\uF8FF]", "", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    if trim_edges:
+        cleaned = cleaned.strip()
     return cleaned
 
 
@@ -288,11 +290,12 @@ async def langgraph_stream_to_sse(
                 if isinstance(message, (AIMessage, AIMessageChunk)):
                     content = message.content
                     if content and isinstance(content, str):
-                        content = _sanitize_user_visible_text(content)
+                        # Preserve boundary whitespace/newlines in stream chunks.
+                        content = _sanitize_user_visible_text(content, trim_edges=False)
                         if not content.strip():
                             continue
                         # Skip internal control labels (router/policy/classifier outputs).
-                        if _is_internal_control_text(content):
+                        if _is_internal_control_text(content.strip()):
                             continue
                         
                         # Accumulate text into buffer
@@ -304,16 +307,15 @@ async def langgraph_stream_to_sse(
                         if re.search(r"[。！？.!?\n]", text_buffer) or len(text_buffer) > 50:
                             chunk_text = text_buffer
                             if chunk_text.strip():
-                                final_clean = chunk_text.strip()
-                                final_clean = _sanitize_user_visible_text(final_clean)
+                                final_clean = _sanitize_user_visible_text(chunk_text, trim_edges=False)
                                 if not final_clean:
                                     text_buffer = ""
                                     continue
-                                if _is_internal_control_text(final_clean):
+                                if _is_internal_control_text(final_clean.strip()):
                                     text_buffer = ""
                                     continue
                                 # Record this content to avoid duplicates in 'updates' mode
-                                seen_content_hashes.add(final_clean)
+                                seen_content_hashes.add(final_clean.strip())
                                 yield json.dumps({
                                     "part_type": "text",
                                     "delta": final_clean
@@ -434,15 +436,19 @@ async def langgraph_stream_to_sse(
                             if isinstance(msg, (AIMessage, AIMessageChunk)):
                                 content = msg.content
                                 if content and isinstance(content, str):
-                                    clean_content = _sanitize_user_visible_text(content.strip())
-                                    if not clean_content:
+                                    clean_content = _sanitize_user_visible_text(content, trim_edges=False)
+                                    if not clean_content.strip():
                                         continue
-                                    if _is_internal_control_text(clean_content):
+                                    if _is_internal_control_text(clean_content.strip()):
                                         continue
+                                    dedupe_key = clean_content.strip()
                                     # Strict Deduplication: check if this exact or similar string was already seen
-                                    is_duplicate = any(clean_content in seen or seen in clean_content for seen in [s for s in seen_content_hashes if isinstance(s, str)])
+                                    is_duplicate = any(
+                                        dedupe_key in seen or seen in dedupe_key
+                                        for seen in [s for s in seen_content_hashes if isinstance(s, str)]
+                                    )
                                     if not is_duplicate:
-                                        seen_content_hashes.add(clean_content)
+                                        seen_content_hashes.add(dedupe_key)
                                         yield json.dumps({
                                             "part_type": "text",
                                             "delta": clean_content
@@ -467,8 +473,8 @@ async def langgraph_stream_to_sse(
     finally:
         # Flush any remaining text in buffer at stream end
         if text_buffer:
-            clean_text = _sanitize_user_visible_text(text_buffer.strip())
-            if clean_text and len(clean_text) > 2 and not _is_internal_control_text(clean_text):
+            clean_text = _sanitize_user_visible_text(text_buffer, trim_edges=False)
+            if clean_text.strip() and len(clean_text.strip()) > 2 and not _is_internal_control_text(clean_text.strip()):
                 yield json.dumps({
                     "part_type": "text",
                     "delta": clean_text

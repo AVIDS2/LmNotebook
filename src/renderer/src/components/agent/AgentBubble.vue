@@ -150,7 +150,7 @@
                       <img :src="att.dataUrl" :alt="att.name" class="message-attachment__thumb" />
                       <div class="message-attachment__meta">
                         <span class="message-attachment__name">{{ att.name }}</span>
-                        <span class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
+                        <span v-if="att.sizeBytes" class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
                       </div>
                     </template>
                     <template v-else>
@@ -162,7 +162,7 @@
                       </span>
                       <div class="message-attachment__meta">
                         <span class="message-attachment__name">{{ att.name }}</span>
-                        <span class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
+                        <span v-if="att.sizeBytes" class="message-attachment__size">{{ formatAttachmentSize(att.sizeBytes) }}</span>
                       </div>
                     </template>
                   </div>
@@ -1920,6 +1920,12 @@ async function sendMessage(
   let touchedNoteId: string | null = null
   const isResume = Boolean(options?.resume)
   const messageText = (text ?? inputText.value.trim()).trim()
+  const contextNoteForTurn = !isResume && selectedContextNote.value
+    ? {
+        id: selectedContextNote.value.id,
+        title: selectedContextNote.value.title || t('common.untitled')
+      }
+    : null
   const outgoingAttachments = !isResume
     ? composerAttachments.value.map((att) => ({
         kind: att.kind,
@@ -1930,8 +1936,23 @@ async function sendMessage(
         text_content: att.textContent || null
       }))
     : []
+  const outgoingMessageAttachments: ComposerAttachment[] = !isResume
+    ? [
+        ...composerAttachments.value.map((att) => ({ ...att })),
+        ...(contextNoteForTurn
+          ? [
+              {
+                id: `note-${contextNoteForTurn.id}-${Date.now()}`,
+                kind: 'note',
+                name: contextNoteForTurn.title,
+                noteId: contextNoteForTurn.id
+              } as ComposerAttachment
+            ]
+          : [])
+      ]
+    : []
   if (isTyping.value && !isResume) return
-  if (!isResume && !messageText && outgoingAttachments.length === 0) return
+  if (!isResume && !messageText && outgoingMessageAttachments.length === 0) return
   if (!isResume && pendingExecutionApproval.value) {
     messages.value.push({
       role: 'assistant',
@@ -1946,8 +1967,8 @@ async function sendMessage(
     if (activeNoteId) {
       await capturePreUpdateSnapshot(activeNoteId)
     }
-    if (selectedContextNote.value?.id) {
-      await capturePreUpdateSnapshot(selectedContextNote.value.id)
+    if (contextNoteForTurn?.id) {
+      await capturePreUpdateSnapshot(contextNoteForTurn.id)
     }
   }
   
@@ -1956,15 +1977,7 @@ async function sendMessage(
     messages.value.push({
       role: 'user',
       content: messageText,
-      attachments: outgoingAttachments.map(att => ({
-        id: crypto.randomUUID(),
-        kind: att.kind === 'image' ? 'image' : 'file',
-        name: att.name,
-        mimeType: att.mime_type || '',
-        sizeBytes: att.size_bytes || 0,
-        dataUrl: att.data_url || undefined,
-        textContent: att.text_content || undefined
-      })),
+      attachments: outgoingMessageAttachments,
       timestamp: new Date()
     })
   }
@@ -1972,6 +1985,7 @@ async function sendMessage(
   if (!options?.suppressUserEcho) {
     inputText.value = ''
     composerAttachments.value = []
+    selectedContextNote.value = null
   }
   isTyping.value = true
   showInputMenu.value = false
@@ -2061,9 +2075,9 @@ async function sendMessage(
     }
 
     // Add context info if selected
-    if (!isResume && selectedContextNote.value) {
-      payload.context_note_id = selectedContextNote.value.id
-      payload.context_note_title = selectedContextNote.value.title
+    if (!isResume && contextNoteForTurn) {
+      payload.context_note_id = contextNoteForTurn.id
+      payload.context_note_title = contextNoteForTurn.title
     } else if (!isResume && noteStore.currentNote && includeActiveNote.value) {
       // If no context explicitly selected, fallback to current note if applicable
       payload.current_note_id = noteStore.currentNote.id
@@ -2591,7 +2605,7 @@ function forceScrollToBottom() {
 
 function renderMarkdown(text: string): string {
   if (!text) return ''
-  const safeText = stripLeakedControlTokens(text)
+  const safeText = normalizeUnbalancedMarkdownFences(stripLeakedControlTokens(text))
   
   try {
     const mathBlocks: string[] = []
@@ -2659,6 +2673,43 @@ function renderMarkdown(text: string): string {
     console.error('Markdown rendering error:', e)
     return safeText
   }
+}
+
+function normalizeUnbalancedMarkdownFences(text: string): string {
+  if (!text) return ''
+  const lines = text.split('\n')
+
+  type FenceState = { char: '`' | '~'; len: number; startLine: number } | null
+  let openFence: FenceState = null
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const match = line.match(/^\s{0,3}([`~]{3,})(.*)$/)
+    if (!match) continue
+
+    const marker = match[1]
+    const char = marker[0] as '`' | '~'
+    const len = marker.length
+
+    if (!openFence) {
+      openFence = { char, len, startLine: i }
+      continue
+    }
+
+    // Closing fence: same marker family and length >= opening length.
+    if (char === openFence.char && len >= openFence.len) {
+      openFence = null
+    }
+  }
+
+  // If fence is unbalanced, neutralize the opening line so markdown won't consume the rest as code block.
+  if (openFence) {
+    const marker = openFence.char.repeat(openFence.len)
+    const neutralizedMarker = `${openFence.char.repeat(2)}\u200b${openFence.char.repeat(Math.max(0, openFence.len - 2))}`
+    lines[openFence.startLine] = lines[openFence.startLine].replace(marker, neutralizedMarker)
+  }
+
+  return lines.join('\n')
 }
 
 const CONTROL_TOKEN_PATTERN = '(?:CHAT|TASK|ALLOW_WRITE|DENY_WRITE|ALLOW|DENY|WRITE|READ|UNCLEAR|YES|NO)'
@@ -4489,6 +4540,13 @@ watch(
   margin: 8px 0; 
   overflow-x: auto; /* Internal scroll ONLY */
   max-width: 100%;
+}
+:deep(.message__text pre code),
+:deep(.message__text pre code.hljs) {
+  background: transparent !important;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 :deep(.math-block) {
   margin: 12px 0;

@@ -104,6 +104,8 @@ Choose the RIGHT tool for each task:
 - "Categorize/tag the note" -> set_note_category
 - "Find information" -> search_knowledge
 - "this note" or "current note" -> use active_note_id from context
+- If user asks "create note + categorize", prefer passing category_id directly in create_note (after resolving with list_categories).
+- If user says categorization failed ("没归类/未分类/not categorized"), fix category on existing note; do NOT create a duplicate note unless user explicitly asks to create another note.
 
 **patch_note vs update_note:**
 - patch_note: For small, targeted changes (typos, word replacements). Uses search & replace.

@@ -29,3 +29,8 @@ def test_internal_control_detection_does_not_swallow_normal_text():
 def test_sanitize_strips_fullwidth_underscore_and_crlf():
     text = "＿WRITE\r\n＿WRITE_WRITE已将笔记分类到工作。"
     assert _sanitize_user_visible_text(text) == "已将笔记分类到工作。"
+
+
+def test_sanitize_preserves_edge_whitespace_for_stream_mode():
+    text = "  Hello world  "
+    assert _sanitize_user_visible_text(text, trim_edges=False) == "  Hello world  "

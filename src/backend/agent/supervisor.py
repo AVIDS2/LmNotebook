@@ -171,6 +171,174 @@ class AgentSupervisor:
             self.graph = await get_agent_graph()
         return self.graph
 
+    async def _has_pending_interrupt(self, session_id: str) -> bool:
+        """
+        Return True when latest checkpoint has unresolved approval interrupt writes.
+
+        Supports multiple LangGraph SQLite schemas:
+        - modern: writes(channel='__interrupt__', checkpoint_id=...)
+        - legacy: writes(task_path LIKE '%__interrupt__%')
+        """
+        if not session_id:
+            return False
+        try:
+            from agent.graph import CHECKPOINT_DB_PATH
+            import aiosqlite
+            async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                cp_cursor = await db.execute(
+                    "SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+                    (session_id,),
+                )
+                cp_row = await cp_cursor.fetchone()
+                latest_checkpoint_id = cp_row[0] if cp_row else None
+
+                cols_cursor = await db.execute("PRAGMA table_info(writes)")
+                cols_rows = await cols_cursor.fetchall()
+                write_cols = {row[1] for row in cols_rows if row and len(row) > 1}
+
+                if {"channel", "checkpoint_id"}.issubset(write_cols) and latest_checkpoint_id:
+                    cursor = await db.execute(
+                        "SELECT COUNT(*) FROM writes WHERE thread_id = ? AND checkpoint_id = ? AND channel = '__interrupt__'",
+                        (session_id, latest_checkpoint_id),
+                    )
+                    row = await cursor.fetchone()
+                    return bool(row and row[0] > 0)
+
+                if "task_path" in write_cols:
+                    cursor = await db.execute(
+                        "SELECT COUNT(*) FROM writes WHERE thread_id = ? AND task_path LIKE '%__interrupt__%'",
+                        (session_id,),
+                    )
+                    row = await cursor.fetchone()
+                    return bool(row and row[0] > 0)
+
+                return False
+        except Exception as e:
+            safe_print(f"[Agent] Pending interrupt check failed (non-fatal): {e}")
+            return False
+
+    async def _checkpoint_has_orphan_tool_calls(self, session_id: str) -> bool:
+        """
+        Detect orphaned/malformed tool calls in latest checkpoint.
+        """
+        if not session_id:
+            return False
+        try:
+            from agent.graph import CHECKPOINT_DB_PATH
+            import aiosqlite
+            from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+            async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+                cursor = await db.execute(
+                    "SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
+                    (session_id,),
+                )
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+
+            serde = JsonPlusSerializer()
+            checkpoint_data = serde.loads_typed((row[0], row[1]))
+            messages = checkpoint_data.get("channel_values", {}).get("messages", [])
+            if not messages:
+                return False
+
+            responded_ids = {
+                getattr(msg, "tool_call_id", None)
+                for msg in messages
+                if getattr(msg, "tool_call_id", None)
+            }
+            for msg in messages:
+                tool_calls = list(getattr(msg, "tool_calls", []) or [])
+                invalid_tool_calls = list(getattr(msg, "invalid_tool_calls", []) or [])
+                if invalid_tool_calls:
+                    return True
+                if not tool_calls:
+                    continue
+                for tc in tool_calls:
+                    tc_id = str((tc or {}).get("id", "")).strip()
+                    if not tc_id or tc_id not in responded_ids:
+                        return True
+            return False
+        except Exception as e:
+            safe_print(f"[Agent] Orphan tool_call check failed (non-fatal): {e}")
+            return False
+
+    async def _clear_thread_checkpoint_state(self, session_id: str) -> None:
+        """
+        Clear corrupted LangGraph state for one thread (conversation memory only).
+        """
+        if not session_id:
+            return
+        from agent.graph import CHECKPOINT_DB_PATH
+        import aiosqlite
+
+        async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
+            await db.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+            await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+            await db.commit()
+        safe_print(f"[Agent] Cleared corrupted checkpoint state for session {session_id}")
+
+    def _build_live_state_update(
+        self,
+        *,
+        auto_accept_writes: bool,
+        active_note_id: Optional[str],
+        active_note_title: Optional[str],
+        context_note_id: Optional[str],
+        context_note_title: Optional[str],
+        note_content: Optional[str],
+        selected_text: Optional[str],
+        attachment_context: Optional[str],
+        use_knowledge: bool,
+        agent_mode: str,
+    ) -> dict:
+        """Build runtime state update payload shared by resume/cancel flows."""
+        return {
+            "auto_accept_writes": auto_accept_writes,
+            "active_note_id": active_note_id,
+            "active_note_title": active_note_title,
+            "context_note_id": context_note_id,
+            "context_note_title": context_note_title,
+            "note_content": note_content,
+            "selected_text": selected_text,
+            "attachment_context": attachment_context,
+            "use_knowledge": use_knowledge,
+            "agent_mode": agent_mode if agent_mode in {"ask", "agent"} else "agent",
+        }
+
+    def _interpret_inline_approval_text(self, message: str) -> Optional[bool]:
+        """
+        Parse lightweight user replies for pending approval interrupts.
+        Returns:
+          - True  -> approve
+          - False -> reject
+          - None  -> unrelated message
+        """
+        if not isinstance(message, str):
+            return None
+        normalized = message.strip().lower()
+        if not normalized:
+            return None
+        normalized = re.sub(r"[\s`'\"，。,.!?！？；;：:、~\-_/]+", "", normalized)
+        if not normalized:
+            return None
+
+        positive_tokens = {
+            "是", "是的", "好", "好的", "继续", "确认", "同意", "批准", "通过",
+            "yes", "y", "ok", "okay", "approve", "approved", "continue", "go", "sure",
+        }
+        negative_tokens = {
+            "否", "不是", "不", "不要", "取消", "拒绝", "不同意", "驳回",
+            "no", "n", "reject", "cancel", "stop",
+        }
+
+        if normalized in positive_tokens:
+            return True
+        if normalized in negative_tokens:
+            return False
+        return None
+
     def _build_user_message_and_attachment_context(
         self,
         message: str,
@@ -317,6 +485,61 @@ class AgentSupervisor:
             auto_accept_writes=auto_accept_writes,
             agent_mode=agent_mode,
         )
+
+        # ================================================================
+        # STEP 3: LangGraph config with thread_id for checkpointing
+        # ================================================================
+        config = {
+            "configurable": {
+                "thread_id": session_id,
+            }
+        }
+
+        live_state_update = self._build_live_state_update(
+            auto_accept_writes=auto_accept_writes,
+            active_note_id=active_note_id,
+            active_note_title=active_note_title,
+            context_note_id=context_note_id,
+            context_note_title=context_note_title,
+            note_content=context_notes_info if context_notes_info else note_context,
+            selected_text=selected_text,
+            attachment_context=attachment_context,
+            use_knowledge=use_knowledge,
+            agent_mode=agent_mode,
+        )
+
+        # If pending approval exists and no explicit resume payload is supplied,
+        # support inline confirm/reject text (e.g., "是"/"继续"/"取消").
+        if resume is None and await self._has_pending_interrupt(session_id):
+            inline_decision = self._interpret_inline_approval_text(message)
+            if inline_decision is not None:
+                safe_print(f"[Agent] Interpreted inline approval decision: {inline_decision}")
+                resume = inline_decision
+            else:
+                safe_print("[Agent] Pending approval exists; waiting for explicit approve/reject")
+                yield json.dumps({
+                    "error": (
+                        "There is a pending write approval. "
+                        "Please approve/reject in the review UI, or reply with '是/继续' (approve) "
+                        "or '取消/拒绝' (reject)."
+                    )
+                })
+                return
+
+        # Auto-heal corrupted session memory before model invocation.
+        # This handles old checkpoints that still contain orphaned tool_calls.
+        if resume is None:
+            try:
+                has_orphan_tool_calls = await self._checkpoint_has_orphan_tool_calls(session_id)
+                has_pending_interrupt = await self._has_pending_interrupt(session_id)
+                if has_orphan_tool_calls and not has_pending_interrupt:
+                    safe_print(
+                        "[Agent] Corrupted checkpoint detected (orphan tool_calls). "
+                        "Auto-clearing session state before new turn."
+                    )
+                    await self._clear_thread_checkpoint_state(session_id)
+            except Exception as heal_err:
+                safe_print(f"[Agent] Auto-heal pre-check failed (non-fatal): {heal_err}")
         
         # In LangGraph 1.x with checkpointer, we don't manually append the full history.
         # For normal requests, pass only the new user message.
@@ -346,87 +569,16 @@ class AgentSupervisor:
             # Resume should also carry "live" UI/runtime state updates.
             # Without this, toggles changed during a pending approval (e.g. auto_accept_writes)
             # only take effect on the NEXT user turn, not the current resumed workflow.
-            resume_update = {
-                "auto_accept_writes": auto_accept_writes,
-                "active_note_id": active_note_id,
-                "active_note_title": active_note_title,
-                "context_note_id": context_note_id,
-                "context_note_title": context_note_title,
-                "note_content": context_notes_info if context_notes_info else note_context,
-                "selected_text": selected_text,
-                "attachment_context": attachment_context,
-                "use_knowledge": use_knowledge,
-                "agent_mode": agent_mode if agent_mode in {"ask", "agent"} else "agent",
-            }
-            graph_input = Command(resume=resume, update=resume_update)
+            graph_input = Command(resume=resume, update=live_state_update)
         else:
             initial_state["messages"] = [user_message]
             graph_input = initial_state
-        
-        # ================================================================
-        # STEP 3: LangGraph config with thread_id for checkpointing
-        # ================================================================
-        config = {
-            "configurable": {
-                "thread_id": session_id,
-            }
-        }
         
         # ================================================================
         # STEP 4: Stream via LangGraph with SSE adapter
         # ================================================================
         try:
             safe_print(f"[Agent] Starting LangGraph stream (Session: {session_id})")
-            
-            # Pre-check: Validate checkpoint state before streaming.
-            # This prevents the "tool_calls must be followed by tool messages" error.
-            #
-            # IMPORTANT: When an approval interrupt is pending, the checkpoint
-            # legitimately contains an AIMessage with tool_calls plus a pending
-            # write (the interrupt payload).  We must NOT delete that checkpoint.
-            # Only clear when tool_calls are truly orphaned (no pending interrupt).
-            if resume is None:
-                try:
-                    from agent.graph import CHECKPOINT_DB_PATH
-                    import aiosqlite
-                    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-                    
-                    async with aiosqlite.connect(CHECKPOINT_DB_PATH) as db:
-                        cursor = await db.execute(
-                            "SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1",
-                            (session_id,)
-                        )
-                        row = await cursor.fetchone()
-                        
-                        if row:
-                            serde = JsonPlusSerializer()
-                            checkpoint_data = serde.loads_typed((row[0], row[1]))
-                            
-                            if checkpoint_data and 'channel_values' in checkpoint_data:
-                                messages = checkpoint_data['channel_values'].get('messages', [])
-                                
-                                if messages:
-                                    last_msg = messages[-1]
-                                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
-                                        # Check if there is a pending interrupt (approval waiting).
-                                        # If so, this is a legitimate state 鈥?do NOT clear.
-                                        pending_cursor = await db.execute(
-                                            "SELECT COUNT(*) FROM writes WHERE thread_id = ? AND task_path LIKE '%__interrupt__%'",
-                                            (session_id,)
-                                        )
-                                        pending_row = await pending_cursor.fetchone()
-                                        has_pending_interrupt = pending_row and pending_row[0] > 0
-                                        
-                                        if has_pending_interrupt:
-                                            safe_print("[Agent] Checkpoint has pending approval interrupt, skipping cleanup")
-                                        else:
-                                            # Non-destructive safeguard: avoid deleting checkpoint data automatically.
-                                            safe_print(
-                                                "[Agent] Checkpoint has unresolved tool_calls without interrupt. "
-                                                "Skip cleanup and wait for explicit user retry."
-                                            )
-                except Exception as check_err:
-                    safe_print(f"[Agent] Checkpoint pre-check failed (non-fatal): {check_err}")
             
             async for sse_chunk in langgraph_stream_to_sse(
                 graph,

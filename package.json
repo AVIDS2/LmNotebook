@@ -1,6 +1,6 @@
 {
   "name": "lmnotebook",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "绠€绾﹂鏍肩殑鍘熷瓙绗旇搴旂敤",
   "main": "./out/main/index.js",
   "author": {
@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "dev:utf8": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev_utf8.ps1",
+    "postinstall": "electron-builder install-app-deps",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "verify:release": "node scripts/release-readiness.mjs",

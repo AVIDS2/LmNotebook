@@ -294,14 +294,18 @@ STRICT OUTPUT QUALITY GATE:
     return f"Successfully updated note (ID: {note_id}). [SYSTEM: DO NOT output the note content.]"
 
 @tool
-async def create_note(title: str, content: str) -> str:
+async def create_note(title: str, content: str = "", category_id: Optional[str] = None) -> str:
     """
     Create a brand new note with a title and content.
     - title: Clear, concise title for the note.
     - content: Full note body in Markdown. (Only create content the user asked for).
+    - category_id: Optional category ID to assign on creation. Use list_categories first.
     """
-    safe_print(f"[TOOL] Tool: create_note -> {title}")
+    safe_print(f"[TOOL] Tool: create_note -> {title} (category_id={category_id or 'none'})")
     
+    if not content.strip():
+        content = f"# {title}\n\n（待补充内容）"
+
     # Fix: Clean up excessive blank lines
     content = re.sub(r'\n{3,}', '\n\n', content)
     
@@ -310,8 +314,32 @@ async def create_note(title: str, content: str) -> str:
     
     # Fix: Remove empty <p> tags
     html_content = re.sub(r'<p>\s*</p>', '', html_content)
-    
-    note = await note_service.create_note(title=title, content=html_content, markdown_source=content)
+
+    normalized_category_id = (category_id or "").strip() or None
+    category_name = None
+    if normalized_category_id:
+        categories = await note_service.get_all_categories()
+        category_map = {str(c.get("id", "")): str(c.get("name", "")) for c in categories}
+        if normalized_category_id not in category_map:
+            valid_ids = ", ".join(f'"{cid}"' for cid in category_map.keys())
+            return (
+                f"Error: Category '{normalized_category_id}' does not exist. "
+                f"Use a valid category_id from list_categories. Valid IDs: {valid_ids}"
+            )
+        category_name = category_map[normalized_category_id]
+
+    note = await note_service.create_note(
+        title=title,
+        content=html_content,
+        markdown_source=content,
+        category_id=normalized_category_id,
+    )
+
+    if normalized_category_id:
+        return (
+            f"Successfully created note with ID: {note['id']} "
+            f"and assigned category: {category_name}"
+        )
     return f"Successfully created note with ID: {note['id']}"
 
 @tool
@@ -460,4 +488,3 @@ def get_all_agent_tools():
         list_categories,
         set_note_category
     ]
-
